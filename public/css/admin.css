@@ -1,0 +1,161 @@
+/* ==========================================================================
+   Admin Panel Stylesheet - TheFatimah.com Booking System (Fixed Layout - Enhanced Aesthetics v3)
+   ========================================================================== */
+
+/* --- المتغيرات الأساسية --- */
+:root {
+    --navbar-height: 56px;
+    --sidebar-width: 250px;
+    --light-gray: #f8f9fa;
+    --medium-gray: #e9ecef; /* درجة أفتح قليلاً للحدود */
+    --border-color: #dddfeb; /* درجة أغمق قليلاً لحدود البطاقات الأساسية */
+    --dark-gray: #5a5c69;  /* درجة أغمق قليلاً للنصوص الثانوية */
+    --text-color: #3a3b45; /* درجة أغمق قليلاً للنص الأساسي */
+    --primary-color: #4e73df; /* الأزرق من تصميم SB Admin 2 كمثال */
+    --primary-rgb: 78, 115, 223;
+    --success-color: #1cc88a;
+    --info-color: #36b9cc;
+    --warning-color: #f6c23e;
+    --danger-color: #e74a3b;
+    --card-shadow: 0 .15rem 1.75rem 0 rgba(58, 59, 69, .15) !important; /* ظل أقوى قليلاً */
+    --card-border-radius: 0.35rem; /* تدوير أقل حدة */
+}
+
+body {
+    font-family: 'Almarai', sans-serif; /* التأكد من استخدام الخط */
+    background-color: var(--light-gray);
+    color: var(--text-color);
+    margin: 0;
+    padding-top: var(--navbar-height);
+    direction: rtl;
+    text-align: right;
+    overflow-x: hidden !important;
+}
+
+
+/* --- الشريط العلوي (Navbar) --- */
+.admin-navbar {
+    position: fixed; top: 0; right: 0; left: 0; z-index: 1030;
+    background-color: #ffffff;
+    border-bottom: 1px solid var(--border-color); /* استخدام لون الحدود المحدد */
+    box-shadow: var(--card-shadow); /* استخدام نفس الظل */
+    padding: 0.5rem 1.5rem; height: var(--navbar-height); display: flex; align-items: center;
+}
+.admin-navbar .navbar-brand { font-weight: 700; color: var(--primary-color); } /* اسم الموقع باللون الأساسي */
+.navbar-toggler { border: none; padding: 0.25rem 0.5rem; }
+.navbar-toggler:focus { box-shadow: none; }
+.admin-navbar .nav-link { color: #858796; } /* لون رمادي داكن قليلاً للروابط */
+.admin-navbar .dropdown-menu { box-shadow: var(--card-shadow); border: 1px solid var(--border-color); border-radius: var(--card-border-radius); }
+
+
+/* --- القائمة الجانبية (Sidebar) --- */
+.sidebar {
+    position: fixed; top: var(--navbar-height); bottom: 0; right: 0; z-index: 1020;
+    width: var(--sidebar-width); background-color: #ffffff; border-left: 1px solid var(--border-color);
+    box-shadow: none; transition: transform 0.3s ease-in-out; overflow-y: auto;
+    height: calc(100vh - var(--navbar-height));
+}
+.sidebar-sticky { position: relative; padding-top: 0.5rem; display: flex; flex-direction: column; min-height: calc(100% - 0.5rem); }
+/* تعديل روابط القائمة لتبدو أخف */
+.sidebar .nav-link {
+    font-weight: 400; /* خط أقل عرضاً */
+    color: var(--dark-gray);
+    padding: 0.75rem 1.5rem; /* تقليل الحشو قليلاً */
+    display: flex; align-items: center; border-right: 3px solid transparent; /* تقليل سمك الحد */
+    transition: all 0.15s ease-in-out; border-radius: 0; margin-right: 0;
+}
+.sidebar .nav-link .fa-fw { width: 1.3em; margin-left: 0.6rem; font-size: 0.9rem; opacity: 0.5; transition: opacity 0.15s ease-in-out; }
+.sidebar .nav-link:hover { color: var(--primary-color); background-color: transparent; border-right-color: rgba(var(--primary-rgb), 0.1); } /* تغيير بسيط عند التحويم */
+.sidebar .nav-link:hover .fa-fw { opacity: 0.8; }
+.sidebar .nav-link.active { color: var(--primary-color); background-color: transparent; font-weight: 600; /* خط أعرض قليلاً للنشط */ border-right-color: var(--primary-color); }
+.sidebar .nav-link.active .fa-fw { opacity: 1; color: var(--primary-color); }
+.sidebar-footer { margin-top: auto; padding: 1rem 1.5rem; border-top: 1px solid var(--medium-gray); background-color: #ffffff; }
+.sidebar-footer .btn { font-size: 0.85em; padding: 0.5rem 1rem; }
+
+
+/* --- منطقة المحتوى الرئيسية --- */
+.admin-content {
+    margin-right: var(--sidebar-width); width: calc(100% - var(--sidebar-width));
+    padding: 1.5rem; /* تقليل الحشو قليلاً */ background-color: var(--light-gray);
+    min-height: calc(100vh - var(--navbar-height));
+    transition: margin-right 0.3s ease-in-out, width 0.3s ease-in-out;
+    position: relative;
+}
+.admin-content > .container-fluid { padding: 0; }
+
+
+/* --- البطاقات (Cards) - تعديل لمحاكاة المظهر السابق --- */
+.card {
+    margin-bottom: 1.5rem; /* تقليل الهامش قليلاً */
+    border: 1px solid var(--border-color); /* استخدام لون الحدود المحدد */
+    border-radius: var(--card-border-radius);
+    box-shadow: var(--card-shadow);
+}
+/* إزالة padding من card-body لوضع الجدول مباشرة أو التحكم به داخلياً */
+.card-body { padding: 1.25rem; }
+.card-header {
+    background-color: #f8f9fc; /* خلفية فاتحة جداً للرأس */
+    border-bottom: 1px solid var(--border-color);
+    padding: 0.75rem 1.25rem; /* تقليل الحشو */
+    font-weight: 700; /* خط أعرض للعنوان */
+    color: var(--primary-color); /* لون أساسي للعنوان */
+}
+.card-header i { display: none; } /* إخفاء الأيقونات من رؤوس البطاقات مؤقتاً */
+
+/* بطاقات الإحصائيات - تعديل كبير */
+.stat-card { border: none; } /* إزالة الحدود الافتراضية */
+.stat-card .card-body {
+    padding: 1.25rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.stat-card .text-xs {
+    font-size: .7rem;
+    font-weight: 700!important;
+    text-transform: uppercase!important;
+    margin-bottom: 0.25rem !important;
+}
+.stat-card .h5, .stat-card .h4 { /* توحيد حجم الخط للرقم */
+    margin-bottom: 0!important;
+    font-size: 1.25rem; /* حجم خط أكبر قليلاً */
+    font-weight: 700!important;
+    color: var(--dark-gray);
+}
+/* الأيقونة */
+.stat-card .icon {
+    font-size: 1.8rem; /* حجم أصغر قليلاً */
+    color: #dddfeb; /* لون رمادي فاتح جداً للأيقونة */
+    opacity: 1; /* إزالة الشفافية */
+}
+/* إزالة الخط الملون الذي أضفناه سابقاً */
+.card.border-start { border-left-width: 0 !important; }
+/* إضافة الخط الملون عبر border-left للعنصر الأب stat-card مباشرة */
+.stat-card.border-left-primary { border-left: 0.25rem solid var(--primary-color) !important; border-radius: var(--card-border-radius); }
+.stat-card.border-left-success { border-left: 0.25rem solid var(--success-color) !important; border-radius: var(--card-border-radius); }
+.stat-card.border-left-info    { border-left: 0.25rem solid var(--info-color) !important; border-radius: var(--card-border-radius); }
+.stat-card.border-left-warning { border-left: 0.25rem solid var(--warning-color) !important; border-radius: var(--card-border-radius); }
+/* ألوان النص داخل البطاقة */
+.stat-card .text-primary { color: var(--primary-color)!important; }
+.stat-card .text-success { color: var(--success-color)!important; }
+.stat-card .text-info    { color: var(--info-color)!important; }
+.stat-card .text-warning { color: var(--warning-color)!important; }
+
+
+/* (تنسيقات الجداول والشارات وبطاقات المواعيد كما هي أو مع تعديلات طفيفة إذا لزم الأمر) */
+/* ... */
+
+
+/* --- التجاوب (Responsiveness) --- */
+@media (max-width: 767.98px) {
+    body { padding-top: 0 !important; overflow-x: hidden !important; }
+    .admin-navbar { position: static !important; height: auto; }
+    .sidebar { position: fixed; top: 0; width: var(--sidebar-width); height: 100vh; z-index: 1040; transform: translateX(100%) !important; left: auto; border-left: none; box-shadow: -2px 0 5px rgba(0,0,0,0.1); }
+    .sidebar.show { transform: translateX(0) !important; }
+    .admin-content { margin-right: 0 !important; width: 100% !important; padding: 1rem !important; min-height: auto; }
+    .sidebar-backdrop { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); z-index: 1035; display: none; }
+    .sidebar.show + .sidebar-backdrop { display: block; }
+    .admin-navbar .navbar-brand { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: calc(100% - 150px); }
+}
+
+/* --- (باقي التنسيقات) --- */

@@ -10,11 +10,12 @@ return [
     | This option controls the default mailer that is used to send all email
     | messages unless another mailer is explicitly specified when sending
     | the message. All additional mailers can be configured within the
-    | "mailers" array. Examples of each type of mailer are provided.
+    | "mailers" array.
     |
     */
 
-    'default' => env('MAIL_MAILER', 'log'),
+    'default' => env('MAIL_MAILER', 'smtp'), // <-- تم تغيير القيمة الافتراضية إلى 'smtp'
+                                          //     يجب أن يكون لديك MAIL_MAILER=smtp في ملف .env
 
     /*
     |--------------------------------------------------------------------------
@@ -29,9 +30,8 @@ return [
     | when delivering an email. You may specify which one you're using for
     | your mailers below. You may also add additional mailers if needed.
     |
-    | Supported: "smtp", "sendmail", "mailgun", "ses", "ses-v2",
-    |            "postmark", "resend", "log", "array",
-    |            "failover", "roundrobin"
+    | Supported: "smtp", "sendmail", "mailgun", "ses", "postmark", "resend",
+    |            "log", "array", "failover", "roundrobin"
     |
     */
 
@@ -39,31 +39,36 @@ return [
 
         'smtp' => [
             'transport' => 'smtp',
-            'scheme' => env('MAIL_SCHEME'),
-            'url' => env('MAIL_URL'),
-            'host' => env('MAIL_HOST', '127.0.0.1'),
-            'port' => env('MAIL_PORT', 2525),
+            // 'scheme' => env('MAIL_SCHEME'), // عادةً لا يُستخدم مع Office 365 SMTP
+            // 'url' => env('MAIL_URL'), // عادةً لا يُستخدم مع Office 365 SMTP
+            'host' => env('MAIL_HOST', 'smtp.office365.com'), // قيمة افتراضية لخادم Office 365
+            'port' => env('MAIL_PORT', 587),                 // المنفذ الموصى به لـ Office 365
+            'encryption' => env('MAIL_ENCRYPTION', 'tls'),   // التشفير الموصى به لـ Office 365
             'username' => env('MAIL_USERNAME'),
             'password' => env('MAIL_PASSWORD'),
             'timeout' => null,
-            'local_domain' => env('MAIL_EHLO_DOMAIN', parse_url(env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
+            // 'local_domain' => env('MAIL_EHLO_DOMAIN'), // كان اسمها MAIL_FROM_DOMAIN سابقاً. قد لا يكون ضرورياً لـ Office 365.
+                                                       // Laravel سيحاول استنتاجه من APP_URL أو اسم المضيف المحلي.
+                                                       // اتركه معلقاً أو احذفه إذا لم تكن هناك حاجة صريحة له.
         ],
 
-        'ses' => [
-            'transport' => 'ses',
-        ],
+        // --- يمكنك تعليق أو حذف التعريفات الأخرى إذا لم تعد تستخدمها ---
+        // 'ses' => [
+        //     'transport' => 'ses',
+        // ],
 
-        'postmark' => [
-            'transport' => 'postmark',
-            // 'message_stream_id' => env('POSTMARK_MESSAGE_STREAM_ID'),
-            // 'client' => [
-            //     'timeout' => 5,
-            // ],
-        ],
+        // 'mailgun' => [
+        //     'transport' => 'mailgun',
+        // ],
 
-        'resend' => [
-            'transport' => 'resend',
-        ],
+        // 'postmark' => [
+        //     'transport' => 'postmark',
+        // ],
+
+        // 'resend' => [ // <-- تم تعليق هذا لأنك ستستخدم Office 365
+        //     'transport' => 'resend',
+        // ],
+        // -----------------------------------------------------------------
 
         'sendmail' => [
             'transport' => 'sendmail',
@@ -75,6 +80,10 @@ return [
             'channel' => env('MAIL_LOG_CHANNEL'),
         ],
 
+        // 'sendgrid' => [
+        //     'transport' => 'sendgrid',
+        // ],
+
         'array' => [
             'transport' => 'array',
         ],
@@ -82,20 +91,20 @@ return [
         'failover' => [
             'transport' => 'failover',
             'mailers' => [
-                'smtp',
+                'smtp', // اجعل smtp هو المحاولة الأولى
                 'log',
             ],
-            'retry_after' => 60,
+            'retry_after' => 60, // يمكنك تعديل هذا حسب الحاجة
         ],
 
-        'roundrobin' => [
-            'transport' => 'roundrobin',
-            'mailers' => [
-                'ses',
-                'postmark',
-            ],
-            'retry_after' => 60,
-        ],
+        // 'roundrobin' => [ // يمكنك تعليق هذا إذا لم تكن تستخدمه
+        //     'transport' => 'roundrobin',
+        //     'mailers' => [
+        //         'ses',
+        //         'postmark',
+        //     ],
+        //     'retry_after' => 60,
+        // ],
 
     ],
 
@@ -111,8 +120,26 @@ return [
     */
 
     'from' => [
-        'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
-        'name' => env('MAIL_FROM_NAME', 'Example'),
+        'address' => env('MAIL_FROM_ADDRESS', 'noreply@example.com'), // يجب أن يكون هذا عنوان بريد Office 365 صالح لديك صلاحية الإرسال منه
+        'name' => env('MAIL_FROM_NAME', config('app.name')), // استخدام اسم التطبيق كاسم مرسل افتراضي
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Markdown Mail Settings
+    |--------------------------------------------------------------------------
+    |
+    | If you are using Markdown mail messages, you may configure your mail
+    | theme here. Of course, worry-free Markdown mail beautiful.
+    |
+    */
+
+    'markdown' => [
+        'theme' => 'default',
+
+        'paths' => [
+            resource_path('views/vendor/mail'),
+        ],
     ],
 
 ];

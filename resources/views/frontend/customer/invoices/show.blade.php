@@ -1,0 +1,426 @@
+{{-- المسار: resources/views/frontend/customer/invoices/show.blade.php --}}
+@extends('layouts.app')
+
+{{-- !!! تم التعديل: إزالة التحويل لرقم الفاتورة في العنوان !!! --}}
+@section('title', 'تفاصيل الفاتورة رقم ' . ($invoice->invoice_number ?: $invoice->id))
+
+@section('styles')
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+<style>
+    /* --- نفس تنسيقات CSS السابقة بدون تغيير --- */
+    /* تعريف الخط الأساسي */
+    body {
+        font-family: 'Tajawal', sans-serif !important;
+        background-color: #f8f9fa;
+        direction: rtl;
+        text-align: right;
+    }
+
+    /* جعل جميع العناصر تستخدم خط Tajawal */
+    *, h1, h2, h3, h4, h5, h6, p, span, button, input, select, textarea, label, div, th, td, a {
+        font-family: 'Tajawal', sans-serif !important;
+    }
+
+    /* تصميم البطاقة الرئيسية */
+    .invoice-card {
+        background-color: #fff;
+        border-radius: 12px;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.05);
+        margin-bottom: 25px;
+        overflow: hidden;
+    }
+
+    .invoice-card-header {
+        background-color: #f8f9fa;
+        padding: 15px 20px;
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap; /* للسماح بالالتفاف في الشاشات الصغيرة */
+        gap: 10px; /* إضافة فجوة بين العناصر */
+    }
+
+    .invoice-card-title {
+        font-size: 18px;
+        font-weight: 700;
+        color: #333;
+        margin: 0;
+        display: flex;
+        align-items: center;
+    }
+
+    .invoice-card-title i {
+        margin-left: 10px;
+        color: #555;
+    }
+    html[dir="ltr"] .invoice-card-title i { margin-left: 0; margin-right: 10px; }
+
+
+    .invoice-card-body {
+        padding: 25px; /* زيادة الحشو */
+    }
+
+    /* تنسيق أقسام الفاتورة */
+    .invoice-section {
+        margin-bottom: 30px; /* زيادة الهامش */
+    }
+     .invoice-section:last-of-type {
+         margin-bottom: 0; /* إزالة الهامش من آخر قسم */
+     }
+
+
+    .invoice-section-title {
+        font-size: 1.1rem; /* تكبير خط العنوان قليلاً */
+        font-weight: 700;
+        color: #444; /* تغميق اللون قليلاً */
+        margin-bottom: 18px; /* زيادة الهامش */
+        position: relative;
+        display: inline-block;
+        padding-bottom: 8px; /* زيادة الحشو */
+    }
+
+    .invoice-section-title::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        right: 0;
+        width: 50px; /* زيادة طول الخط */
+        height: 3px; /* زيادة سماكة الخط */
+        background-color: #555;
+    }
+
+    /* تنسيق صفوف المعلومات */
+    .info-row {
+        display: flex; /* استخدام flex لتحسين التنسيق */
+        align-items: flex-start; /* محاذاة العناصر للأعلى */
+        margin-bottom: 12px; /* تقليل الهامش بين الصفوف */
+        padding: 6px 0; /* إضافة حشو رأسي خفيف */
+        border-bottom: 1px dashed #eee; /* إضافة خط منقط خفيف */
+    }
+     .info-row:last-child {
+         margin-bottom: 0;
+         padding-bottom: 0;
+         border-bottom: none;
+     }
+
+
+    .info-label {
+        font-weight: 600;
+        color: #555;
+        width: 140px; /* زيادة عرض الليبل */
+        flex-shrink: 0; /* منع الانكماش */
+        margin-left: 15px; /* زيادة الهامش */
+    }
+    html[dir="ltr"] .info-label { margin-left: 0; margin-right: 15px; }
+
+
+    .info-value {
+        color: #333;
+        flex-grow: 1; /* السماح للقيمة بأخذ المساحة المتبقية */
+    }
+     .info-value.fw-bold { font-weight: 700 !important; } /* للتأكيد على الأهمية */
+     .info-value.text-success { color: #198754 !important; }
+     .info-value.text-danger { color: #dc3545 !important; }
+     .info-value.text-primary { color: #0d6efd !important; } /* للمدفوع جزئياً */
+     /* كلاس إضافي لرقم الفاتورة لضمان الاتجاه الصحيح */
+     .invoice-number-value {
+         direction: ltr;
+         text-align: right;
+         display: inline-block; /* لضمان تطبيق الاتجاه */
+     }
+     html[dir="ltr"] .invoice-number-value { text-align: left;}
+
+
+    /* تنسيق الشارات (Badges) */
+    .badge {
+        font-size: 0.9em; /* تكبير الخط قليلاً */
+        padding: 0.45em 0.8em; /* زيادة الحشو */
+        font-weight: 500; /* تقليل الوزن قليلاً */
+        vertical-align: middle; /* محاذاة رأسية أفضل */
+    }
+     /* استخدام الكلاسات المعرفة في dashboard للتناسق */
+     .badge-unpaid { background-color: #ffc107; color: #664d03; }
+     .badge-paid { background-color: #198754; color: white; }
+     .badge-partially-paid { background-color: #0dcaf0; color: #055160; }
+     .badge-cancelled { background-color: #dc3545; color: white; }
+     .badge-failed { background-color: #dc3545; color: white; }
+     .badge-pending { background-color: #6c757d; color: white; }
+     .badge-expired { background-color: #adb5bd; color: #495057; }
+     .badge-secondary { background-color: #6c757d; color: white; } /* Fallback */
+
+    /* تنسيق خط فاصل */
+    .invoice-divider {
+        margin: 30px 0; /* زيادة الهامش */
+        border-top: 1px solid #ddd; /* تغميق الخط قليلاً */
+    }
+
+    /* أزرار الإجراءات */
+    .invoice-actions { /* كلاس جديد لحاوية الأزرار */
+         display: flex;
+         gap: 10px;
+         margin-top: 25px;
+         flex-wrap: wrap;
+         justify-content: center; /* توسيط الأزرار */
+     }
+
+    .btn-action {
+        padding: 8px 18px; /* تعديل الحشو */
+        border-radius: 8px; /* تعديل الحواف */
+        font-size: 14px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: none; /* إزالة الحدود الافتراضية */
+        cursor: pointer;
+    }
+
+    .btn-action i {
+        margin-left: 6px;
+        margin-right: 0;
+        font-size: 0.9em; /* تصغير الأيقونة */
+    }
+    html[dir="ltr"] .btn-action i { margin-left: 0; margin-right: 6px; }
+
+
+    .btn-back {
+        background-color: #6c757d; /* تغيير لون زر الرجوع */
+        color: white;
+        border: 1px solid #6c757d;
+    }
+
+    .btn-back:hover {
+        background-color: #5c636a;
+        color: white;
+    }
+
+    .btn-print {
+        background-color: #555;
+        color: white;
+    }
+
+    .btn-print:hover {
+        background-color: #444;
+        color: white;
+    }
+     .btn-pay { /* زر الدفع الآن */
+         background-color: #28a745;
+         color: white;
+     }
+      .btn-pay:hover { background-color: #218838; color: white;}
+
+
+    /* تنسيقات التوافق مع الجوال */
+    @media (max-width: 767px) {
+        .invoice-card-header {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+        .invoice-card-title { margin-bottom: 10px; }
+        .info-label { min-width: 100px; font-size: 0.9em; }
+        .info-value { font-size: 0.9em; }
+        .btn-action { padding: 6px 12px; font-size: 13px; }
+        .invoice-actions { justify-content: center; } /* توسيط الأزرار في الجوال */
+    }
+
+    @media (max-width: 576px) {
+        .invoice-card-body { padding: 20px; } /* تعديل الحشو */
+        .info-row { flex-direction: column; align-items: flex-start; } /* جعل الليبل فوق القيمة */
+        .info-label { width: auto; margin-bottom: 4px; margin-left: 0;}
+         html[dir="ltr"] .info-label { margin-right: 0; }
+        .info-value { display: block; width: 100%; } /* جعل القيمة تأخذ عرض كامل */
+        .invoice-actions { flex-direction: column; align-items: stretch; } /* الأزرار تحت بعضها */
+        .invoice-actions .btn-action { width: 100%; margin-bottom: 10px; } /* الأزرار بعرض كامل */
+        .invoice-actions .btn-action:last-child { margin-bottom: 0; }
+    }
+</style>
+@endsection
+
+@section('content')
+<div class="container my-4">
+    <div class="invoice-card">
+        <div class="invoice-card-header">
+            <h1 class="invoice-card-title">
+                {{-- !!! تم التعديل: إزالة التحويل لرقم الفاتورة في العنوان !!! --}}
+                تفاصيل الفاتورة رقم {{ $invoice->invoice_number ?: $invoice->id }}
+            </h1>
+            {{-- !!! تم التعديل: تغيير رابط ونص زر الرجوع !!! --}}
+            <a href="{{ route('customer.dashboard') }}" class="btn-action btn-back">
+                 العودة إلى لوحة التحكم
+            </a>
+        </div>
+        <div class="invoice-card-body">
+
+            {{-- رسالة حالة الدفع كـ Alert --}}
+             @php
+                 $alertClass = ''; $alertText = ''; $showPayButton = false;
+                 $remainingAmount = $invoice->remaining_amount ?? 0;
+
+                 switch ($invoice->status) {
+                     case \App\Models\Invoice::STATUS_PAID:
+                         $alertClass = 'alert-success'; $alertText = 'الفاتورة مدفوعة بالكامل.'; break;
+                     case \App\Models\Invoice::STATUS_PARTIALLY_PAID:
+                         $alertClass = 'alert-primary'; $alertText = 'تم دفع العربون. المبلغ المتبقي: ' . toArabicDigits(number_format($remainingAmount, 0)) . ' ' . $invoice->currency;
+                         if($invoice->payment_method == 'tamara' && $remainingAmount > 0) $showPayButton = true; // إظهار الزر فقط إذا كان هناك مبلغ متبقي
+                         break;
+                     case \App\Models\Invoice::STATUS_UNPAID:
+                          $alertClass = 'alert-warning'; $alertText = 'الفاتورة بانتظار الدفع.';
+                          if($invoice->payment_method == 'tamara') $showPayButton = true;
+                          break;
+                     case \App\Models\Invoice::STATUS_FAILED:
+                          $alertClass = 'alert-danger'; $alertText = 'فشلت عملية الدفع الأخيرة.';
+                          if($invoice->payment_method == 'tamara') $showPayButton = true;
+                          break;
+                      case \App\Models\Invoice::STATUS_CANCELLED:
+                      case \App\Models\Invoice::STATUS_EXPIRED:
+                          $alertClass = 'alert-secondary'; $alertText = 'الفاتورة ملغاة أو منتهية الصلاحية.'; break;
+                      default:
+                          $alertClass = 'alert-info'; $alertText = 'الحالة: ' . ($invoice->status_label ?? $invoice->status); break;
+                  }
+              @endphp
+              @if($alertText)
+              <div class="alert {{ $alertClass }} d-flex justify-content-between align-items-center mb-4" role="alert">
+                  <span>{{ $alertText }}</span>
+                  {{-- زر الدفع المتبقي/إعادة المحاولة --}}
+                  @if($showPayButton && $remainingAmount > 0)
+                      <form method="POST" action="{{ route('payment_retry_tamara', $invoice) }}" class="m-0">
+                          @csrf
+                          <button type="submit" class="btn btn-sm btn-pay">
+                               {{ $invoice->status == \App\Models\Invoice::STATUS_PARTIALLY_PAID ? 'دفع المتبقي الآن' : 'دفع الآن' }}
+                          </button>
+                      </form>
+                  @endif
+              </div>
+              @endif
+
+
+            {{-- قسم تفاصيل الفاتورة --}}
+            <div class="invoice-section">
+                <h2 class="invoice-section-title">معلومات الفاتورة</h2>
+                <div class="row">
+                    <div class="col-md-6">
+                         {{-- !!! تم التعديل: إزالة التحويل لرقم الفاتورة وعرض invoice_number !!! --}}
+                        <div class="info-row"> <span class="info-label">رقم الفاتورة:</span> <span class="info-value invoice-number-value">{{ $invoice->invoice_number ?? $invoice->id }}</span> </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="info-row">
+                            <span class="info-label">الحالة:</span>
+                            <span class="info-value">
+                                <span class="badge {{ $invoice->status_badge_class ?? 'bg-secondary' }}"> {{-- استخدام الـ Accessor مباشرة --}}
+                                    {{ $invoice->status_label ?? Str::ucfirst($invoice->status) }}
+                                </span>
+                            </span>
+                        </div>
+                    </div>
+                     <div class="col-md-6">
+                        <div class="info-row"> <span class="info-label">المبلغ الإجمالي:</span> <span class="info-value fw-bold">{{ toArabicDigits(number_format($invoice->amount, 0)) }} {{ $invoice->currency }}</span> </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="info-row"> <span class="info-label">المبلغ المدفوع:</span> <span class="info-value text-success fw-bold">{{ toArabicDigits(number_format($invoice->total_paid_amount, 0)) }} {{ $invoice->currency }}</span> </div>
+                    </div>
+                    @if ($remainingAmount > 0 || $invoice->status != \App\Models\Invoice::STATUS_PAID)
+                         <div class="col-md-6">
+                            <div class="info-row"> <span class="info-label">المبلغ المتبقي:</span> <span class="info-value text-danger fw-bold">{{ toArabicDigits(number_format($remainingAmount, 0)) }} {{ $invoice->currency }}</span> </div>
+                        </div>
+                     @endif
+                      <div class="col-md-6">
+                          <div class="info-row">
+                              <span class="info-label">خيار الدفع:</span>
+                              <span class="info-value">
+                                  @if($invoice->payment_option === 'down_payment') دفع عربون (٥٠%)
+                                  @elseif($invoice->payment_option === 'full') دفع كامل
+                                  @else {{ $invoice->payment_option ?? '-' }}
+                                  @endif
+                              </span>
+                          </div>
+                     </div>
+                     <div class="col-md-6">
+                        <div class="info-row">
+                            <span class="info-label">طريقة الدفع:</span>
+                            <span class="info-value">
+                                @if ($invoice->payment_method == 'tamara') تمارا
+                                @elseif ($invoice->payment_method == 'bank_transfer') تحويل بنكي
+                                @elseif ($invoice->payment_method == 'manual_admin') تأكيد يدوي (إدارة)
+                                @else {{ $invoice->payment_method ?? 'غير محدد' }}
+                                @endif
+                            </span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="info-row"> <span class="info-label">تاريخ الإنشاء:</span> <span class="info-value">{{ $invoice->created_at ? toArabicDigits($invoice->created_at->translatedFormat('d F Y - H:i')) : '-' }}</span> </div>
+                    </div>
+                    @if ($invoice->paid_at)
+                         <div class="col-md-6">
+                            <div class="info-row"> <span class="info-label">تاريخ أول دفعة:</span> <span class="info-value">{{ $invoice->paid_at ? toArabicDigits(\Carbon\Carbon::parse($invoice->paid_at)->translatedFormat('d F Y - H:i')) : '-' }}</span> </div>
+                        </div>
+                    @endif
+                    @if ($invoice->payment_gateway_ref)
+                        <div class="col-md-12">
+                            <div class="info-row">
+                                <span class="info-label">مرجع الدفع:</span>
+                                <span class="info-value">
+                                    {{ $invoice->payment_method == 'tamara' ? 'رقم طلب تمارا: ' : 'رقم المرجع: ' }}
+                                    {{ $invoice->payment_gateway_ref }} {{-- عدم تحويل المرجع --}}
+                                </span>
+                            </div>
+                        </div>
+                    @endif
+                </div>
+            </div>
+
+            <div class="invoice-divider"></div>
+
+            {{-- قسم تفاصيل الحجز المرتبط --}}
+            @if ($booking = $invoice->booking) {{-- التأكد من وجود الحجز --}}
+                <div class="invoice-section">
+                    <h2 class="invoice-section-title">معلومات الحجز المرتبط</h2>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="info-row"> <span class="info-label">رقم الحجز:</span> <span class="info-value">#{{ toArabicDigits($booking->id) }}</span> </div>
+                        </div>
+                        @if ($booking->service)
+                            <div class="col-md-6">
+                                <div class="info-row"> <span class="info-label">الخدمة:</span> <span class="info-value">{{ $booking->service->name_ar ?? $booking->service->name_en }}</span> </div>
+                            </div>
+                        @endif
+                        <div class="col-md-6">
+                            <div class="info-row"> <span class="info-label">تاريخ ووقت الحجز:</span> <span class="info-value">{{ $booking->booking_datetime ? toArabicDigits(\Carbon\Carbon::parse($booking->booking_datetime)->translatedFormat('l، d F Y - h:i a')) : 'غير محدد' }}</span> </div>
+                        </div>
+                         <div class="col-md-6">
+                             <div class="info-row"> <span class="info-label">مكان الفعالية:</span> <span class="info-value">{{ $booking->event_location ?? '-' }}</span> </div>
+                         </div>
+                         <div class="col-md-6">
+                             <div class="info-row">
+                                 <span class="info-label">حالة الحجز:</span>
+                                 <span class="info-value">
+                                      <span class="badge {{ $booking->status_badge_class ?? 'bg-secondary' }}"> {{-- استخدام الـ Accessor --}}
+                                         {{ $booking->status_label ?? Str::ucfirst($booking->status) }}
+                                      </span>
+                                 </span>
+                             </div>
+                         </div>
+                    </div>
+                </div>
+            @endif
+
+            {{-- زر طباعة الفاتورة --}}
+            <div class="invoice-actions">
+                <button onclick="window.print()" class="btn-action btn-print">
+                     طباعة الفاتورة
+                </button>
+            </div>
+
+        </div>
+    </div>
+</div>
+@endsection
+
+@section('scripts')
+ {{-- لا حاجة لـ JavaScript هنا لتحويل الأرقام لأننا نستخدم PHP --}}
+@endsection
