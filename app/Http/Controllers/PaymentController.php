@@ -137,6 +137,13 @@ class PaymentController extends Controller
     public function handleTamaraWebhook(Request $request)
     {
         Log::info("Tamara Webhook received. Attempting processing...");
+          // --- بداية: إضافة تسجيل للتحقق من التوكن ---
+    $notificationKeyFromConfig = config('services.tamara.notification_token');
+    Log::info('TAMARA_NOTIFICATION_TOKEN from config for Webhook: ' . $notificationKeyFromConfig);
+    // --- نهاية: إضافة تسجيل للتحقق من التوكن ---
+
+    $notificationKey = $notificationKeyFromConfig; // استخدام القيمة المقروءة
+    // ... بقية الكود كما هو ...
         $notificationKey = config('services.tamara.notification_token');
         if (empty($notificationKey)) {
             Log::error('Tamara Webhook Error: Missing config (Notification Token).');
