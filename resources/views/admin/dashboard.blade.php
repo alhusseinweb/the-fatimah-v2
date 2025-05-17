@@ -7,7 +7,18 @@
     // افترض أن Invoice model لديه دالة مشابهة أو أنك ستمرر ترجمات حالات الفاتورة من المتحكم
     // إذا كان Invoice model لا يحتوي على دالة statuses()، قد تحتاج إلى تعديل هذا أيضًا
     // أو التأكد من أن المتحكم DashboardController يمرر $invoiceStatusTranslations
-    $invoiceStatusTranslations = \App\Models\Invoice::statuses(); // تأكد أن هذه الدالة موجودة في Invoice.php
+    // من الأفضل التأكد من وجود دالة statuses() أو getStatusesWithOptions() في موديل Invoice
+    // إذا لم تكن موجودة، يمكنك إنشائها أو تمرير المصفوفة من DashboardController
+    if (method_exists(\App\Models\Invoice::class, 'getStatusesWithOptions')) {
+        $invoiceStatusTranslations = \App\Models\Invoice::getStatusesWithOptions();
+    } elseif (method_exists(\App\Models\Invoice::class, 'statuses')) {
+        $invoiceStatusTranslations = \App\Models\Invoice::statuses();
+    } else {
+        $invoiceStatusTranslations = []; // قيمة افتراضية إذا لم توجد الدالة
+        // يمكنك تسجيل تحذير هنا إذا أردت
+        // Log::warning('Invoice statuses method not found in Invoice model for dashboard view.');
+    }
+
 
     // الدوال المساعدة يمكن تركها كما هي إذا كانت تستخدم $translations بشكل صحيح
     if (!function_exists('getBookingStatusTranslation')) {
@@ -42,6 +53,7 @@
                         </div>
                     @endif
 
+                    {{-- عرض الموعد القادم المؤكد --}}
                     @if(isset($nextConfirmedBooking) && $nextConfirmedBooking)
                         <div class="next-appointment-notice mt-3">
                             <strong><i class="fas fa-bell me-2"></i> تنبيه: الموعد القادم</strong>
@@ -65,6 +77,7 @@
         </div>
     </div>
 
+    {{-- بطاقات الإحصاءات --}}
     <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-4 g-4 mb-4">
         <div class="col">
             <div class="card shadow-sm h-100 stat-card border-start border-primary border-4">
@@ -137,6 +150,7 @@
         </div>
     </div>
 
+    {{-- صف أقسام المواعيد --}}
     <div class="row g-4">
         <div class="col-lg-6">
              <div class="card shadow-sm h-100 border-0">
