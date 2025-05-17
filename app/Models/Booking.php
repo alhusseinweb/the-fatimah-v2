@@ -20,6 +20,8 @@ class Booking extends Model
     public const STATUS_CANCELLED_BY_USER = 'cancelled_by_user';
     public const STATUS_CANCELLED_BY_ADMIN = 'cancelled_by_admin';
     public const STATUS_NO_SHOW = 'no_show';
+    public const STATUS_RESCHEDULED_BY_ADMIN = 'rescheduled_by_admin'; // <-- تم إضافته
+    public const STATUS_RESCHEDULED_BY_USER = 'rescheduled_by_user'; // <-- تم إضافته
 
     protected $fillable = [
         'user_id',
@@ -76,6 +78,8 @@ class Booking extends Model
             self::STATUS_CANCELLED_BY_USER => 'ملغي (بواسطة العميل)',
             self::STATUS_CANCELLED_BY_ADMIN => 'ملغي (بواسطة الإدارة)',
             self::STATUS_NO_SHOW => 'لم يحضر العميل',
+            self::STATUS_RESCHEDULED_BY_ADMIN => 'تمت إعادة جدولته (بواسطة الإدارة)', // نص مقترح
+            self::STATUS_RESCHEDULED_BY_USER => 'طلب إعادة جدولة (بواسطة العميل)', // نص مقترح
         ];
     }
 
@@ -100,6 +104,7 @@ class Booking extends Model
             self::STATUS_CANCELLED_BY_USER, self::STATUS_CANCELLED_BY_ADMIN => 'badge bg-danger text-white',
             self::STATUS_PENDING => 'badge bg-warning text-dark',
             self::STATUS_NO_SHOW => 'badge bg-secondary text-white',
+            self::STATUS_RESCHEDULED_BY_ADMIN, self::STATUS_RESCHEDULED_BY_USER => 'badge bg-info text-dark', // مثال لـ badge
             default => 'badge bg-light text-dark border',
         };
     }
@@ -107,7 +112,9 @@ class Booking extends Model
     public function getDownPaymentAmountAttribute(): float
     {
         if ($this->service && $this->service->price_sar > 0) {
-            $downPaymentPercentageSetting = Setting::where('key', 'down_payment_percentage')->first();
+            // من الأفضل استيراد Setting في الأعلى إذا كنت ستستخدمه هنا
+            // use App\Models\Setting;
+            $downPaymentPercentageSetting = \App\Models\Setting::where('key', 'down_payment_percentage')->first();
             // تم تعديل القيمة الافتراضية لتكون 0.5 (50%) إذا لم يتم العثور على الإعداد
             $downPaymentPercentage = $downPaymentPercentageSetting ? (float) $downPaymentPercentageSetting->value : 0.5;
 
