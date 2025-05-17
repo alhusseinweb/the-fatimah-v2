@@ -36,7 +36,7 @@
         position: relative;
     }
 
-    .services-title-main { /* تم تغيير اسم الكلاس هنا ليتناسب مع CSS */
+    .services-title-main {
         font-size: 28px;
         font-weight: 700;
         color: #333;
@@ -46,7 +46,7 @@
         padding-bottom: 15px;
     }
 
-    .services-title-main::after { /* تم تغيير اسم الكلاس هنا ليتناسب مع CSS */
+    .services-title-main::after {
         content: '';
         position: absolute;
         bottom: 0;
@@ -86,11 +86,11 @@
     /* بطاقة الخدمة */
     .service-card {
         background-color: #fff;
-        border-radius: 15px;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+        border-radius: 10px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.07);
         overflow: hidden;
-        transition: all 0.3s ease;
-        height: 100%;
+        transition: transform 0.25s ease-in-out, box-shadow 0.25s ease-in-out;
+        height: 100%; /* مهم لجعل البطاقات متساوية الارتفاع في نفس الصف */
         border: none;
         display: flex;
         flex-direction: column;
@@ -98,207 +98,160 @@
 
     .service-card:hover {
         transform: translateY(-5px);
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
     }
-
-    .service-card-header {
-        padding: 18px 20px;
-        background-color: #f8f9fa;
-        border-bottom: 1px solid #f0f0f0;
+    
+    .service-card .card-img-top-placeholder {
+        height: 200px;
+        background-color: #e9ecef;
         display: flex;
-        justify-content: space-between;
         align-items: center;
+        justify-content: center;
+        color: #6c757d;
+        border-top-left-radius: 10px;
+        border-top-right-radius: 10px;
+    }
+    .service-card .card-img-top-placeholder i {
+        font-size: 3rem;
     }
 
-    .service-title { /* كلاس لاسم الخدمة داخل الهيدر */
-        font-size: 18px;
-        font-weight: 700;
-        color: #333;
-        margin: 0;
+    .service-card .service-image {
+        height: 200px;
+        width: 100%;
+        object-fit: cover;
+        border-top-left-radius: 10px;
+        border-top-right-radius: 10px;
     }
-
-    /* .service-price (القديم) - سيتم استبداله بـ .service-price-box-new داخل .service-content */
-    /* .service-price {
-        background-color: #555;
-        color: white;
-        padding: 6px 12px;
-        border-radius: 20px;
-        font-weight: 600;
-        font-size: 14px;
-    } */
-
+    
     .service-content {
-        padding: 20px;
-        flex-grow: 1;
+        padding: 1rem;
+        flex-grow: 1; /* يسمح لهذا الجزء بالتمدد ليأخذ المساحة المتاحة */
         display: flex;
-        flex-direction: column;
+        flex-direction: column; /* يجعل العناصر الداخلية تتكدس عموديًا */
+    }
+
+    .service-title { /* اسم الخدمة داخل البطاقة */
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: #343a40;
+        margin-bottom: 0.75rem; /* تعديل الهامش السفلي */
+        line-height: 1.4;
     }
 
     .service-description {
-        margin-bottom: 20px;
-        color: #666;
-        font-size: 15px;
+        margin-bottom: 1rem;
+        color: #555;
+        font-size: 0.9rem;
         line-height: 1.6;
-         /* تمت إضافة flex-grow للسماح للوصف بأخذ المساحة المتاحة ودفع العناصر السفلية لأسفل */
-        flex-grow: 1;
+        flex-grow: 1; /* يسمح للوصف بأخذ المساحة المتاحة ودفع ما بعده لأسفل */
     }
+    /* الأنماط الخاصة بتنسيقات HTML داخل الوصف (إذا أردت تخصيصها أكثر) */
+    .service-description p { margin-bottom: 0.5em; }
+    .service-description ul, .service-description ol { padding-right: 20px; margin-bottom: 0.5em; }
+    .service-description li { margin-bottom: 0.25em; }
+    .service-description strong { font-weight: bold; }
 
-    /* --- بداية: الأنماط الجديدة للسعر والمدة --- */
-    .service-price-box-new { /* اسم كلاس جديد لتجنب التعارض */
+
+    .service-price-box-new {
         padding: 0.6rem 0.85rem;
         border-radius: 0.3rem;
-        font-size: 0.95rem; /* حجم خط أكبر قليلاً للسعر */
-        font-weight: 700; /* خط أثقل للسعر */
+        font-size: 0.95rem;
+        font-weight: 700;
         text-align: center;
         width: 100%;
         box-sizing: border-box;
         background-color: rgba(135, 206, 250, 0.2); /* LightSkyBlue مع شفافية 20% */
-        color: #005cbf; /* لون أزرق أغمق قليلاً للنص */
+        color: #005cbf;
         border: 1px solid rgba(135, 206, 250, 0.35);
-        margin-bottom: 0.75rem; /* هامش أسفل مستطيل السعر */
+        margin-bottom: 0.75rem;
     }
     .service-price-box-new i {
-        margin-left: 0.4rem; /* هامش يسار الأيقونة */
+        margin-left: 0.4rem;
     }
 
-    .service-duration-original { /* كلاس جديد للاحتفاظ بنمط المدة الأصلي إذا أردت */
-        margin-top: auto; /* هذا يدفعها لأسفل إذا كان الوصف قصيرًا، لكننا نريده تحت السعر الآن */
-        margin-bottom: 15px;
-        text-align: center; /* تم تغييره إلى توسيط */
-        width: 100%; /* جعلها تأخذ كامل عرض البطاقة */
-        padding: 0.6rem 0.85rem; /* نفس حشو السعر */
-        border-radius: 0.3rem; /* نفس حواف السعر */
-        background-color: rgba(108, 117, 125, 0.15); /* لون رمادي ثانوي شفاف */
-        color: #495057; /* لون نص أغمق */
+    .service-duration-original {
+        margin-bottom: 1rem; /* مسافة قبل الزر */
+        text-align: center;
+        width: 100%;
+        padding: 0.6rem 0.85rem;
+        border-radius: 0.3rem;
+        background-color: rgba(108, 117, 125, 0.15);
+        color: #495057;
         box-sizing: border-box;
         font-size: 0.9rem;
         font-weight: 600;
     }
     .service-duration-original i {
-        margin-left: 0.4rem; /* هامش يسار الأيقونة */
-    }
-    /* --- نهاية: الأنماط الجديدة للسعر والمدة --- */
-
-
-    .duration-badge { /* هذا الكلاس إذا كان لا يزال مستخدماً في مكان ما */
-        display: inline-block;
-        background-color: #f0f0f0;
-        color: #555;
-        padding: 6px 15px;
-        border-radius: 20px;
-        font-weight: 600;
-        font-size: 14px;
+        margin-left: 0.4rem;
     }
 
     .service-button {
         width: 100%;
-        padding: 12px;
-        background-color: #555;
+        padding: 10px 15px;
+        background-color: #007bff;
         color: white;
         border: none;
-        border-radius: 8px;
+        border-radius: 0.3rem;
         font-weight: 600;
+        font-size: 0.95rem;
         text-align: center;
-        transition: all 0.3s ease;
+        transition: background-color 0.2s ease, transform 0.2s ease;
         text-decoration: none;
+        display: block; /* لضمان أن margin-top يعمل بشكل صحيح إذا كان العنصر السابق flex-grow */
         margin-top: auto; /* يدفع الزر لأسفل البطاقة */
     }
 
     .service-button:hover {
-        background-color: #444;
-        transform: translateY(-2px);
-        box-shadow: 0 5px 10px rgba(0, 0, 0, 0.1);
+        background-color: #0056b3;
+        transform: translateY(-1px);
         color: white;
     }
      .service-button i {
         margin-left: 0.5rem;
     }
 
-    /* تنسيقات عناصر HTML داخل الوصف */
-    .service-description p { margin-bottom: 10px; }
-    .service-description ul, .service-description ol { padding-right: 20px; margin-bottom: 10px; }
-    .service-description li { margin-bottom: 5px; }
-    .service-description strong, .service-description b { font-weight: 700; color: #444; }
-    .service-description em, .service-description i { font-style: italic; }
-    .service-description a { color: #555; text-decoration: underline; }
-    .service-description h1, .service-description h2, .service-description h3,
-    .service-description h4, .service-description h5, .service-description h6 {
-        margin-top: 15px;
-        margin-bottom: 10px;
-        font-weight: 700;
-        color: #333;
-    }
-
-    /* رسائل عدم وجود خدمات */
     .no-services-message {
         text-align: center;
         padding: 40px 20px;
         background-color: #fff;
-        border-radius: 15px;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+        border-radius: 10px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.07);
     }
-
     .no-services-icon {
         font-size: 3rem;
-        color: #aaa;
+        color: #adb5bd;
         margin-bottom: 15px;
     }
-
     .no-services-text {
-        font-size: 1.2rem;
-        color: #666;
+        font-size: 1.1rem;
+        color: #6c757d;
     }
 
-    /* تنسيقات التباعد بين الفئات */
     .category-section {
-        margin-bottom: 40px;
+        margin-bottom: 45px;
     }
 
     .service-card-wrapper {
         margin-bottom: 30px;
     }
 
-    /* تأثيرات الظهور */
     @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
+        from { opacity: 0; transform: translateY(15px); }
         to { opacity: 1; transform: translateY(0); }
     }
-
     .fade-in {
-        animation: fadeIn 0.5s ease forwards;
+        animation: fadeIn 0.4s ease-out forwards;
         opacity: 0;
     }
 
-    /* تعديلات التوافق مع الجوال */
     @media (max-width: 767px) {
-        .services-title-main {
-            font-size: 24px;
-        }
-
-        .category-title {
-            font-size: 20px;
-        }
-
-        .service-card-header { /* لم يعد مستخدمًا في الهيكل الجديد */
-            padding: 15px;
-        }
-
-        .service-title { /* اسم الخدمة داخل البطاقة */
-            font-size: 1rem; /* تعديل حجم الخط ليناسب الهاتف */
-        }
-
-        .service-content {
-            padding: 15px;
-        }
-
-        .service-card-wrapper {
-            margin-bottom: 20px;
-        }
-
-        .service-price-box-new,
-        .service-duration-original {
-            font-size: 0.85rem;
-        }
+        .services-title-main { font-size: 24px; }
+        .category-title { font-size: 20px; }
+        .service-content { padding: 0.9rem; }
+        .service-card-wrapper { margin-bottom: 20px; }
+        .service-title { font-size: 1rem; }
+        .service-price-box-new, .service-duration-original { font-size: 0.85rem; }
+        .service-button { font-size: 0.9rem; padding: 9px 12px; }
     }
 </style>
 @endsection
@@ -307,12 +260,12 @@
 <div class="services-page-wrapper">
     <div class="container">
         <div class="services-header">
-            {{-- تم تغيير اسم الكلاس هنا ليتناسب مع CSS --}}
             <h1 class="services-title-main">باقات التصوير المميزة</h1>
         </div>
 
-        @if($categories->isEmpty() || $categories->flatMap->services->isEmpty())
+        @if($categories->isEmpty() || $categories->flatMap(fn($category) => $category->services)->isEmpty())
             <div class="no-services-message fade-in">
+                {{-- <div class="no-services-icon"><i class="fas fa-camera-retro"></i></div> --}}
                 <p class="no-services-text">لا توجد خدمات متاحة للعرض حالياً. يرجى المحاولة لاحقاً.</p>
             </div>
         @else
@@ -327,43 +280,37 @@
                             @foreach($category->services as $service)
                                 <div class="col-md-6 col-lg-4 service-card-wrapper fade-in" style="animation-delay: {{ ($loop->parent->index * ($categories->count()) + $loop->index) * 0.07 + 0.1 }}s;">
                                     <div class="service-card">
-                                        {{-- الهيكل القديم لرأس البطاقة، سنقوم بدمج السعر والاسم بشكل مختلف --}}
-                                        {{-- <div class="service-card-header">
-                                            <h3 class="service-title">{{ $service->name_ar }}</h3>
-                                            <span class="service-price">{{ toArabicDigits(number_format($service->price_sar, 0)) }} ريال</span>
-                                        </div> --}}
-
-                                        {{-- يمكنك إضافة صورة الخدمة هنا إذا أردت، على سبيل المثال: --}}
-                                        {{-- @if($service->image_path)
-                                            <img src="{{ asset('storage/' . $service->image_path) }}" class="card-img-top" alt="{{ $service->name_ar }}" style="height: 200px; object-fit: cover;">
+                                        {{-- يمكنك إضافة صورة الخدمة هنا إذا أردت --}}
+                                        @if($service->image_path)
+                                            {{-- تأكد من أن لديك طريقة لجلب الـ URL الصحيح للصورة من storage --}}
+                                            {{-- إذا كنت تستخدم storage link، سيكون Storage::url($service->image_path) أو asset('storage/' . $service->image_path) --}}
+                                            <img src="{{ asset('storage/' . $service->image_path) }}" class="service-image" alt="{{ $service->name_ar }}">
                                         @else
-                                            <div style="height: 200px; background-color: #e9ecef; display:flex; align-items:center; justify-content:center; color:#6c757d;">
-                                                <i class="fas fa-camera" style="font-size: 3rem;"></i>
+                                            <div class="card-img-top-placeholder">
+                                                <i class="fas fa-camera"></i> {{-- أيقونة كاميرا بديلة --}}
                                             </div>
-                                        @endif --}}
-
+                                        @endif
 
                                         <div class="service-content">
-                                            {{-- اسم الخدمة أولاً --}}
-                                            <h3 class="service-title" style="text-align: center; margin-bottom: 1rem;">{{ $service->name_ar }}</h3>
+                                            <h3 class="service-title" style="text-align: center;">{{ $service->name_ar }}</h3>
 
                                             @if($service->description_ar)
                                                 <div class="service-description">
-                                                    {!! Str::limit(strip_tags($service->description_ar), 100) !!}
+                                                    {!! $service->description_ar !!} {{-- <--- *** هذا هو التعديل المطلوب *** --}}
                                                 </div>
                                             @endif
 
-                                            {{-- بداية: الجزء المعدل للسعر والمدة --}}
+                                            {{-- مستطيل السعر الجديد --}}
                                             <div class="service-price-box-new">
-                                                <i class="fas fa-tags"></i> {{-- أيقونة للسعر، تأكد من تضمين FontAwesome --}}
+                                                <i class="fas fa-tags"></i>
                                                 {{ toArabicDigits(number_format($service->price_sar, 0)) }} ريال
                                             </div>
 
+                                            {{-- مستطيل ساعات التصوير الجديد --}}
                                             <div class="service-duration-original">
-                                                <i class="far fa-clock"></i> {{-- أيقونة للساعة --}}
+                                                <i class="far fa-clock"></i>
                                                 {{ toArabicDigits($service->duration_hours ?? '0') }} ساعات تصوير
                                             </div>
-                                            {{-- نهاية: الجزء المعدل للسعر والمدة --}}
 
                                             <a href="{{ route('booking.calendar', $service->id) }}" class="service-button">
                                                  <i class="fas fa-calendar-alt"></i> احجز الآن
@@ -388,9 +335,7 @@
 @section('scripts')
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // تفعيل تأثيرات الظهور
         const fadeElements = document.querySelectorAll('.fade-in');
-
         if ("IntersectionObserver" in window) {
             const observer = new IntersectionObserver((entries, observerInstance) => {
                 entries.forEach(entry => {
@@ -402,7 +347,7 @@
             }, { threshold: 0.1 });
 
             fadeElements.forEach(element => {
-                element.style.animationPlayState = 'paused'; // ابدأ متوقفاً
+                element.style.animationPlayState = 'paused';
                 observer.observe(element);
             });
         } else {
