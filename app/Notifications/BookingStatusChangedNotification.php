@@ -38,19 +38,17 @@ class BookingStatusChangedNotification extends Notification implements ShouldQue
         // استثناء بعض الحالات التي لها إشعارات خاصة
         $excludedStatuses = [
             Booking::STATUS_CONFIRMED, // له BookingConfirmedNotification
-            // Booking::STATUS_CANCELLED_BY_ADMIN, // له BookingCancelledNotification
-            // Booking::STATUS_CANCELLED_BY_USER,  // له BookingCancelledNotification
+            Booking::STATUS_CANCELLED_BY_ADMIN, // له BookingCancelledNotification
+            Booking::STATUS_CANCELLED_BY_USER,  // له BookingCancelledNotification
             // يمكنك إضافة حالات أخرى هنا إذا كان لها إشعار خاص بها
         ];
-        if (in_array($this->newStatus, $excludedStatuses)) {
-             // إذا كانت الحالة الجديدة هي إلغاء، دع BookingCancelledNotification يتعامل معها
-             if ($this->newStatus === Booking::STATUS_CANCELLED_BY_ADMIN || $this->newStatus === Booking::STATUS_CANCELLED_BY_USER) {
-                 // لا تفعل شيئاً هنا، سيتولى BookingCancelledNotification الأمر
-             } else {
-                 return []; // لباقي الحالات المستثناة
-             }
-        }
 
+        if (in_array($this->newStatus, $excludedStatuses)) {
+            // إذا كانت الحالة الجديدة هي إلغاء، دع BookingCancelledNotification يتعامل معها
+            // أو أي حالة أخرى مستثناة لها معالجة خاصة
+            // بالنسبة لـ STATUS_CONFIRMED، سيعيد هذا الشرط فارغًا أيضًا إذا لم تكن هناك معالجة إضافية محددة هنا
+            return [];
+        }
 
         $channels = [];
         if ($notifiable->email && filter_var($notifiable->email, FILTER_VALIDATE_EMAIL)) {
@@ -59,7 +57,7 @@ class BookingStatusChangedNotification extends Notification implements ShouldQue
         if ($notifiable->mobile_number) {
             $templateKey = $notifiable->is_admin ? 'booking_status_changed_admin' : 'booking_status_changed_customer';
             $templateExists = Cache::rememberForever('sms_template_exists_' . $templateKey, function () use ($templateKey) {
-                 return SmsTemplate::where('notification_type', $templateKey)->exists();
+                return SmsTemplate::where('notification_type', $templateKey)->exists();
             });
             if ($templateExists) {
                 $channels[] = HttpSmsChannel::class;
@@ -91,8 +89,8 @@ class BookingStatusChangedNotification extends Notification implements ShouldQue
             Booking::STATUS_RESCHEDULED_BY_ADMIN => 'تمت إعادة جدولته من الإدارة',
             Booking::STATUS_RESCHEDULED_BY_USER => 'طلب إعادة جدولة من العميل',
             Booking::STATUS_NO_SHOW => 'لم يحضر العميل',
-             'pending_payment' => 'بانتظار الدفع', // إذا كانت هذه حالة مستخدمة
-             'pending_confirmation' => 'بانتظار تأكيد التحويل', // إذا كانت هذه حالة مستخدمة
+            'pending_payment' => 'بانتظار الدفع', // إذا كانت هذه حالة مستخدمة
+            'pending_confirmation' => 'بانتظار تأكيد التحويل', // إذا كانت هذه حالة مستخدمة
         ];
         return $statusTranslations[$statusKey] ?? Str::title(str_replace('_', ' ', $statusKey));
     }
