@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Carbon\Carbon; // <-- استيراد Carbon إذا لم يكن موجوداً
+use App\Models\User; // تأكد من استيراد User لاستخدامه في getCancellationStatuses
+use App\Models\Setting; // تأكد من استيراد Setting لاستخدامه في getDownPaymentAmountAttribute
 
 class Booking extends Model
 {
@@ -20,10 +22,10 @@ class Booking extends Model
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_CANCELLED_BY_USER = 'cancelled_by_user';
     public const STATUS_CANCELLED_BY_ADMIN = 'cancelled_by_admin';
-    public const STATUS_CANCELLED = 'cancelled'; // حالة إلغاء عامة إذا كنت تستخدمها
+    // public const STATUS_CANCELLED = 'cancelled'; // حالة إلغاء عامة إذا كنت تستخدمها (قد تكون مكررة)
     public const STATUS_NO_SHOW = 'no_show'; // مثال: العميل لم يحضر
-    public const STATUS_RESCHEDULED_BY_ADMIN = 'rescheduled_by_admin'; // مثال
-    public const STATUS_RESCHEDULED_BY_USER = 'rescheduled_by_user'; // مثال
+    // public const STATUS_RESCHEDULED_BY_ADMIN = 'rescheduled_by_admin'; // مثال
+    // public const STATUS_RESCHEDULED_BY_USER = 'rescheduled_by_user'; // مثال
     // أضف أي حالات أخرى تستخدمها، مثل 'pending_payment', 'pending_confirmation' إذا كانت تدار هنا
 
     /**
@@ -34,18 +36,17 @@ class Booking extends Model
         'service_id',
         'booking_datetime',
         'status',
+        'cancellation_reason', // <-- *** إضافة هنا ***
         'event_location',
-        'groom_name_ar', // افترض أنها موجودة في قاعدة البيانات
-        'groom_name_en', // افترض أنها موجودة في قاعدة البيانات
-        'bride_name_ar', // افترض أنها موجودة في قاعدة البيانات
-        'bride_name_en', // افترض أنها موجودة في قاعدة البيانات
+        'groom_name_ar',
+        'groom_name_en',
+        'bride_name_ar',
+        'bride_name_en',
         'customer_notes',
         'agreed_to_policy',
-        'invoice_id', // مهم إذا كنت تربط الفاتورة مباشرة بالحجز
+        'invoice_id',
         'discount_code_id',
-        'reminder_sent_at', // إذا كنت تسجل وقت إرسال التذكير
-        // حقول أخرى قد تكون مفيدة:
-        // 'cancelled_at', 'cancellation_reason', 'cancelled_by_type', 'cancelled_by_id'
+        'reminder_sent_at',
     ];
 
     /**
@@ -56,8 +57,7 @@ class Booking extends Model
         'agreed_to_policy' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
-        'reminder_sent_at' => 'datetime', // إذا أضفت الحقل
-        // 'cancelled_at' => 'datetime',  // إذا أضفت الحقل
+        'reminder_sent_at' => 'datetime',
     ];
 
     /**
@@ -86,22 +86,17 @@ class Booking extends Model
 
     /**
      * تعريف العلاقة: الحجز لديه فاتورة واحدة مرتبطة به.
-     * إذا كان `invoice_id` موجوداً في جدول `bookings`.
-     * أو إذا كان `booking_id` موجوداً في جدول `invoices` (كما هو الحال في نظامك)،
-     * فالعلاقة من Booking إلى Invoice تكون `HasOne`.
      */
-    public function invoice(): HasOne // أو BelongsTo إذا كان invoice_id في جدول bookings
+    public function invoice(): HasOne
     {
-        // إذا كان booking_id في جدول invoices:
         return $this->hasOne(Invoice::class, 'booking_id', 'id');
-        // إذا كان invoice_id في جدول bookings:
-        // return $this->belongsTo(Invoice::class, 'invoice_id')->withDefault();
     }
 
     /**
      * دالة مساعدة static لجلب مصفوفة بالحالات المتاحة مع النصوص المقابلة لها.
+     * تستخدم لعرض الخيارات في القوائم المنسدلة.
      */
-    public static function statuses(): array
+    public static function getStatusesWithOptions(): array // تم تغيير اسم الدالة ليكون أوضح
     {
         return [
             self::STATUS_PENDING => 'قيد الانتظار/الدفع',
@@ -109,20 +104,33 @@ class Booking extends Model
             self::STATUS_COMPLETED => 'مكتمل',
             self::STATUS_CANCELLED_BY_USER => 'ملغي (بواسطة العميل)',
             self::STATUS_CANCELLED_BY_ADMIN => 'ملغي (بواسطة الإدارة)',
-            self::STATUS_CANCELLED => 'ملغي (عام)',
+            // self::STATUS_CANCELLED => 'ملغي (عام)', // يمكنك إضافتها إذا كانت مختلفة عن الحالتين السابقتين
             self::STATUS_NO_SHOW => 'لم يحضر العميل',
-            self::STATUS_RESCHEDULED_BY_ADMIN => 'أعيدت جدولته (الإدارة)',
-            self::STATUS_RESCHEDULED_BY_USER => 'طلب إعادة جدولة (العميل)',
-            // ... أضف ترجمات للحالات الأخرى إذا لزم الأمر
+            // self::STATUS_RESCHEDULED_BY_ADMIN => 'أعيدت جدولته (الإدارة)',
+            // self::STATUS_RESCHEDULED_BY_USER => 'طلب إعادة جدولة (العميل)',
         ];
     }
+
+    /**
+     * دالة مساعدة static لجلب مصفوفة بحالات الإلغاء التي تتطلب سببًا.
+     */
+    public static function getCancellationStatusesRequiringReason(): array
+    {
+        return [
+            self::STATUS_CANCELLED_BY_ADMIN,
+            // يمكنك إضافة STATUS_CANCELLED_BY_USER هنا إذا كنت تريد أن يُطلب من المدير إدخال سبب حتى لو ألغى العميل (مثلاً، إذا كان المدير هو من يسجل الإلغاء في النظام)
+            // self::STATUS_CANCELLED_BY_USER,
+        ];
+    }
+
 
     /**
      * Accessor: للحصول على النص المقابل للحالة الحالية للحجز.
      */
     public function getStatusLabelAttribute(): string
     {
-        return self::statuses()[$this->status] ?? ucfirst(str_replace('_', ' ', $this->status));
+        // استخدام الدالة الجديدة للحصول على الخيارات
+        return self::getStatusesWithOptions()[$this->status] ?? ucfirst(str_replace('_', ' ', $this->status));
     }
 
      /**
@@ -130,30 +138,27 @@ class Booking extends Model
       */
      public function getStatusBadgeClassAttribute(): string
      {
-         // تأكد من أن ألوان الـ badge تتناسب مع التصميم العام
          return match ($this->status) {
              self::STATUS_CONFIRMED => 'badge bg-success text-white',
-             self::STATUS_COMPLETED => 'badge bg-primary text-white', // تم تغيير اللون للتمييز عن الفاتورة المدفوعة
-             self::STATUS_CANCELLED_BY_USER, self::STATUS_CANCELLED_BY_ADMIN, self::STATUS_CANCELLED => 'badge bg-danger text-white',
+             self::STATUS_COMPLETED => 'badge bg-primary text-white',
+             self::STATUS_CANCELLED_BY_USER, self::STATUS_CANCELLED_BY_ADMIN => 'badge bg-danger text-white', // تم دمج STATUS_CANCELLED إذا كانت تستخدم نفس الستايل
              self::STATUS_PENDING => 'badge bg-warning text-dark',
              self::STATUS_NO_SHOW => 'badge bg-secondary text-white',
-             self::STATUS_RESCHEDULED_BY_ADMIN, self::STATUS_RESCHEDULED_BY_USER => 'badge bg-info text-dark',
+            //  self::STATUS_RESCHEDULED_BY_ADMIN, self::STATUS_RESCHEDULED_BY_USER => 'badge bg-info text-dark',
              default => 'badge bg-light text-dark border',
          };
      }
 
-     // يمكنك إضافة Accessor لحساب العربون إذا لم يكن مخزناً مباشرة
      public function getDownPaymentAmountAttribute(): float
      {
-         // هذا مجرد مثال، قد يكون لديك منطق مختلف لحساب العربون
-         // أو قد يكون مخزناً في جدول Services أو Settings
          if ($this->service && $this->service->price_sar > 0) {
-             // افترض أن العربون هو نسبة معينة (مثلاً 50%) أو مبلغ ثابت
-             $downPaymentPercentage = (float) (Setting::where('key', 'down_payment_percentage')->first()->value ?? 0.5); // 50% كافتراضي
+             $downPaymentPercentageSetting = Setting::where('key', 'down_payment_percentage')->first();
+             $downPaymentPercentage = $downPaymentPercentageSetting ? (float) $downPaymentPercentageSetting->value : 0.5;
+
              if ($downPaymentPercentage > 0 && $downPaymentPercentage <= 1) {
                  return round($this->service->price_sar * $downPaymentPercentage, 2);
              }
          }
-         return 0.00; // أو قيمة افتراضية أخرى
+         return 0.00;
      }
 }
