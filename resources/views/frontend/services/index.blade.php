@@ -7,7 +7,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
-{{-- قد تحتاج إلى تضمين FontAwesome هنا إذا لم يكن موجودًا في layouts.app --}}
 {{-- <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"> --}}
 <style>
     /* تعريف الخط الأساسي */
@@ -88,9 +87,9 @@
         background-color: #fff;
         border-radius: 10px;
         box-shadow: 0 4px 15px rgba(0, 0, 0, 0.07);
-        overflow: hidden;
+        overflow: hidden; /* مهم إذا كانت الصورة لها حواف دائرية مختلفة */
         transition: transform 0.25s ease-in-out, box-shadow 0.25s ease-in-out;
-        height: 100%; /* مهم لجعل البطاقات متساوية الارتفاع في نفس الصف */
+        height: 100%;
         border: none;
         display: flex;
         flex-direction: column;
@@ -101,41 +100,24 @@
         box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
     }
     
-    .service-card .card-img-top-placeholder {
-        height: 200px;
-        background-color: #e9ecef;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #6c757d;
-        border-top-left-radius: 10px;
-        border-top-right-radius: 10px;
-    }
-    .service-card .card-img-top-placeholder i {
-        font-size: 3rem;
-    }
-
-    .service-card .service-image {
-        height: 200px;
-        width: 100%;
-        object-fit: cover;
-        border-top-left-radius: 10px;
-        border-top-right-radius: 10px;
-    }
+    /* تم إزالة أنماط الصورة إذا تم حذف عنصر الصورة */
+    /* .service-card .card-img-top-placeholder { ... } */
+    /* .service-card .service-image { ... } */
     
     .service-content {
         padding: 1rem;
-        flex-grow: 1; /* يسمح لهذا الجزء بالتمدد ليأخذ المساحة المتاحة */
+        flex-grow: 1;
         display: flex;
-        flex-direction: column; /* يجعل العناصر الداخلية تتكدس عموديًا */
+        flex-direction: column;
     }
 
     .service-title { /* اسم الخدمة داخل البطاقة */
         font-size: 1.15rem;
         font-weight: 700;
         color: #343a40;
-        margin-bottom: 0.75rem; /* تعديل الهامش السفلي */
+        margin-bottom: 0.75rem;
         line-height: 1.4;
+        text-align: center; /* تمت إضافة توسيط لاسم الخدمة */
     }
 
     .service-description {
@@ -143,14 +125,12 @@
         color: #555;
         font-size: 0.9rem;
         line-height: 1.6;
-        flex-grow: 1; /* يسمح للوصف بأخذ المساحة المتاحة ودفع ما بعده لأسفل */
+        flex-grow: 1;
     }
-    /* الأنماط الخاصة بتنسيقات HTML داخل الوصف (إذا أردت تخصيصها أكثر) */
     .service-description p { margin-bottom: 0.5em; }
     .service-description ul, .service-description ol { padding-right: 20px; margin-bottom: 0.5em; }
     .service-description li { margin-bottom: 0.25em; }
     .service-description strong { font-weight: bold; }
-
 
     .service-price-box-new {
         padding: 0.6rem 0.85rem;
@@ -160,7 +140,7 @@
         text-align: center;
         width: 100%;
         box-sizing: border-box;
-        background-color: rgba(135, 206, 250, 0.2); /* LightSkyBlue مع شفافية 20% */
+        background-color: rgba(135, 206, 250, 0.2);
         color: #005cbf;
         border: 1px solid rgba(135, 206, 250, 0.35);
         margin-bottom: 0.75rem;
@@ -170,7 +150,7 @@
     }
 
     .service-duration-original {
-        margin-bottom: 1rem; /* مسافة قبل الزر */
+        margin-bottom: 1rem;
         text-align: center;
         width: 100%;
         padding: 0.6rem 0.85rem;
@@ -197,10 +177,9 @@
         text-align: center;
         transition: background-color 0.2s ease, transform 0.2s ease;
         text-decoration: none;
-        display: block; /* لضمان أن margin-top يعمل بشكل صحيح إذا كان العنصر السابق flex-grow */
-        margin-top: auto; /* يدفع الزر لأسفل البطاقة */
+        display: block;
+        margin-top: auto;
     }
-
     .service-button:hover {
         background-color: #0056b3;
         transform: translateY(-1px);
@@ -265,7 +244,6 @@
 
         @if($categories->isEmpty() || $categories->flatMap(fn($category) => $category->services)->isEmpty())
             <div class="no-services-message fade-in">
-                {{-- <div class="no-services-icon"><i class="fas fa-camera-retro"></i></div> --}}
                 <p class="no-services-text">لا توجد خدمات متاحة للعرض حالياً. يرجى المحاولة لاحقاً.</p>
             </div>
         @else
@@ -280,33 +258,30 @@
                             @foreach($category->services as $service)
                                 <div class="col-md-6 col-lg-4 service-card-wrapper fade-in" style="animation-delay: {{ ($loop->parent->index * ($categories->count()) + $loop->index) * 0.07 + 0.1 }}s;">
                                     <div class="service-card">
-                                        {{-- يمكنك إضافة صورة الخدمة هنا إذا أردت --}}
-                                        @if($service->image_path)
-                                            {{-- تأكد من أن لديك طريقة لجلب الـ URL الصحيح للصورة من storage --}}
-                                            {{-- إذا كنت تستخدم storage link، سيكون Storage::url($service->image_path) أو asset('storage/' . $service->image_path) --}}
+                                        {{-- بداية: تم حذف/التعليق على جزء الصورة --}}
+                                        {{-- @if($service->image_path)
                                             <img src="{{ asset('storage/' . $service->image_path) }}" class="service-image" alt="{{ $service->name_ar }}">
                                         @else
                                             <div class="card-img-top-placeholder">
-                                                <i class="fas fa-camera"></i> {{-- أيقونة كاميرا بديلة --}}
+                                                <i class="fas fa-camera"></i>
                                             </div>
-                                        @endif
+                                        @endif --}}
+                                        {{-- نهاية: تم حذف/التعليق على جزء الصورة --}}
 
                                         <div class="service-content">
-                                            <h3 class="service-title" style="text-align: center;">{{ $service->name_ar }}</h3>
+                                            <h3 class="service-title">{{ $service->name_ar }}</h3>
 
                                             @if($service->description_ar)
                                                 <div class="service-description">
-                                                    {!! $service->description_ar !!} {{-- <--- *** هذا هو التعديل المطلوب *** --}}
+                                                    {!! $service->description_ar !!}
                                                 </div>
                                             @endif
 
-                                            {{-- مستطيل السعر الجديد --}}
                                             <div class="service-price-box-new">
                                                 <i class="fas fa-tags"></i>
                                                 {{ toArabicDigits(number_format($service->price_sar, 0)) }} ريال
                                             </div>
 
-                                            {{-- مستطيل ساعات التصوير الجديد --}}
                                             <div class="service-duration-original">
                                                 <i class="far fa-clock"></i>
                                                 {{ toArabicDigits($service->duration_hours ?? '0') }} ساعات تصوير
