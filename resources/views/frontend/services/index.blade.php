@@ -263,7 +263,6 @@
                                             <img src="{{ asset('storage/' . $service->image_path) }}" class="service-image" alt="{{ $service->name_ar }}">
                                         @else
                                             <div class="card-img-top-placeholder">
-                                                <i class="fas fa-camera"></i>
                                             </div>
                                         @endif --}}
                                         {{-- نهاية: تم حذف/التعليق على جزء الصورة --}}
@@ -278,17 +277,15 @@
                                             @endif
 
                                             <div class="service-price-box-new">
-                                                <i class="fas fa-tags"></i>
                                                 {{ toArabicDigits(number_format($service->price_sar, 0)) }} ريال
                                             </div>
 
                                             <div class="service-duration-original">
-                                                <i class="far fa-clock"></i>
                                                 {{ toArabicDigits($service->duration_hours ?? '0') }} ساعات تصوير
                                             </div>
 
                                             <a href="{{ route('booking.calendar', $service->id) }}" class="service-button">
-                                                 <i class="fas fa-calendar-alt"></i> احجز الآن
+                                                  احجز الآن
                                             </a>
                                         </div>
                                     </div>
