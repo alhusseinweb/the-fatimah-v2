@@ -280,4 +280,42 @@ class AvailabilityService
             $startOfDay = $targetDate->copy()->startOfDay();
             $endOfTargetDay = $targetDate->copy()->endOfDay();
 
-            $start = $exception->start_time ? $targetDate->copy()->setTimeFrom(Carbon::parse($exception->start_time, config
+            $start = $exception->start_time ? $targetDate->copy()->setTimeFrom(Carbon::parse($exception->start_time, config('app.timezone'))) : $startOfDay;
+            $end = $exception->end_time ? $targetDate->copy()->setTimeFrom(Carbon::parse($exception->end_time, config('app.timezone'))) : $endOfTargetDay;
+            
+            // التأكد أن فترة الاستثناء ضمن حدود يوم العمل الفعلي
+            $start = $start->max($workDayActualStart);
+            $end = $end->min($workDayActualEnd);
+
+            if ($start->lt($end)) {
+                $busy[] = ['start' => $start, 'end' => $end];
+            }
+        }
+
+        // الحجوزات:
+        // يجب أن نأخذ الحجوزات التي قد تؤثر على الفترة الزمنية من بداية يوم العمل لـ targetDate وحتى نهاية يوم العمل لـ targetDate (التي قد تكون في اليوم التالي)
+        foreach ($bookings as $booking) {
+            if (!$booking->service) continue;
+            $bookingStart = Carbon::parse($booking->booking_datetime, config('app.timezone'));
+            $serviceDurationMinutes = is_numeric($booking->service->duration_hours) ? ((float)$booking->service->duration_hours * 60) : 0;
+            if ($serviceDurationMinutes <= 0) continue;
+
+            $bookingEndWithBuffer = $bookingStart->copy()->addMinutes($serviceDurationMinutes + $globalBufferMinutes);
+
+            // نضيف الفترة المشغولة فقط إذا كانت تتداخل مع نافذة العمل الحالية
+            // (workDayActualStart to workDayActualEnd)
+            if ($bookingStart->lt($workDayActualEnd) && $bookingEndWithBuffer->gt($workDayActualStart)) {
+                $busy[] = [
+                    'start' => $bookingStart->max($workDayActualStart), // لا نبدأ قبل بداية يوم العمل
+                    'end'   => $bookingEndWithBuffer->min($workDayActualEnd) // لا ننتهي بعد نهاية يوم العمل
+                ];
+            }
+        }
+        
+        usort($busy, function ($a, $b) {
+            return $a['start']->timestamp <=> $b['start']->timestamp;
+        });
+
+        return $busy;
+    }
+}
