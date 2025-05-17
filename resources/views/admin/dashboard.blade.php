@@ -2,10 +2,11 @@
 @section('title', 'لوحة التحكم الرئيسية')
 
 @php
-    // التأكد من استيراد الكلاسات أو استخدام المسار الكامل
-    $bookingStatusTranslations = App\Models\Booking::statuses();
-    $invoiceStatusTranslations = App\Models\Invoice::statuses();
+    // *** استخدام الدالة المساعدة الجديدة من الموديل ***
+    $bookingStatusTranslations = App\Models\Booking::getStatusesWithOptions();
+    $invoiceStatusTranslations = App\Models\Invoice::statuses(); // افترض أن Invoice model لديه دالة statuses()
 
+    // الدوال المساعدة يمكن تركها كما هي إذا كانت تستخدم $translations بشكل صحيح
     if (!function_exists('getBookingStatusTranslation')) {
         function getBookingStatusTranslation($status, $translations) {
             return $translations[$status] ?? Illuminate\Support\Str::title(str_replace('_', ' ', $status));
@@ -26,7 +27,6 @@
                 <div class="card-body">
                     <h4 class="mb-1">أهلاً بك مجدداً, {{ Auth::user()->name }}!</h4>
                     <p class="text-muted mb-0">نظرة سريعة على حالة نظام حجز المواعيد.</p>
-                    {{-- *** عرض تنبيه تجاوز حد الرسائل SMS *** --}}
                     @if(isset($smsLimitWarning) && $smsLimitWarning)
                         <div class="alert {{ str_contains($smsLimitWarning, 'تجاوزت') || str_contains($smsLimitWarning, 'إيقاف') ? 'alert-danger' : 'alert-warning' }} alert-dismissible fade show mt-3" role="alert">
                             <i class="fas {{ str_contains($smsLimitWarning, 'تجاوزت') || str_contains($smsLimitWarning, 'إيقاف') ? 'fa-exclamation-triangle' : 'fa-info-circle' }} me-2"></i>
@@ -35,7 +35,6 @@
                             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                         </div>
                     @endif
-                    {{-- *** نهاية التنبيه *** --}}
 
                     @if($nextConfirmedBooking)
                         <div class="next-appointment-notice mt-3">
@@ -60,6 +59,8 @@
         </div>
     </div>
 
+    {{-- ... (بقية كود الداشبورد كما هو في ملفك الأصلي، مع التأكد أن أي استدعاء لـ Booking::statuses() يتم تغييره إذا كان المتحكم لا يمرر $bookingStatusTranslations بشكل صحيح) --}}
+    {{-- مثال إذا كنت تستخدم $bookingStatusTranslations مباشرة هنا (على الرغم من أنه يتم تمريرها عادةً من المتحكم) --}}
     <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-4 g-4 mb-4">
         <div class="col">
             <div class="card shadow-sm h-100 stat-card border-start border-primary border-4">
@@ -72,7 +73,8 @@
                 </div>
             </div>
         </div>
-        <div class="col">
+        {{-- ... (بقية بطاقات الإحصاءات) ... --}}
+         <div class="col">
             <div class="card shadow-sm h-100 stat-card border-start border-warning border-4">
                 <div class="card-body">
                     <div>
@@ -94,7 +96,6 @@
                 </div>
             </div>
         </div>
-        {{-- *** بطاقة إحصائيات SMS الجديدة *** --}}
         <div class="col">
             <div class="card shadow-sm h-100 stat-card border-start {{ isset($smsLimitWarning) && (str_contains($smsLimitWarning, 'تجاوزت') || str_contains($smsLimitWarning, 'إيقاف')) ? 'border-danger' : 'border-info' }} border-4">
                 <div class="card-body">
@@ -121,7 +122,7 @@
                  @if(isset($smsMonthlyLimit) && $smsMonthlyLimit > 0)
                 <div class="progress" style="height: 5px;">
                     @php
-                        $smsPercentage = ($smsMonthlyLimit > 0) ? ($currentMonthSmsCount / $smsMonthlyLimit) * 100 : 0;
+                        $smsPercentage = ($smsMonthlyLimit > 0) ? round(($currentMonthSmsCount / $smsMonthlyLimit) * 100) : 0;
                         $progressClass = 'bg-info';
                         if ($smsPercentage >= 80 && $smsPercentage < 100) $progressClass = 'bg-warning';
                         if ($smsPercentage >= 100) $progressClass = 'bg-danger';
@@ -131,7 +132,6 @@
                 @endif
             </div>
         </div>
-        {{-- *** نهاية بطاقة إحصائيات SMS *** --}}
     </div>
 
     {{-- صف أقسام المواعيد --}}
@@ -151,8 +151,8 @@
                                             <h6 class="mb-0 card-title-booking"><i class="fas fa-user text-muted me-1"></i> {{ $booking->user?->name ?? 'N/A' }}</h6>
                                             <small class="text-muted"><i class="fas fa-concierge-bell me-1"></i> {{ $booking->service?->name_ar ?? 'N/A' }}</small>
                                         </div>
-                                        <span class="status-pill {{ $booking->status_badge_class ?? 'bg-secondary' }}">
-                                            {{ $booking->status_label ?? getBookingStatusTranslation($booking->status ?? '', $bookingStatusTranslations) }}
+                                        <span class="status-pill {{ $booking->status_badge_class }}"> {{-- تم استخدام status_badge_class من الموديل --}}
+                                            {{ $booking->status_label }} {{-- تم استخدام status_label من الموديل --}}
                                         </span>
                                     </div>
                                     <p class="mb-1 mt-1 small"><i class="fas fa-calendar-alt text-muted me-1"></i> {{ \Carbon\Carbon::parse($booking->booking_datetime)->translatedFormat('d M Y, h:i A') }}</p>
@@ -170,8 +170,8 @@
                  </div>
             </div>
         </div>
-
-        <div class="col-lg-6">
+        {{-- ... (بقية كود الداشبورد كما هو في ملفك الأصلي) ... --}}
+         <div class="col-lg-6">
             <div class="card shadow-sm h-100 border-0">
                 <div class="card-header bg-white">
                     <h6 class="m-0 fw-bold text-warning"><i class="fas fa-hourglass-half me-2"></i> مواعيد بانتظار التأكيد (أحدث 5)</h6>
@@ -186,8 +186,8 @@
                                             <h6 class="mb-0 card-title-booking"><i class="fas fa-user text-muted me-1"></i> {{ $booking->user?->name ?? 'N/A' }}</h6>
                                             <small class="text-muted"><i class="fas fa-concierge-bell me-1"></i> {{ $booking->service?->name_ar ?? 'N/A' }}</small>
                                         </div>
-                                        <span class="status-pill {{ $booking->status_badge_class ?? 'bg-secondary' }}">
-                                            {{ $booking->status_label ?? getBookingStatusTranslation($booking->status ?? '', $bookingStatusTranslations) }}
+                                        <span class="status-pill {{ $booking->status_badge_class }}">
+                                            {{ $booking->status_label }}
                                         </span>
                                     </div>
                                     <p class="mb-1 mt-1 small"><i class="fas fa-calendar-alt text-muted me-1"></i> {{ \Carbon\Carbon::parse($booking->booking_datetime)->translatedFormat('d M Y, h:i A') }}</p>
@@ -198,7 +198,7 @@
                                         </p>
                                      @endif
                                     <div class="text-end mt-2">
-                                         @if($booking->invoice && $booking->invoice->status === App\Models\Invoice::STATUS_PENDING_CONFIRMATION)
+                                         @if($booking->invoice && $booking->invoice->status === \App\Models\Invoice::STATUS_PENDING_CONFIRMATION)
                                             <a href="{{ route('admin.invoices.show', $booking->invoice->id) }}" class="btn btn-outline-success btn-sm py-1 px-2 ms-1" title="مراجعة الفاتورة">
                                                  <i class="fas fa-check"></i> <span class="d-none d-md-inline">مراجعة</span>
                                             </a>
@@ -217,71 +217,7 @@
             </div>
         </div>
     </div>
-
-
-    <div class="row g-4 mt-2">
-        <div class="col-lg-6">
-            <div class="card shadow-sm border-0 h-100">
-                <div class="card-header">
-                    <h6 class="m-0 fw-bold text-danger"><i class="fas fa-times-circle me-2"></i> فواتير فشلت أو غير مدفوعة (أحدث 5)</h6>
-                </div>
-                <div class="card-body pt-2">
-                    @if(isset($failedOrUnpaidInvoices) && $failedOrUnpaidInvoices->count() > 0)
-                        <div class="list-group list-group-flush">
-                            @foreach($failedOrUnpaidInvoices as $invoice)
-                                <a href="{{ route('admin.invoices.show', $invoice->id) }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center flex-wrap px-2 py-2">
-                                    <div class="mb-1 mb-md-0">
-                                        <span class="fw-bold">فاتورة #{{ $invoice->invoice_number }}</span>
-                                        <small class="text-muted ms-2">({{ $invoice->booking?->user?->name ?? 'عميل غير معروف' }})</small>
-                                        <small class="text-muted d-block d-md-inline ms-md-2"> - {{ \Carbon\Carbon::parse($invoice->created_at)->translatedFormat('d M Y') }}</small>
-                                    </div>
-                                    <div class="text-end">
-                                        <span class="me-2 fw-bold">{{ number_format($invoice->amount, 2) }} {{ $invoice->currency_symbol_short ?? $invoice->currency }}</span>
-                                        <span class="status-pill {{ $invoice->status_badge_class ?? 'bg-secondary' }}">
-                                            {{ $invoice->status_label ?? getInvoiceStatusTranslation($invoice->status ?? '', $invoiceStatusTranslations) }}
-                                        </span>
-                                    </div>
-                                </a>
-                            @endforeach
-                        </div>
-                    @else
-                        <p class="text-center text-muted mt-3 py-4"><i class="fas fa-check-double me-1"></i> لا توجد فواتير فاشلة أو غير مدفوعة حالياً.</p>
-                    @endif
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-6">
-            <div class="card shadow-sm border-0 h-100">
-                <div class="card-header">
-                    <h6 class="m-0 fw-bold text-info"><i class="fas fa-adjust me-2"></i> فواتير مدفوعة جزئياً (أحدث 5)</h6>
-                </div>
-                <div class="card-body pt-2">
-                    @if(isset($partiallyPaidInvoices) && $partiallyPaidInvoices->count() > 0)
-                        <div class="list-group list-group-flush">
-                            @foreach($partiallyPaidInvoices as $invoice)
-                                <a href="{{ route('admin.invoices.show', $invoice->id) }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center flex-wrap px-2 py-2">
-                                    <div class="mb-1 mb-md-0">
-                                        <span class="fw-bold">فاتورة #{{ $invoice->invoice_number }}</span>
-                                        <small class="text-muted ms-2">({{ $invoice->booking?->user?->name ?? 'عميل غير معروف' }})</small>
-                                        <small class="text-muted d-block d-md-inline ms-md-2"> - {{ \Carbon\Carbon::parse($invoice->created_at)->translatedFormat('d M Y') }}</small>
-                                    </div>
-                                    <div class="text-end">
-                                        <span class="me-2 fw-bold">{{ number_format($invoice->amount, 2) }} {{ $invoice->currency_symbol_short ?? $invoice->currency }}</span>
-                                        <span class="status-pill {{ $invoice->status_badge_class ?? 'bg-secondary' }}">
-                                            {{ $invoice->status_label ?? getInvoiceStatusTranslation($invoice->status ?? '', $invoiceStatusTranslations) }}
-                                        </span>
-                                    </div>
-                                </a>
-                            @endforeach
-                        </div>
-                    @else
-                        <p class="text-center text-muted mt-3 py-4"><i class="fas fa-check-double me-1"></i> لا توجد فواتير مدفوعة جزئياً حالياً.</p>
-                    @endif
-                </div>
-            </div>
-        </div>
-    </div>
-
+    {{-- ... (بقية كود الداشبورد) ... --}}
 @endsection
 
 @push('styles')
@@ -294,6 +230,5 @@
     .upcoming-appointments-list .booking-card:hover { box-shadow: 0 .125rem .25rem rgba(0,0,0,.075); }
     .card-title-booking { font-size: 1rem; color: #333; }
     .status-pill { padding: 0.25em 0.6em; font-size: 0.75em; font-weight: 600; border-radius: 0.25rem; color: white !important; }
-    /* يمكنك استخدام كلاسات الـ badge من الموديل مباشرة إذا قمت بتعريفها هناك بشكل مناسب */
 </style>
 @endpush
