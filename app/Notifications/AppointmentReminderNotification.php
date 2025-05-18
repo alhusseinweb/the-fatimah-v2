@@ -4,22 +4,25 @@ namespace App\Notifications;
 
 use App\Models\Booking;
 use App\Models\User;
-use App\Notifications\Channels\AndroidSmsGatewayChannel; // <-- تم التغيير
-use App\Notifications\Traits\ManagesSmsContent; // <-- تم الإضافة
+use App\Notifications\Channels\HttpSmsChannel; // <-- تم التغيير
+use App\Notifications\Traits\ManagesSmsContent;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache; // لإستخدام via
+use App\Models\SmsTemplate;      // لإستخدام via
 use Illuminate\Support\Str;
+
 
 class AppointmentReminderNotification extends Notification implements ShouldQueue
 {
-    use Queueable, ManagesSmsContent; // <-- تم الإضافة
+    use Queueable, ManagesSmsContent;
 
     public Booking $booking;
-    // public User $recipient; // $notifiable هو الـ recipient
+    // public User $recipient; // $notifiable هو المستلم
 
     public function __construct(Booking $booking /*, User $recipient*/)
     {
@@ -30,15 +33,23 @@ class AppointmentReminderNotification extends Notification implements ShouldQueu
     public function via(object $notifiable): array
     {
         $channels = [];
-        if ($notifiable->is_admin) {
+        if ($notifiable->is_admin) { // لا يرسل للمدير
             return [];
         }
 
         if ($notifiable->email && filter_var($notifiable->email, FILTER_VALIDATE_EMAIL)) {
             $channels[] = 'mail';
         }
-        if (!$notifiable->is_admin && $notifiable->mobile_number && config('services.sms_gateway.enabled', env('SMS_GATEWAY_ENABLED', false))) {
-            $channels[] = AndroidSmsGatewayChannel::class; // <-- تم التغيير
+        if (!$notifiable->is_admin && $notifiable->mobile_number) { // التأكد أنه ليس مديرًا
+            $templateKey = 'appointment_reminder_customer'; // هذا الإشعار للعميل فقط
+            $templateExists = Cache::rememberForever('sms_template_active_exists_' . $templateKey, function () use ($templateKey) {
+                 return SmsTemplate::where('notification_type', $templateKey)->where('is_active', true)->exists();
+            });
+            if ($templateExists) {
+                $channels[] = HttpSmsChannel::class; // <-- تم التغيير
+            } else {
+                Log::warning("AppointmentReminderNotification: SMS template '{$templateKey}' not found or not active, HttpSmsChannel skipped.", ['booking_id' => $this->booking->id]);
+            }
         }
         return $channels;
     }
@@ -68,33 +79,34 @@ class AppointmentReminderNotification extends Notification implements ShouldQueu
                     ->salutation('مع خالص التقدير، فريق المصورة فاطمة علي');
     }
 
-    public function toSmsGateway(object $notifiable): array
+    public function toHttpSms(object $notifiable): array
     {
-        if ($notifiable->is_admin) { return []; }
-
+        if ($notifiable->is_admin) { // تأكيد إضافي
+            return [];
+        }
         $recipientPhoneNumber = $this->formatSmsRecipient($notifiable->mobile_number);
         if (!$recipientPhoneNumber) {
-            Log::warning('AppointmentReminderNotification (toSmsGateway): Recipient mobile number could not be determined.', ['booking_id' => $this->booking->id]);
+            Log::warning('AppointmentReminderNotification (toHttpSms): Recipient mobile number could not be determined.', ['booking_id' => $this->booking->id]);
             return [];
         }
 
         // المتغيرات الخاصة مثل [booking_date_short] و [booking_time_short] موجودة في $baseReplacements
         // التي يتم دمجها داخل getSmsMessageContent
         $specificReplacements = [
-            // يمكنك إضافة متغيرات خاصة جداً بهذا الإشعار هنا إذا لزم الأمر
-            // مثال: '[custom_reminder_note]' => 'لا تنسَ تجهيزاتك!'
+            // يمكنك إضافة متغيرات خاصة إضافية هنا إذا لزم الأمر
+            // مثال: '[location_short]' => Str::limit($this->booking->event_location ?? 'الموقع', 15),
         ];
 
-        $messageContent = $this->getSmsMessageContent('appointment_reminder', $notifiable, $specificReplacements, $this->booking);
+        $messageContent = $this->getSmsMessageContent('appointment_reminder_customer', $notifiable, $specificReplacements, $this->booking);
 
         if (empty($messageContent)) {
-             Log::warning('AppointmentReminderNotification (toSmsGateway): SMS message content is empty after processing template.', ['booking_id' => $this->booking->id, 'template_identifier' => 'appointment_reminder']);
+             Log::warning('AppointmentReminderNotification (toHttpSms): SMS message content is empty after processing template.', ['booking_id' => $this->booking->id, 'template_identifier' => 'appointment_reminder_customer']);
             return [];
         }
 
         return [
             'to' => $recipientPhoneNumber,
-            'message' => $messageContent,
+            'content' => $messageContent,
         ];
     }
 
@@ -104,7 +116,7 @@ class AppointmentReminderNotification extends Notification implements ShouldQueu
         return [
             'booking_id' => $this->booking->id,
             'recipient_id' => $notifiable->id,
-            'recipient_type' => 'customer', // هذا الإشعار للعميل فقط
+            'recipient_type' => 'customer',
             'event' => 'appointment_reminder',
             'channels_used' => $this->via($notifiable),
         ];
