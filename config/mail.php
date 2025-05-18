@@ -34,7 +34,7 @@ return [
     |
     */
 
-    'mailers' => [
+   /* 'mailers' => [
 
         'smtp' => [ // يمكنك ترك هذا القسم إذا كنت قد تحتاج للعودة إلى SMTP لاحقًا أو للاختبار المحلي
             'transport' => 'smtp',
@@ -45,7 +45,7 @@ return [
             'password' => env('MAIL_PASSWORD'),
             'timeout' => null,
             // 'local_domain' => env('MAIL_EHLO_DOMAIN'),
-        ],
+        ], */
 
         'mailersend' => [ // <-- **مهم:** إضافة هذا القسم لـ MailerSend API Driver
             'transport' => 'mailersend',
