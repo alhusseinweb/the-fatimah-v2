@@ -88,6 +88,12 @@ class AndroidSmsGatewayChannel
         try {
             // تأكد من أن المكتبة تتوقع هذه المعلمات بهذه الطريقة
             // قد تحتاج المكتبة إلى Client::create($login, $password, $url) أو طريقة أخرى
+            Log::debug('AndroidSmsGatewayChannel: Client Instantiation Data', [
+    'url' => $url,
+    'login' => $login,
+    // لا تسجل كلمة المرور هنا
+    'is_password_set' => !empty($password)
+]);
             $client = new SmsGatewayClient($login, $password, $url);
 
             // تحقق من وثائق المكتبة لكيفية إضافة device_id إذا كان مدعومًا مباشرة في كائن Message
@@ -101,7 +107,11 @@ class AndroidSmsGatewayChannel
             // if ($deviceId) {
             //     $smsMessage->setDeviceId($deviceId); // أو أي دالة مشابهة
             // }
-
+Log::debug('AndroidSmsGatewayChannel: Preparing to send message object', [
+    'recipient_for_library' => $recipient, // أو [$recipient] إذا كانت تتوقع مصفوفة
+    'message_content_for_library' => $messageContent,
+    'device_id_for_library' => $deviceId
+]);
             $messageState = $client->Send($smsMessage);
 
             // تحقق من استجابة $messageState إذا كانت المكتبة توفر تفاصيل
