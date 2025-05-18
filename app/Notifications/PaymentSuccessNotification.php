@@ -5,29 +5,31 @@ namespace App\Notifications;
 use App\Models\Booking;
 use App\Models\Invoice;
 use App\Models\User;
-use App\Notifications\Channels\AndroidSmsGatewayChannel; // <-- تم التغيير
-use App\Notifications\Traits\ManagesSmsContent; // <-- تم الإضافة
+use App\Notifications\Channels\HttpSmsChannel; // <-- تم التغيير
+use App\Notifications\Traits\ManagesSmsContent;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str; // للتأكد من وجوده إذا استخدم في getSmsMessageContent
+use Illuminate\Support\Facades\Cache; // لإستخدام via
+use App\Models\SmsTemplate;      // لإستخدام via
+use Illuminate\Support\Str;
+
 
 class PaymentSuccessNotification extends Notification implements ShouldQueue
 {
-    use Queueable, ManagesSmsContent; // <-- تم الإضافة
+    use Queueable, ManagesSmsContent;
 
     public Invoice $invoice;
-    // public User $recipient; // $notifiable هو الـ recipient
     public float $actuallyPaidAmount;
     public string $paidCurrency;
 
-    public function __construct(Invoice $invoice, /* User $recipient, */ float $actuallyPaidAmount, string $paidCurrency)
+    // تم إزالة User $recipient من هنا لأن $notifiable هو المستلم
+    public function __construct(Invoice $invoice, float $actuallyPaidAmount, string $paidCurrency)
     {
         $this->invoice = $invoice;
-        // $this->recipient = $recipient; // سيتم تمريره كـ $notifiable
         $this->actuallyPaidAmount = $actuallyPaidAmount;
         $this->paidCurrency = $paidCurrency;
     }
@@ -39,8 +41,16 @@ class PaymentSuccessNotification extends Notification implements ShouldQueue
             $channels[] = 'mail';
         }
 
-        if ($notifiable->mobile_number && config('services.sms_gateway.enabled', env('SMS_GATEWAY_ENABLED', false))) {
-            $channels[] = AndroidSmsGatewayChannel::class; // <-- تم التغيير
+        if ($notifiable->mobile_number) { // لا يوجد تحقق من config لـ SMS_GATEWAY_ENABLED هنا، نفترض إذا كان هناك رقم وقالب، حاول الإرسال
+            $templateKey = $notifiable->is_admin ? 'payment_success_admin' : 'payment_success_customer';
+            $templateExists = Cache::rememberForever('sms_template_active_exists_' . $templateKey, function () use ($templateKey) {
+                 return SmsTemplate::where('notification_type', $templateKey)->where('is_active', true)->exists();
+            });
+            if ($templateExists) {
+                $channels[] = HttpSmsChannel::class; // <-- تم التغيير
+            } else {
+                Log::warning("PaymentSuccessNotification: SMS template '{$templateKey}' not found or not active, HttpSmsChannel skipped.", ['invoice_id' => $this->invoice->id]);
+            }
         }
         return $channels;
     }
@@ -48,18 +58,17 @@ class PaymentSuccessNotification extends Notification implements ShouldQueue
     public function toMail(object $notifiable): MailMessage
     {
         $booking = $this->invoice->booking;
-        $customer = $booking ? $booking->user : null; // الـ Notifiable قد يكون المدير أو العميل
+        // $customer = $booking ? $booking->user : null; // $notifiable هو المستلم
         $serviceName = $booking && $booking->service ? $booking->service->name_ar : 'خدمة غير محددة';
         $bookingId = $booking ? $booking->id : 'غير متوفر';
         $invoiceNumber = $this->invoice->invoice_number;
         $paidAmountFormatted = number_format($this->actuallyPaidAmount, 2) . ' ' . $this->paidCurrency;
         $mailMessage = (new MailMessage);
-        $paymentDescription = "دفعة";
 
         if ($notifiable->is_admin) {
             $mailMessage->subject("تنبيه: تم استلام دفعة للفاتورة رقم #{$invoiceNumber}")
                         ->greeting("مرحبا ايها المدير")
-                        ->line("تم استلام {$paymentDescription} بنجاح للفاتورة رقم #{$invoiceNumber} (حجز رقم #{$bookingId}).")
+                        ->line("تم استلام دفعة بنجاح للفاتورة رقم #{$invoiceNumber} (حجز رقم #{$bookingId}).")
                         ->line("العميل: " . ($booking->user ? "{$booking->user->name} ({$booking->user->mobile_number})" : "غير محدد"))
                         ->line("الخدمة: {$serviceName}")
                         ->line("المبلغ المدفوع في هذه العملية: {$paidAmountFormatted}")
@@ -79,11 +88,11 @@ class PaymentSuccessNotification extends Notification implements ShouldQueue
         return $mailMessage->salutation('مع خالص التقدير، فريق المصورة فاطمة علي');
     }
 
-    public function toSmsGateway(object $notifiable): array
+    public function toHttpSms(object $notifiable): array
     {
         $recipientPhoneNumber = $this->formatSmsRecipient($notifiable->mobile_number);
         if (!$recipientPhoneNumber) {
-            Log::warning('PaymentSuccessNotification (toSmsGateway): Recipient mobile number could not be determined.', ['invoice_id' => $this->invoice->id]);
+            Log::warning('PaymentSuccessNotification (toHttpSms): Recipient mobile number could not be determined or is invalid.', ['invoice_id' => $this->invoice->id]);
             return [];
         }
 
@@ -98,15 +107,14 @@ class PaymentSuccessNotification extends Notification implements ShouldQueue
         $messageContent = $this->getSmsMessageContent('payment_success', $notifiable, $specificReplacements, $this->invoice->booking);
 
         if (empty($messageContent)) {
-            Log::warning('PaymentSuccessNotification (toSmsGateway): SMS message content is empty after processing template.', [
+            Log::warning('PaymentSuccessNotification (toHttpSms): SMS message content is empty after processing template.', [
                 'invoice_id' => $this->invoice->id, 'template_identifier' => 'payment_success']);
             return [];
         }
 
         return [
             'to' => $recipientPhoneNumber,
-            'message' => $messageContent,
-            // 'device_id' => 'your_preferred_device_id_for_this_notification' // Optional
+            'content' => $messageContent,
         ];
     }
 
