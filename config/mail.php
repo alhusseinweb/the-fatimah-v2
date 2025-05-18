@@ -14,8 +14,7 @@ return [
     |
     */
 
-    'default' => env('MAIL_MAILER', 'smtp'), // <-- تم تغيير القيمة الافتراضية إلى 'smtp'
-                                          //     يجب أن يكون لديك MAIL_MAILER=smtp في ملف .env
+    'default' => env('MAIL_MAILER', 'mailersend'), // <-- **مهم:** تم التغيير إلى 'mailersend'
 
     /*
     |--------------------------------------------------------------------------
@@ -31,25 +30,26 @@ return [
     | your mailers below. You may also add additional mailers if needed.
     |
     | Supported: "smtp", "sendmail", "mailgun", "ses", "postmark", "resend",
-    |            "log", "array", "failover", "roundrobin"
+    |            "log", "array", "failover", "roundrobin", "mailersend"
     |
     */
 
     'mailers' => [
 
-        'smtp' => [
+        'smtp' => [ // يمكنك ترك هذا القسم إذا كنت قد تحتاج للعودة إلى SMTP لاحقًا أو للاختبار المحلي
             'transport' => 'smtp',
-            // 'scheme' => env('MAIL_SCHEME'), // عادةً لا يُستخدم مع Office 365 SMTP
-            // 'url' => env('MAIL_URL'), // عادةً لا يُستخدم مع Office 365 SMTP
-            'host' => env('MAIL_HOST', 'smtp.office365.com'), // قيمة افتراضية لخادم Office 365
-            'port' => env('MAIL_PORT', 587),                 // المنفذ الموصى به لـ Office 365
-            'encryption' => env('MAIL_ENCRYPTION', 'tls'),   // التشفير الموصى به لـ Office 365
+            'host' => env('MAIL_HOST', 'smtp.mailersend.net'), // كمثال إذا كنت تستخدم MailerSend SMTP
+            'port' => env('MAIL_PORT', 587),
+            'encryption' => env('MAIL_ENCRYPTION', 'tls'),
             'username' => env('MAIL_USERNAME'),
             'password' => env('MAIL_PASSWORD'),
             'timeout' => null,
-            // 'local_domain' => env('MAIL_EHLO_DOMAIN'), // كان اسمها MAIL_FROM_DOMAIN سابقاً. قد لا يكون ضرورياً لـ Office 365.
-                                                       // Laravel سيحاول استنتاجه من APP_URL أو اسم المضيف المحلي.
-                                                       // اتركه معلقاً أو احذفه إذا لم تكن هناك حاجة صريحة له.
+            // 'local_domain' => env('MAIL_EHLO_DOMAIN'),
+        ],
+
+        'mailersend' => [ // <-- **مهم:** إضافة هذا القسم لـ MailerSend API Driver
+            'transport' => 'mailersend',
+            // لا توجد إعدادات host, port, username, password هنا لأنها تستخدم مفتاح API من .env
         ],
 
         // --- يمكنك تعليق أو حذف التعريفات الأخرى إذا لم تعد تستخدمها ---
@@ -65,7 +65,7 @@ return [
         //     'transport' => 'postmark',
         // ],
 
-        // 'resend' => [ // <-- تم تعليق هذا لأنك ستستخدم Office 365
+        // 'resend' => [
         //     'transport' => 'resend',
         // ],
         // -----------------------------------------------------------------
@@ -80,10 +80,6 @@ return [
             'channel' => env('MAIL_LOG_CHANNEL'),
         ],
 
-        // 'sendgrid' => [
-        //     'transport' => 'sendgrid',
-        // ],
-
         'array' => [
             'transport' => 'array',
         ],
@@ -91,13 +87,14 @@ return [
         'failover' => [
             'transport' => 'failover',
             'mailers' => [
-                'smtp', // اجعل smtp هو المحاولة الأولى
+                'mailersend', // **مهم:** اجعل mailersend هو المحاولة الأولى
+                'smtp',       // يمكن أن يكون smtp هو الاحتياطي إذا كان لديك إعدادات SMTP صالحة
                 'log',
             ],
-            'retry_after' => 60, // يمكنك تعديل هذا حسب الحاجة
+            'retry_after' => 60,
         ],
 
-        // 'roundrobin' => [ // يمكنك تعليق هذا إذا لم تكن تستخدمه
+        // 'roundrobin' => [
         //     'transport' => 'roundrobin',
         //     'mailers' => [
         //         'ses',
@@ -120,8 +117,8 @@ return [
     */
 
     'from' => [
-        'address' => env('MAIL_FROM_ADDRESS', 'noreply@example.com'), // يجب أن يكون هذا عنوان بريد Office 365 صالح لديك صلاحية الإرسال منه
-        'name' => env('MAIL_FROM_NAME', config('app.name')), // استخدام اسم التطبيق كاسم مرسل افتراضي
+        'address' => env('MAIL_FROM_ADDRESS', 'noreply@yourdomain.com'), // استخدم عنوان بريد صالح من نطاقك الموثق في MailerSend
+        'name' => env('MAIL_FROM_NAME', config('app.name')),
     ],
 
     /*
