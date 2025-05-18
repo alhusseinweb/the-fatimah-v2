@@ -5,23 +5,26 @@ namespace App\Notifications;
 use App\Models\Booking;
 use App\Models\Invoice;
 use App\Models\User;
-use App\Notifications\Channels\AndroidSmsGatewayChannel; // <-- تم التغيير
-use App\Notifications\Traits\ManagesSmsContent; // <-- تم الإضافة
+use App\Notifications\Channels\HttpSmsChannel; // <-- تم التغيير
+use App\Notifications\Traits\ManagesSmsContent;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache; // لإستخدام via
+use App\Models\SmsTemplate;      // لإستخدام via
 use Illuminate\Support\Str;
+
 
 class PaymentFailedNotification extends Notification implements ShouldQueue
 {
-    use Queueable, ManagesSmsContent; // <-- تم الإضافة
+    use Queueable, ManagesSmsContent;
 
     public Invoice $invoice;
     public ?string $reason;
-    // public User $recipient; // $notifiable is the recipient
+    // public User $recipient; // $notifiable هو المستلم
 
     public function __construct(Invoice $invoice, /* User $recipient, */ ?string $reason = null)
     {
@@ -36,17 +39,25 @@ class PaymentFailedNotification extends Notification implements ShouldQueue
         if ($notifiable->email && filter_var($notifiable->email, FILTER_VALIDATE_EMAIL)) {
             $channels[] = 'mail';
         }
-        if ($notifiable->mobile_number && config('services.sms_gateway.enabled', env('SMS_GATEWAY_ENABLED', false))) {
-            $channels[] = AndroidSmsGatewayChannel::class; // <-- تم التغيير
+        if ($notifiable->mobile_number) {
+            $templateKey = $notifiable->is_admin ? 'payment_failed_admin' : 'payment_failed_customer';
+            $templateExists = Cache::rememberForever('sms_template_active_exists_' . $templateKey, function () use ($templateKey) {
+                 return SmsTemplate::where('notification_type', $templateKey)->where('is_active', true)->exists();
+            });
+            if ($templateExists) {
+                $channels[] = HttpSmsChannel::class; // <-- تم التغيير
+            } else {
+                Log::warning("PaymentFailedNotification: SMS template '{$templateKey}' not found or not active, HttpSmsChannel skipped.", ['invoice_id' => $this->invoice->id]);
+            }
         }
         return $channels;
     }
 
     public function toMail(object $notifiable): MailMessage
     {
-        // ... (الكود الأصلي لدالة toMail كما هو) ...
+        // ... (الكود الأصلي كما هو) ...
         $booking = $this->invoice->booking;
-        $customerUser = $booking ? $booking->user : null; // لتجنب التعارض مع $notifiable
+        $customerUser = $booking ? $booking->user : null;
         $serviceName = $booking && $booking->service ? $booking->service->name_ar : 'خدمة غير محددة';
         $bookingId = $booking ? $booking->id : 'غير متوفر';
         $invoiceNumber = $this->invoice->invoice_number;
@@ -82,11 +93,11 @@ class PaymentFailedNotification extends Notification implements ShouldQueue
         return $mailMessage->salutation('مع خالص التقدير، فريق المصورة فاطمة علي');
     }
 
-    public function toSmsGateway(object $notifiable): array
+    public function toHttpSms(object $notifiable): array
     {
         $recipientPhoneNumber = $this->formatSmsRecipient($notifiable->mobile_number);
         if (!$recipientPhoneNumber) {
-            Log::warning('PaymentFailedNotification (toSmsGateway): Recipient mobile number could not be determined.', ['invoice_id' => $this->invoice->id]);
+            Log::warning('PaymentFailedNotification (toHttpSms): Recipient mobile number could not be determined.', ['invoice_id' => $this->invoice->id]);
             return [];
         }
 
@@ -101,13 +112,13 @@ class PaymentFailedNotification extends Notification implements ShouldQueue
         $messageContent = $this->getSmsMessageContent('payment_failed', $notifiable, $specificReplacements, $this->invoice->booking);
 
         if (empty($messageContent)) {
-            Log::warning('PaymentFailedNotification (toSmsGateway): SMS message content is empty after processing template.', ['invoice_id' => $this->invoice->id, 'template_identifier' => 'payment_failed']);
+            Log::warning('PaymentFailedNotification (toHttpSms): SMS message content is empty after processing template.', ['invoice_id' => $this->invoice->id, 'template_identifier' => 'payment_failed']);
             return [];
         }
-        
+
         return [
             'to' => $recipientPhoneNumber,
-            'message' => $messageContent,
+            'content' => $messageContent,
         ];
     }
 
