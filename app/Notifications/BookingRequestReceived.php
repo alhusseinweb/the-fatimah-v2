@@ -2,32 +2,31 @@
 
 namespace App\Notifications;
 
+use App\Models\Booking;
+use App\Models\User;
+use App\Notifications\Channels\AndroidSmsGatewayChannel; // <-- تم التغيير
+use App\Notifications\Traits\ManagesSmsContent; // <-- تم الإضافة
+use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
-use App\Notifications\Channels\HttpSmsChannel;
-use App\Models\Booking;
-use App\Models\User;
-use App\Models\SmsTemplate; // <-- استيراد
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache; // <-- استيراد
 use Illuminate\Support\Str;
-use Carbon\Carbon;
 use Illuminate\Support\HtmlString;
 
 class BookingRequestReceived extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, ManagesSmsContent; // <-- تم الإضافة
 
     public Booking $booking;
-    public User $recipient;
+    // public User $recipient; // $notifiable هو الـ recipient
     public string $paymentMethod;
 
-    public function __construct(Booking $booking, User $recipient, string $paymentMethod)
+    public function __construct(Booking $booking, /* User $recipient, */ string $paymentMethod)
     {
         $this->booking = $booking;
-        $this->recipient = $recipient;
+        // $this->recipient = $recipient;
         $this->paymentMethod = $paymentMethod;
     }
 
@@ -37,32 +36,24 @@ class BookingRequestReceived extends Notification implements ShouldQueue
         if ($notifiable->email && filter_var($notifiable->email, FILTER_VALIDATE_EMAIL)) {
             $channels[] = 'mail';
         }
-        if ($notifiable->mobile_number) {
-            $templateKey = $notifiable->is_admin ? 'booking_request_admin' : 'booking_request_customer';
-            $templateExists = Cache::rememberForever('sms_template_exists_' . $templateKey, function () use ($templateKey) {
-                 return SmsTemplate::where('notification_type', $templateKey)->exists();
-            });
-            if ($templateExists) {
-                $channels[] = HttpSmsChannel::class;
-            } else {
-                Log::warning("SMS template not found for [{$templateKey}], HttpSmsChannel skipped.", ['booking_id' => $this->booking->id]);
-            }
+        if ($notifiable->mobile_number && config('services.sms_gateway.enabled', env('SMS_GATEWAY_ENABLED', false))) {
+            $channels[] = AndroidSmsGatewayChannel::class; // <-- تم التغيير
         }
         return $channels;
     }
 
-    // ... (دالة toMail كما هي) ...
     public function toMail(object $notifiable): MailMessage
     {
+        // ... (الكود الأصلي كما هو) ...
         $serviceName = $this->booking->service ? $this->booking->service->name_ar : 'الخدمة المختارة';
         $bookingDateTime = Carbon::parse($this->booking->booking_datetime)->translatedFormat('l، d F Y - الساعة h:i A');
-        $customer = $this->booking->user;
+        $customerUser = $this->booking->user;
         $mailMessage = (new MailMessage);
 
         if ($notifiable->is_admin) {
-            $mailMessage->subject("تنبيه: طلب حجز جديد رقم #{$this->booking->id} من {$customer->name}")
+            $mailMessage->subject("تنبيه: طلب حجز جديد رقم #{$this->booking->id} من {$customerUser->name}")
                         ->greeting("مرحبا ايها المدير")
-                        ->line("تم استلام طلب حجز جديد من العميل: {$customer->name} (جوال: {$customer->mobile_number}).")
+                        ->line("تم استلام طلب حجز جديد من العميل: {$customerUser->name} (جوال: {$customerUser->mobile_number}).")
                         ->line(new HtmlString("<strong>تفاصيل الطلب:</strong>"))
                         ->line("- الخدمة: {$serviceName}")
                         ->line("- الموعد المطلوب: {$bookingDateTime}")
@@ -88,66 +79,33 @@ class BookingRequestReceived extends Notification implements ShouldQueue
         return $mailMessage->salutation('مع تحياتنا، فريق ' . config('app.name'));
     }
 
-
-    public function toHttpSms(object $notifiable): array
+    public function toSmsGateway(object $notifiable): array
     {
-        $recipientPhoneNumber = $notifiable->routeNotificationFor('sms', $this);
-        if (!$recipientPhoneNumber && isset($notifiable->mobile_number)) { $recipientPhoneNumber = $notifiable->mobile_number; }
-        if ($recipientPhoneNumber) {
-            if (str_starts_with($recipientPhoneNumber, '05')) { $recipientPhoneNumber = '+966' . substr($recipientPhoneNumber, 1); }
-            elseif (str_starts_with($recipientPhoneNumber, '5') && strlen($recipientPhoneNumber) == 9) { $recipientPhoneNumber = '+966' . $recipientPhoneNumber; }
-            elseif (!str_starts_with($recipientPhoneNumber, '+')) { $recipientPhoneNumber = '+' . $recipientPhoneNumber; }
-        } else {
-            Log::warning('BookingRequestReceived (toHttpSms): Recipient mobile number could not be determined.', ['booking_id' => $this->booking->id]);
+        $recipientPhoneNumber = $this->formatSmsRecipient($notifiable->mobile_number);
+        if (!$recipientPhoneNumber) {
+            Log::warning('BookingRequestReceived (toSmsGateway): Recipient mobile number could not be determined.', ['booking_id' => $this->booking->id]);
             return [];
         }
 
-        $templateKey = $notifiable->is_admin ? 'booking_request_admin' : 'booking_request_customer';
-        $templateContent = Cache::rememberForever('sms_template_' . $templateKey, function () use ($templateKey) {
-            $template = SmsTemplate::where('notification_type', $templateKey)->first();
-            return $template ? $template->template_content : null;
-        });
-
-        if (!$templateContent) {
-            Log::error("SMS template not found for [{$templateKey}]. Using default.", ['booking_id' => $this->booking->id]);
-            if ($notifiable->is_admin) {
-                $templateContent = "طلب حجز جديد! عميل:[customer_name_short]. خدمة:[service_name_short]. رقم:[booking_id]. دفع:[payment_method].";
-            } else {
-                $templateContent = "طلب حجزك للمصورة فاطمة. خدمة: [service_name_short]. طلب رقم: [booking_id].";
-                 if ($this->paymentMethod === 'bank_transfer') { $templateContent .= " يرجى تحويل العربون للتأكيد."; }
-            }
-        }
-
-        $parsedBookingDateTime = Carbon::parse($this->booking->booking_datetime);
         $paymentMethodText = $this->paymentMethod === 'bank_transfer' ? 'بنكي' : ($this->paymentMethod === 'tamara' ? 'تمارا' : $this->paymentMethod);
-
-        $replacements = [
-            '[customer_name]' => $this->booking->user->name ?? 'العميل',
-            '[customer_name_short]' => $this->booking->user ? Str::limit($this->booking->user->name, 10) : "عميل",
-            '[customer_mobile]' => $this->booking->user->mobile_number ?? '',
-            '[service_name]' => $this->booking->service ? $this->booking->service->name_ar : 'تصوير',
-            '[service_name_short]' => $this->booking->service ? Str::limit($this->booking->service->name_ar, 12, '') : "تصوير",
-            '[booking_id]' => $this->booking->id,
-            '[booking_date_time]' => $parsedBookingDateTime->translatedFormat('l, d M Y - h:i A'),
+        $specificReplacements = [
             '[payment_method]' => $paymentMethodText,
-            '[photographer_name]' => config('app.photographer_name', 'المصورة فاطمة'),
+             '[payment_details_prompt]' => $this->paymentMethod === 'bank_transfer' ? " يرجى تحويل العربون للتأكيد." : "",
         ];
 
-        $messageContent = str_replace(array_keys($replacements), array_values($replacements), $templateContent);
+        $messageContent = $this->getSmsMessageContent('booking_request', $notifiable, $specificReplacements, $this->booking);
 
-        Log::debug('BookingRequestReceived: Final SMS content from DB template.', [
-            'template_key' => $templateKey,
-            'to' => $recipientPhoneNumber,
-            'final_content' => $messageContent,
-        ]);
+        if (empty($messageContent)) {
+            Log::warning('BookingRequestReceived (toSmsGateway): SMS message content is empty after processing template.', ['booking_id' => $this->booking->id, 'template_identifier' => 'booking_request']);
+            return [];
+        }
 
         return [
             'to' => $recipientPhoneNumber,
-            'content' => $messageContent,
+            'message' => $messageContent,
         ];
     }
 
-    // ... (دالة toArray كما هي) ...
     public function toArray(object $notifiable): array
     {
         return [
