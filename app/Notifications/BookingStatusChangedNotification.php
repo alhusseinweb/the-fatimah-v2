@@ -2,51 +2,45 @@
 
 namespace App\Notifications;
 
+use App\Models\Booking;
+use App\Models\User;
+use App\Notifications\Channels\AndroidSmsGatewayChannel; // <-- تم التغيير
+use App\Notifications\Traits\ManagesSmsContent; // <-- تم الإضافة
+use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
-use App\Notifications\Channels\HttpSmsChannel;
-use App\Models\Booking;
-use App\Models\User;
-use App\Models\SmsTemplate; // <-- استيراد
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache; // <-- استيراد
 use Illuminate\Support\Str;
-use Carbon\Carbon;
 
 class BookingStatusChangedNotification extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, ManagesSmsContent; // <-- تم الإضافة
 
     public Booking $booking;
     public string $oldStatus;
     public string $newStatus;
-    public User $recipient;
+    // public User $recipient; // $notifiable هو الـ recipient
 
-    public function __construct(Booking $booking, string $oldStatus, string $newStatus, User $recipient)
+    public function __construct(Booking $booking, string $oldStatus, string $newStatus /*, User $recipient*/)
     {
         $this->booking = $booking;
         $this->oldStatus = $oldStatus;
         $this->newStatus = $newStatus;
-        $this->recipient = $recipient;
+        // $this->recipient = $recipient; // سيتم تمريره كـ $notifiable
     }
 
     public function via(object $notifiable): array
     {
         if ($this->newStatus === $this->oldStatus) { return []; }
-        // استثناء بعض الحالات التي لها إشعارات خاصة
-        $excludedStatuses = [
-            Booking::STATUS_CONFIRMED, // له BookingConfirmedNotification
-            Booking::STATUS_CANCELLED_BY_ADMIN, // له BookingCancelledNotification
-            Booking::STATUS_CANCELLED_BY_USER,  // له BookingCancelledNotification
-            // يمكنك إضافة حالات أخرى هنا إذا كان لها إشعار خاص بها
-        ];
 
+        $excludedStatuses = [
+            Booking::STATUS_CONFIRMED,
+            Booking::STATUS_CANCELLED_BY_ADMIN,
+            Booking::STATUS_CANCELLED_BY_USER,
+        ];
         if (in_array($this->newStatus, $excludedStatuses)) {
-            // إذا كانت الحالة الجديدة هي إلغاء، دع BookingCancelledNotification يتعامل معها
-            // أو أي حالة أخرى مستثناة لها معالجة خاصة
-            // بالنسبة لـ STATUS_CONFIRMED، سيعيد هذا الشرط فارغًا أيضًا إذا لم تكن هناك معالجة إضافية محددة هنا
             return [];
         }
 
@@ -54,32 +48,18 @@ class BookingStatusChangedNotification extends Notification implements ShouldQue
         if ($notifiable->email && filter_var($notifiable->email, FILTER_VALIDATE_EMAIL)) {
             $channels[] = 'mail';
         }
-        if ($notifiable->mobile_number) {
-            $templateKey = $notifiable->is_admin ? 'booking_status_changed_admin' : 'booking_status_changed_customer';
-            $templateExists = Cache::rememberForever('sms_template_exists_' . $templateKey, function () use ($templateKey) {
-                return SmsTemplate::where('notification_type', $templateKey)->exists();
-            });
-            if ($templateExists) {
-                $channels[] = HttpSmsChannel::class;
-            } else {
-                Log::warning("SMS template not found for [{$templateKey}], HttpSmsChannel skipped.", ['booking_id' => $this->booking->id]);
-            }
+        if ($notifiable->mobile_number && config('services.sms_gateway.enabled', env('SMS_GATEWAY_ENABLED', false))) {
+            $channels[] = AndroidSmsGatewayChannel::class; // <-- تم التغيير
         }
         return $channels;
     }
 
-    // ... (translateStatus و toMail كما هما) ...
     protected function translateStatus(string $statusKey): string
     {
-        // التأكد من وجود الدالة getStatusLabel في موديل Booking
+        // ... (الكود الأصلي كما هو) ...
         if (method_exists($this->booking, 'getStatusLabelAttribute')) {
-            // محاولة استخدام المترجم من الموديل مباشرة إذا كان متاحاً
-            // تحتاج لتعديل موديل Booking ليكون $this->booking->status = $statusKey;
-            // ثم $this->booking->status_label;
-            // هذا مثال، قد تحتاج لتمرير الحالة مباشرة للدالة في الموديل
+            // ...
         }
-
-        // إذا لم تكن getStatusLabel موجودة أو لم تعمل كما هو متوقع، استخدم الترجمة المحلية
         $statusTranslations = [
             Booking::STATUS_PENDING => 'قيد الانتظار',
             Booking::STATUS_CONFIRMED => 'مؤكد',
@@ -89,17 +69,18 @@ class BookingStatusChangedNotification extends Notification implements ShouldQue
             Booking::STATUS_RESCHEDULED_BY_ADMIN => 'تمت إعادة جدولته من الإدارة',
             Booking::STATUS_RESCHEDULED_BY_USER => 'طلب إعادة جدولة من العميل',
             Booking::STATUS_NO_SHOW => 'لم يحضر العميل',
-            'pending_payment' => 'بانتظار الدفع', // إذا كانت هذه حالة مستخدمة
-            'pending_confirmation' => 'بانتظار تأكيد التحويل', // إذا كانت هذه حالة مستخدمة
+            'pending_payment' => 'بانتظار الدفع',
+            'pending_confirmation' => 'بانتظار تأكيد التحويل',
         ];
         return $statusTranslations[$statusKey] ?? Str::title(str_replace('_', ' ', $statusKey));
     }
 
     public function toMail(object $notifiable): MailMessage
     {
+        // ... (الكود الأصلي كما هو) ...
         $newStatusText = $this->translateStatus($this->newStatus);
         $oldStatusText = $this->translateStatus($this->oldStatus);
-        $customer = $this->booking->user;
+        $customerUser = $this->booking->user;
         $serviceName = $this->booking->service ? $this->booking->service->name_ar : 'الخدمة';
         $bookingDateTime = Carbon::parse($this->booking->booking_datetime)->translatedFormat('l، d F Y - H:i');
         $mailMessage = (new MailMessage);
@@ -107,7 +88,7 @@ class BookingStatusChangedNotification extends Notification implements ShouldQue
         if ($notifiable->is_admin) {
             $mailMessage->subject("تحديث حالة الحجز رقم #{$this->booking->id} إلى: {$newStatusText}")
                         ->greeting("مرحبا ايها المدير")
-                        ->line("تم تحديث حالة الحجز رقم #{$this->booking->id} للعميل {$customer->name}.")
+                        ->line("تم تحديث حالة الحجز رقم #{$this->booking->id} للعميل {$customerUser->name}.")
                         ->line("الحالة السابقة: {$oldStatusText}")
                         ->line("الحالة الجديدة: **{$newStatusText}**")
                         ->line("تفاصيل الحجز:")
@@ -126,63 +107,34 @@ class BookingStatusChangedNotification extends Notification implements ShouldQue
         return $mailMessage->salutation('مع خالص التقدير، فريق المصورة فاطمة علي');
     }
 
-    public function toHttpSms(object $notifiable): array
+    public function toSmsGateway(object $notifiable): array
     {
-        $recipientPhoneNumber = $notifiable->routeNotificationFor('sms', $this);
-        if (!$recipientPhoneNumber && isset($notifiable->mobile_number)) { $recipientPhoneNumber = $notifiable->mobile_number; }
-        if ($recipientPhoneNumber) {
-            if (str_starts_with($recipientPhoneNumber, '05')) { $recipientPhoneNumber = '+966' . substr($recipientPhoneNumber, 1); }
-            elseif (str_starts_with($recipientPhoneNumber, '5') && strlen($recipientPhoneNumber) == 9) { $recipientPhoneNumber = '+966' . $recipientPhoneNumber; }
-            elseif (!str_starts_with($recipientPhoneNumber, '+')) { $recipientPhoneNumber = '+' . $recipientPhoneNumber; }
-        } else {
-            Log::warning('BookingStatusChangedNotification (toHttpSms): Recipient mobile number could not be determined.', ['booking_id' => $this->booking->id]);
+        $recipientPhoneNumber = $this->formatSmsRecipient($notifiable->mobile_number);
+        if (!$recipientPhoneNumber) {
+            Log::warning('BookingStatusChangedNotification (toSmsGateway): Recipient mobile number could not be determined.', ['booking_id' => $this->booking->id]);
             return [];
         }
 
-        $templateKey = $notifiable->is_admin ? 'booking_status_changed_admin' : 'booking_status_changed_customer';
-        $templateContent = Cache::rememberForever('sms_template_' . $templateKey, function () use ($templateKey) {
-            $template = SmsTemplate::where('notification_type', $templateKey)->first();
-            return $template ? $template->template_content : null;
-        });
-
         $newStatusTranslated = $this->translateStatus($this->newStatus);
         $oldStatusTranslated = $this->translateStatus($this->oldStatus);
-
-        if (!$templateContent) {
-            Log::error("SMS template not found for [{$templateKey}]. Using default.", ['booking_id' => $this->booking->id]);
-            if ($notifiable->is_admin) {
-                $templateContent = "تحديث حجز [booking_id]. عميل:[customer_name_short]. حالة:[new_status_translated].";
-            } else {
-                $templateContent = "تحديث حجزك رقم [booking_id]. الحالة الجديدة: [new_status_translated].";
-            }
-        }
-
-        $replacements = [
-            '[customer_name]' => $this->booking->user->name ?? 'العميل',
-            '[customer_name_short]' => $this->booking->user ? Str::limit($this->booking->user->name, 10) : "عميل",
-            '[customer_mobile]' => $this->booking->user->mobile_number ?? '',
-            '[booking_id]' => $this->booking->id,
-            '[service_name]' => $this->booking->service ? $this->booking->service->name_ar : 'الخدمة',
+        $specificReplacements = [
             '[new_status_translated]' => Str::limit($newStatusTranslated, 25, '..'),
             '[old_status_translated]' => Str::limit($oldStatusTranslated, 25, '..'),
-            '[photographer_name]' => config('app.photographer_name', 'المصورة فاطمة'),
         ];
 
-        $messageContent = str_replace(array_keys($replacements), array_values($replacements), $templateContent);
+        $messageContent = $this->getSmsMessageContent('booking_status_changed', $notifiable, $specificReplacements, $this->booking);
 
-        Log::debug('BookingStatusChangedNotification: Final SMS content from DB template.', [
-            'template_key' => $templateKey,
-            'to' => $recipientPhoneNumber,
-            'final_content' => $messageContent,
-        ]);
+        if (empty($messageContent)) {
+             Log::warning('BookingStatusChangedNotification (toSmsGateway): SMS message content is empty after processing template.', ['booking_id' => $this->booking->id, 'template_identifier' => 'booking_status_changed']);
+            return [];
+        }
 
         return [
             'to' => $recipientPhoneNumber,
-            'content' => $messageContent,
+            'message' => $messageContent,
         ];
     }
 
-    // ... (دالة toArray كما هي) ...
     public function toArray(object $notifiable): array
     {
         return [
