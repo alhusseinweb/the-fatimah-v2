@@ -3,19 +3,22 @@
 namespace App\Notifications;
 
 use App\Models\Booking;
-// use App\Models\User; // $notifiable is the user
-use App\Notifications\Channels\AndroidSmsGatewayChannel; // <-- تم التغيير
-use App\Notifications\Traits\ManagesSmsContent; // <-- تم الإضافة
+// use App\Models\User; // $notifiable هو المستلم
+use App\Notifications\Channels\HttpSmsChannel; // <-- تم التغيير
+use App\Notifications\Traits\ManagesSmsContent;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache; // لإستخدام via
+use App\Models\SmsTemplate;      // لإستخدام via
 use Illuminate\Support\Str;
+
 
 class NewBookingReceived extends Notification implements ShouldQueue
 {
-    use Queueable, ManagesSmsContent; // <-- تم الإضافة
+    use Queueable, ManagesSmsContent;
 
     protected Booking $booking;
     protected string $paymentMethod;
@@ -29,48 +32,58 @@ class NewBookingReceived extends Notification implements ShouldQueue
     public function via(object $notifiable): array
     {
         $channels = [];
-        // لا يوجد إرسال بريد إلكتروني محدد هنا في الكود الأصلي.
-        // إذا كنت تريد إرسال بريد، أضف:
-        // if ($notifiable->email && filter_var($notifiable->email, FILTER_VALIDATE_EMAIL)) {
+        // هذا الإشعار كان يرسل SMS للعميل فقط في نسختك الأصلية.
+        // إذا أردت إرسال بريد إلكتروني أيضًا للعميل، أضف:
+        // if (!$notifiable->is_admin && $notifiable->email && filter_var($notifiable->email, FILTER_VALIDATE_EMAIL)) {
         //     $channels[] = 'mail';
         // }
 
-        // هذا الإشعار عادة للعميل الذي قام بالحجز
-        if (!$notifiable->is_admin && $notifiable->mobile_number && config('services.sms_gateway.enabled', env('SMS_GATEWAY_ENABLED', false))) {
-            $channels[] = AndroidSmsGatewayChannel::class; // <-- تم التغيير
+        if (!$notifiable->is_admin && $notifiable->mobile_number) { // يرسل للعميل فقط
+            $templateKey = 'booking_request_customer'; // أو أي مفتاح آخر تستخدمه لهذا القصد
+            $templateExists = Cache::rememberForever('sms_template_active_exists_' . $templateKey, function () use ($templateKey) {
+                 return SmsTemplate::where('notification_type', $templateKey)->where('is_active', true)->exists();
+            });
+            if ($templateExists) {
+                $channels[] = HttpSmsChannel::class; // <-- تم التغيير
+            } else {
+                Log::warning("NewBookingReceived: SMS template '{$templateKey}' not found or not active, HttpSmsChannel skipped.", ['booking_id' => $this->booking->id]);
+            }
         }
         return $channels;
     }
 
-    // إذا أضفت 'mail' في via()، يجب إضافة دالة toMail() هنا
+    // إذا أضفت 'mail' في via() للعميل، يجب إضافة دالة toMail() هنا.
 
-    public function toSmsGateway(object $notifiable): array
+    public function toHttpSms(object $notifiable): array
     {
-        if ($notifiable->is_admin) { // تأكد أنه لا يرسل للمدير إذا كان هذا هو القصد
-            return [];
+        if ($notifiable->is_admin) {
+            return []; // تأكيد إضافي أنه لا يرسل للمدير
         }
         $recipientPhoneNumber = $this->formatSmsRecipient($notifiable->mobile_number);
         if (!$recipientPhoneNumber) {
-            Log::warning('NewBookingReceived (toSmsGateway): Recipient mobile number could not be determined.', ['booking_id' => $this->booking->id]);
+            Log::warning('NewBookingReceived (toHttpSms): Recipient mobile number could not be determined.', ['booking_id' => $this->booking->id]);
             return [];
         }
 
-        $paymentMethodText = $this->paymentMethod === 'bank_transfer' ? 'بنكي' : ($this->paymentMethod === 'tamara' ? 'تمارا' : $this->paymentMethod);
+        $paymentMethodText = $this->paymentMethod === 'bank_transfer' ? 'بنكي' : ($this->paymentMethod === 'tamara' ? 'تمارا' : Str::title($this->paymentMethod));
         $specificReplacements = [
             '[payment_method]' => $paymentMethodText,
             '[payment_details_prompt]' => $this->paymentMethod === 'bank_transfer' ? " يرجى تحويل العربون للتأكيد." : "",
+            // يمكن إضافة تاريخ ووقت الحجز إذا كان القالب يتطلبه
+            // '[booking_date_time]' => Carbon::parse($this->booking->booking_datetime)->translatedFormat('l, d M Y - h:i A'),
         ];
-        // كان templateKey المستخدم سابقًا هو 'booking_request_customer'
+
+        // استخدم نفس مفتاح القالب الذي استخدمته في via()
         $messageContent = $this->getSmsMessageContent('booking_request_customer', $notifiable, $specificReplacements, $this->booking);
 
         if (empty($messageContent)) {
-            Log::warning('NewBookingReceived (toSmsGateway): SMS message content is empty after processing template.', ['booking_id' => $this->booking->id, 'template_identifier' => 'booking_request_customer']);
+            Log::warning('NewBookingReceived (toHttpSms): SMS message content is empty after processing template.', ['booking_id' => $this->booking->id, 'template_identifier' => 'booking_request_customer']);
             return [];
         }
 
         return [
             'to' => $recipientPhoneNumber,
-            'message' => $messageContent,
+            'content' => $messageContent,
         ];
     }
 
@@ -79,8 +92,8 @@ class NewBookingReceived extends Notification implements ShouldQueue
         return [
             'booking_id' => $this->booking->id,
             'recipient_id' => $notifiable->id,
-            'recipient_type' => $notifiable->is_admin ? 'admin' : 'customer',
-            'event' => 'new_booking_received_sms',
+            'recipient_type' => $notifiable->is_admin ? 'admin' : 'customer', // سيكون customer هنا
+            'event' => 'new_booking_received_sms', // اسم مميز
             'payment_method' => $this->paymentMethod,
             'channels_used' => $this->via($notifiable),
         ];
