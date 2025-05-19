@@ -11,7 +11,7 @@ use App\Models\User;
 use App\Notifications\BookingConfirmedNotification;
 use App\Notifications\PaymentSuccessNotification;
 use App\Notifications\PaymentFailedNotification;
-// use App\Services\TamaraService; // قم بإزالة التعليق إذا كنت تستخدم هذا الكلاس في مكان آخر ضمن هذا المتحكم
+// use App\Services\TamaraService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -21,18 +21,13 @@ use Carbon\Carbon;
 use Throwable;
 use Illuminate\Support\Str;
 
-// مسارات SDK تمارا v2.0 - **تحقق من هذه المسارات في مجلد vendor/tamara-solution/php-sdk/src لديك**
 use Tamara\Client as TamaraClient;
 use Tamara\Configuration as TamaraConfiguration;
 use Tamara\Notification\Authenticator as TamaraAuthenticator;
-// use Tamara\Notification\NotificationService as TamaraNotificationService; // قد لا تحتاج لهذا مع Authenticator
-use Tamara\Model\Order\Order as TamaraOrder; // يُستخدم للوصول لبيانات الطلب من رسالة الإشعار
+use Tamara\Model\Order\Order as TamaraOrder;
 use Tamara\Request\Order\AuthoriseOrderRequest as TamaraAuthoriseOrderRequest;
-
-// استثناءات SDK تمارا v2.0 - **تحقق من هذه المسارات**
 use Tamara\Exception\ForbiddenException as TamaraForbiddenException;
-use Tamara\Exception\RequestException as TamaraRequestException; // خطأ عام من SDK
-// use Tamara\Exception\NotificationException; // إذا كان لا يزال موجودًا ومستخدمًا
+use Tamara\Exception\RequestException as TamaraRequestException;
 
 class PaymentController extends Controller
 {
@@ -136,9 +131,6 @@ class PaymentController extends Controller
      */
     public function handleTamaraWebhook(Request $request)
     {
-        // =================================================================
-        // START: Logging the entire incoming request for diagnostics
-        // =================================================================
         Log::channel('daily')->info('Tamara Webhook Received - Full Request Details:', [
             'headers' => $request->headers->all(),
             'content_type' => $request->getContentTypeFormat(),
@@ -148,16 +140,12 @@ class PaymentController extends Controller
             'form_parameters_or_json' => $request->all(),
             'raw_content' => $request->getContent()
         ]);
-        // =================================================================
-        // END: Logging the entire incoming request
-        // =================================================================
 
         Log::info("Tamara Webhook received (after full log). Attempting processing with SDK v2 Authenticator...");
 
         $notificationTokenFromConfig = config('services.tamara.notification_token');
         Log::info('TAMARA_NOTIFICATION_TOKEN from config for Webhook: ' . $notificationTokenFromConfig);
 
-        // تسجيل إضافي للـ Authorization header والـ query parameter
         $jwtFromHeader = $request->header('Authorization');
         $jwtFromQuery = $request->query('tamaraToken');
 
@@ -171,13 +159,12 @@ class PaymentController extends Controller
             return response()->json(['status' => 'error_config_missing_token'], 403);
         }
 
-        $eventType = null; $tamaraOrderId = null; $orderReferenceId = null; $payloadData = null;
+        $eventType = null; $tamaraOrderId = null; $resolved_order_reference_id = null; $payloadData = null;
         /** @var \Tamara\Model\Notification\NotificationMessage $webhookMessage */
         $webhookMessage = null;
 
         try {
             $authenticator = new TamaraAuthenticator($notificationTokenFromConfig);
-            // تمرير كائن الطلب الكامل كما هو متوقع من الخطأ السابق
             $webhookMessage = $authenticator->authenticate($request);
 
             Log::info('Tamara webhook authenticated successfully using Authenticator.');
@@ -185,22 +172,37 @@ class PaymentController extends Controller
             $eventType = $webhookMessage->getEventType();
             $tamaraOrderId = $webhookMessage->getOrderId();
             $payloadData = $webhookMessage->getData();
-            $orderReferenceId = null;
-            if (method_exists($webhookMessage, 'getOrderReferenceId') && $webhookMessage->getOrderReferenceId()) {
-                $orderReferenceId = $webhookMessage->getOrderReferenceId();
-            } elseif (isset($request->input('order_reference_id'))) {
-                $orderReferenceId = $request->input('order_reference_id');
-            } elseif (isset($payloadData['order_reference_id'])) {
-                 $orderReferenceId = $payloadData['order_reference_id'];
-            } elseif (isset($payloadData['order_number'])) {
-                 $orderReferenceId = $payloadData['order_number'];
+
+            // --- START: Corrected orderReferenceId extraction (around line 191) ---
+            $resolved_order_reference_id = null; // Initialize
+
+            if (method_exists($webhookMessage, 'getOrderReferenceId')) {
+                $refIdFromMethod = $webhookMessage->getOrderReferenceId();
+                if ($refIdFromMethod !== null) {
+                    $resolved_order_reference_id = $refIdFromMethod;
+                }
             }
 
+            if ($resolved_order_reference_id === null) {
+                $refIdFromInput = $request->input('order_reference_id'); // $request->input() is fine here
+                if ($refIdFromInput !== null) {
+                    $resolved_order_reference_id = $refIdFromInput;
+                }
+            }
+
+            if ($resolved_order_reference_id === null && isset($payloadData['order_reference_id'])) {
+                $resolved_order_reference_id = $payloadData['order_reference_id'];
+            }
+
+            if ($resolved_order_reference_id === null && isset($payloadData['order_number'])) {
+                $resolved_order_reference_id = $payloadData['order_number'];
+            }
+            // --- END: Corrected orderReferenceId extraction ---
 
             Log::debug('Extracted Webhook Data from Authenticator:', [
                 'event_type' => $eventType,
                 'tamara_order_id' => $tamaraOrderId,
-                'resolved_order_reference_id' => $orderReferenceId,
+                'resolved_order_reference_id' => $resolved_order_reference_id,
                 'payload_data_sample' => Str::limit(json_encode($payloadData), 200)
             ]);
 
@@ -212,8 +214,8 @@ class PaymentController extends Controller
             Log::error('Tamara Webhook Auth Failed (TamaraForbiddenException).', [
                 'msg' => $e->getMessage(),
                 'tamara_token_from_config' => $notificationTokenFromConfig,
-                'authorization_header_checked' => $jwtFromHeader ?: 'Not Present', // للتأكيد
-                'tamara_token_query_param_available' => $jwtFromQuery ?: 'Not Present' // للتأكيد
+                'authorization_header_checked' => $jwtFromHeader ?: 'Not Present',
+                'tamara_token_query_param_available' => $jwtFromQuery ?: 'Not Present'
             ]);
             return response()->json(['status' => 'error_auth', 'message' => 'Access denied.'], 403);
         } catch (TamaraRequestException $e) {
@@ -222,25 +224,29 @@ class PaymentController extends Controller
                 'trace' => Str::limit($e->getTraceAsString(), 500)
             ]);
             return response()->json(['status' => 'error_tamara_sdk'], 400);
-        } catch (Throwable $e) {
+        } catch (Throwable $e) { // Catching general Throwable for unexpected errors
             Log::error('Tamara Webhook General Error during initial processing/authentication.', [
                 'msg' => $e->getMessage(),
                 'class' => get_class($e),
+                'file' => $e->getFile(), // Add file and line for better debugging
+                'line' => $e->getLine(),
                 'trace' => Str::limit($e->getTraceAsString(), 1000)
             ]);
             return response()->json(['status' => 'success_but_general_error_logged'], 200);
         }
 
-        // --- هنا يبدأ منطق معالجة أنواع الأحداث المختلفة (يبقى كما هو تقريبًا) ---
+        // --- Business logic processing starts here ---
+        // Use $resolved_order_reference_id instead of $orderReferenceId from now on
         try {
             if ($eventType === TamaraOrder::EVENT_TYPE_ORDER_APPROVED) {
-                Log::info('Processing Tamara order_approved event.', ['tamara_order_id' => $tamaraOrderId, 'order_reference_id' => $orderReferenceId]);
+                Log::info('Processing Tamara order_approved event.', ['tamara_order_id' => $tamaraOrderId, 'order_reference_id' => $resolved_order_reference_id]);
 
-                DB::transaction(function () use ($tamaraOrderId, $orderReferenceId, $payloadData, $webhookMessage) { // مرر $webhookMessage
-                    $invoice = Invoice::where(function ($query) use ($orderReferenceId, $tamaraOrderId) {
-                        if ($orderReferenceId) {
-                            $query->where('invoice_number', $orderReferenceId);
+                DB::transaction(function () use ($tamaraOrderId, $resolved_order_reference_id, $payloadData, $webhookMessage) {
+                    $invoice = Invoice::where(function ($query) use ($resolved_order_reference_id, $tamaraOrderId) {
+                        if ($resolved_order_reference_id) {
+                            $query->where('invoice_number', $resolved_order_reference_id);
                         }
+                        // Always try to match with tamaraOrderId as it's more unique from Tamara's perspective
                         $query->orWhere('payment_gateway_ref', $tamaraOrderId);
                     })
                     ->with('booking.user', 'booking.service')
@@ -249,12 +255,10 @@ class PaymentController extends Controller
                     if (!$invoice) {
                         Log::warning('Webhook: Invoice not found for order_approved.', [
                             'tamara_order_id' => $tamaraOrderId,
-                            'attempted_order_reference_id' => $orderReferenceId
+                            'attempted_order_reference_id' => $resolved_order_reference_id
                         ]);
                         return;
                     }
-                    // نستخدم $invoice->invoice_number كمرجع موثوق للفاتورة
-                    $currentOrderReferenceId = $invoice->invoice_number;
 
                     if (!$invoice->booking || !$invoice->booking->user) {
                          Log::warning('Webhook: Booking or User not found for invoice.', ['invoice_id' => $invoice->id]);
@@ -277,14 +281,23 @@ class PaymentController extends Controller
                     }
 
                     $amountPaidInThisTransaction = 0;
+                    $tamaraAmount = null;
+                    $tamaraCurrency = $invoice->currency; // Default to invoice currency
+
                     /** @var \Tamara\Model\Order\Order $orderDataFromWebhook */
-                    $orderDataFromWebhook = $webhookMessage->getOrder(); // افترض أن هذا يعيد كائن الطلب
+                    $orderDataFromWebhook = $webhookMessage->getOrder();
 
                     if ($orderDataFromWebhook && method_exists($orderDataFromWebhook, 'getTotalAmount') && $orderDataFromWebhook->getTotalAmount()) {
-                        $tamaraAmount = $orderDataFromWebhook->getTotalAmount()->getAmount();
-                        $tamaraCurrency = $orderDataFromWebhook->getTotalAmount()->getCurrency();
-                    } else {
-                        // محاولة احتياطية من $payloadData إذا كان getOrder() لا يعمل كما هو متوقع أو data فارغة
+                        $tamaraAmountObj = $orderDataFromWebhook->getTotalAmount();
+                        if ($tamaraAmountObj && method_exists($tamaraAmountObj, 'getAmount')) {
+                           $tamaraAmount = $tamaraAmountObj->getAmount();
+                        }
+                        if ($tamaraAmountObj && method_exists($tamaraAmountObj, 'getCurrency')) {
+                           $tamaraCurrency = $tamaraAmountObj->getCurrency();
+                        }
+                    }
+
+                    if ($tamaraAmount === null) { // Fallback to payloadData if getOrder() didn't provide amount
                         $tamaraAmount = $payloadData['total_amount']['amount'] ?? ($payloadData['order_amount']['amount'] ?? null);
                         $tamaraCurrency = $payloadData['total_amount']['currency'] ?? ($payloadData['order_amount']['currency'] ?? $invoice->currency);
                         if ($tamaraAmount === null) {
@@ -292,11 +305,9 @@ class PaymentController extends Controller
                         }
                     }
 
-
                     if ($tamaraAmount !== null) {
                         $amountPaidInThisTransaction = (float) $tamaraAmount;
                     } else {
-                        // منطق التقدير إذا فشل كل شيء
                         if($newInvoiceStatus === Invoice::STATUS_PARTIALLY_PAID && $originalInvoiceStatus !== Invoice::STATUS_PARTIALLY_PAID) {
                             $amountPaidInThisTransaction = $invoice->booking->down_payment_amount > 0 ? $invoice->booking->down_payment_amount : round($invoice->amount / 2, 2);
                         } elseif ($newInvoiceStatus === Invoice::STATUS_PAID && $originalInvoiceStatus === Invoice::STATUS_PARTIALLY_PAID) {
@@ -315,7 +326,7 @@ class PaymentController extends Controller
                             'invoice_id' => $invoice->id,
                             'transaction_id' => $tamaraOrderId,
                             'amount' => $amountPaidInThisTransaction,
-                            'currency' => $tamaraCurrency ?? $invoice->currency, // احتياطي إذا كانت عملة تمارا غير متاحة
+                            'currency' => $tamaraCurrency,
                             'status' => 'completed',
                             'payment_gateway' => 'tamara',
                             'payment_details' => json_encode($payloadData) ?: null,
@@ -325,14 +336,14 @@ class PaymentController extends Controller
                         Log::info("Payment record created via webhook.", ['invoice_id' => $invoice->id, 'amount' => $amountPaidInThisTransaction]);
 
                         try {
-                            $customer->notify(new PaymentSuccessNotification($invoice, $customer, $amountPaidInThisTransaction, $tamaraCurrency ?? $invoice->currency));
+                            $customer->notify(new PaymentSuccessNotification($invoice, $customer, $amountPaidInThisTransaction, $tamaraCurrency));
                             Log::info("PaymentSuccessNotification dispatched to customer {$customer->id} via webhook.");
                         } catch (\Exception $e) { Log::error("Failed to send PaymentSuccessNotification to customer {$customer->id} via webhook", ['error' => $e->getMessage()]); }
 
                         $admins = User::where('is_admin', true)->get();
                         foreach ($admins as $admin) {
                             try {
-                                $admin->notify(new PaymentSuccessNotification($invoice, $admin, $amountPaidInThisTransaction, $tamaraCurrency ?? $invoice->currency));
+                                $admin->notify(new PaymentSuccessNotification($invoice, $admin, $amountPaidInThisTransaction, $tamaraCurrency));
                                 Log::info("PaymentSuccessNotification dispatched to admin {$admin->id} via webhook.");
                             } catch (\Exception $e) { Log::error("Failed to send PaymentSuccessNotification to admin {$admin->id} via webhook", ['error' => $e->getMessage()]); }
                         }
@@ -392,14 +403,14 @@ class PaymentController extends Controller
                             Log::error('Exception during Tamara Authorise API call via webhook.', ['tamara_order_id' => $tamaraOrderId, 'error' => $authError->getMessage()]);
                         }
                     }
-                }); // نهاية DB::transaction
+                });
 
             } elseif (in_array($eventType, [TamaraOrder::EVENT_TYPE_ORDER_DECLINED, TamaraOrder::EVENT_TYPE_ORDER_CANCELED, TamaraOrder::EVENT_TYPE_ORDER_EXPIRED])) {
-                Log::warning("Processing Tamara {$eventType} event.", ['tamara_order_id' => $tamaraOrderId, 'order_reference_id' => $orderReferenceId]);
-                DB::transaction(function() use ($eventType, $orderReferenceId, $tamaraOrderId) {
-                    $invoice = Invoice::where(function ($query) use ($orderReferenceId, $tamaraOrderId) {
-                        if ($orderReferenceId) {
-                            $query->where('invoice_number', $orderReferenceId);
+                Log::warning("Processing Tamara {$eventType} event.", ['tamara_order_id' => $tamaraOrderId, 'order_reference_id' => $resolved_order_reference_id]);
+                DB::transaction(function() use ($eventType, $resolved_order_reference_id, $tamaraOrderId) {
+                    $invoice = Invoice::where(function ($query) use ($resolved_order_reference_id, $tamaraOrderId) {
+                        if ($resolved_order_reference_id) {
+                            $query->where('invoice_number', $resolved_order_reference_id);
                         }
                         $query->orWhere('payment_gateway_ref', $tamaraOrderId);
                     })
@@ -440,9 +451,9 @@ class PaymentController extends Controller
                             Log::info("Invoice status not changed via {$eventType} webhook, already '{$originalStatus}'.", ['invoice_id' => $invoice->id]);
                         }
                     } else {
-                        Log::warning("Invoice not found or already processed/cancelled for {$eventType} webhook.", ['attempted_order_reference_id' => $orderReferenceId, 'tamara_order_id' => $tamaraOrderId]);
+                        Log::warning("Invoice not found or already processed/cancelled for {$eventType} webhook.", ['attempted_order_reference_id' => $resolved_order_reference_id, 'tamara_order_id' => $tamaraOrderId]);
                     }
-                }); // نهاية DB::transaction
+                });
             } else {
                 Log::info("Received unhandled Tamara webhook event type: {$eventType}", ['tamara_order_id' => $tamaraOrderId, 'payload_data' => $payloadData]);
             }
@@ -452,12 +463,13 @@ class PaymentController extends Controller
                 'event_type' => $eventType ?? 'unknown',
                 'tamara_order_id' => $tamaraOrderId ?? 'unknown',
                 'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
                 'trace' => Str::limit($e->getTraceAsString(), 1500)
             ]);
             return response()->json(['status' => 'success_but_internal_error_logged'], 200);
         }
     }
-
 
     /**
      * Retry payment for a given invoice using Tamara.
