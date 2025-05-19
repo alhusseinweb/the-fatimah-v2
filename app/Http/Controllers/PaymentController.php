@@ -283,16 +283,32 @@ class PaymentController extends Controller
                         Log::info("Payment record created via webhook.", ['invoice_id' => $invoice->id, 'amount' => $amountPaidInThisTransaction]);
 
                         try {
-                            $customer->notify(new PaymentSuccessNotification($invoice, $customer, $amountPaidInThisTransaction, $tamaraCurrency));
+                            // Changed parameter order to match PaymentSuccessNotification constructor
+                            $customer->notify(new PaymentSuccessNotification(
+                                $invoice, 
+                                $amountPaidInThisTransaction, // This should be a float amount
+                                $tamaraCurrency,
+                                $customer // This should be the User object
+                            ));
                             Log::info("PaymentSuccessNotification dispatched to customer {$customer->id} via webhook.");
-                        } catch (\Exception $e) { Log::error("Failed to send PaymentSuccessNotification to customer {$customer->id} via webhook", ['error' => $e->getMessage()]); }
+                        } catch (\Exception $e) { 
+                            Log::error("Failed to send PaymentSuccessNotification to customer {$customer->id} via webhook", ['error' => $e->getMessage()]); 
+                        }
 
                         $admins = User::where('is_admin', true)->get();
                         foreach ($admins as $admin) {
                             try {
-                                $admin->notify(new PaymentSuccessNotification($invoice, $admin, $amountPaidInThisTransaction, $tamaraCurrency));
+                                // Changed parameter order to match PaymentSuccessNotification constructor
+                                $admin->notify(new PaymentSuccessNotification(
+                                    $invoice, 
+                                    $amountPaidInThisTransaction, // This should be a float amount
+                                    $tamaraCurrency,
+                                    $admin // This should be the User object (admin in this case)
+                                ));
                                 Log::info("PaymentSuccessNotification dispatched to admin {$admin->id} via webhook.");
-                            } catch (\Exception $e) { Log::error("Failed to send PaymentSuccessNotification to admin {$admin->id} via webhook", ['error' => $e->getMessage()]); }
+                            } catch (\Exception $e) { 
+                                Log::error("Failed to send PaymentSuccessNotification to admin {$admin->id} via webhook", ['error' => $e->getMessage()]); 
+                            }
                         }
                     } elseif($existingPayment) {
                         Log::warning("Duplicate payment webhook or payment already recorded. Ignored for order_id.", ['tamara_order_id' => $tamaraOrderId, 'invoice_id' => $invoice->id]);
