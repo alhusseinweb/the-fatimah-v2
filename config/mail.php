@@ -14,7 +14,8 @@ return [
     |
     */
 
-    'default' => env('MAIL_MAILER', 'mailersend'), // <-- **مهم:** تم التغيير إلى 'mailersend'
+    // تأكد أن القيمة في .env لـ MAIL_MAILER هي 'mailersend' إذا كنت تريد استخدامه كافتراضي
+    'default' => env('MAIL_MAILER', 'mailersend'),
 
     /*
     |--------------------------------------------------------------------------
@@ -34,41 +35,42 @@ return [
     |
     */
 
-   /* 'mailers' => [
+    // <-- بداية مصفوفة mailers (تأكد أن هذا السطر ليس معلقًا)
+    'mailers' => [
 
-        'smtp' => [ // يمكنك ترك هذا القسم إذا كنت قد تحتاج للعودة إلى SMTP لاحقًا أو للاختبار المحلي
+        'smtp' => [
             'transport' => 'smtp',
-            'host' => env('MAIL_HOST', 'smtp.mailersend.net'), // كمثال إذا كنت تستخدم MailerSend SMTP
+            'host' => env('MAIL_HOST', 'smtp.mailgun.org'), // قيمة افتراضية عامة، سيتم تجاوزها بـ .env
             'port' => env('MAIL_PORT', 587),
             'encryption' => env('MAIL_ENCRYPTION', 'tls'),
             'username' => env('MAIL_USERNAME'),
             'password' => env('MAIL_PASSWORD'),
             'timeout' => null,
-            // 'local_domain' => env('MAIL_EHLO_DOMAIN'),
-        ], */
-
-        'mailersend' => [ // <-- **مهم:** إضافة هذا القسم لـ MailerSend API Driver
-            'transport' => 'mailersend',
-            // لا توجد إعدادات host, port, username, password هنا لأنها تستخدم مفتاح API من .env
+            // 'local_domain' => env('MAIL_EHLO_DOMAIN'), // أو 'client_host' في الإصدارات الأحدث
         ],
 
-        // --- يمكنك تعليق أو حذف التعريفات الأخرى إذا لم تعد تستخدمها ---
-        // 'ses' => [
-        //     'transport' => 'ses',
-        // ],
+        'ses' => [
+            'transport' => 'ses',
+        ],
 
-        // 'mailgun' => [
-        //     'transport' => 'mailgun',
-        // ],
+        'mailgun' => [
+            'transport' => 'mailgun',
+            // 'client' => [
+            //     'timeout' => 5,
+            // ],
+        ],
 
-        // 'postmark' => [
-        //     'transport' => 'postmark',
-        // ],
+        'postmark' => [
+            'transport' => 'postmark',
+            // 'client' => [
+            //     'timeout' => 5,
+            // ],
+        ],
 
-        // 'resend' => [
-        //     'transport' => 'resend',
-        // ],
-        // -----------------------------------------------------------------
+        'resend' => [
+            'transport' => 'resend',
+            'key' => env('RESEND_KEY'),
+        ],
 
         'sendmail' => [
             'transport' => 'sendmail',
@@ -87,12 +89,20 @@ return [
         'failover' => [
             'transport' => 'failover',
             'mailers' => [
-                'mailersend', // **مهم:** اجعل mailersend هو المحاولة الأولى
-                'smtp',       // يمكن أن يكون smtp هو الاحتياطي إذا كان لديك إعدادات SMTP صالحة
+                'mailersend', // اجعل mailersend هو المحاولة الأولى إذا كنت تستخدمه
+                'smtp',       // ثم smtp كاحتياطي
                 'log',
             ],
-            'retry_after' => 60,
+            'retry_after' => 60, // يمكنك تعديل هذا
         ],
+
+        // --- التعريف المهم لـ MailerSend API Driver ---
+        'mailersend' => [
+            'transport' => 'mailersend',
+            // لا تحتاج لإعدادات host, port, username, password هنا
+            // برنامج التشغيل يستخدم MAILERSEND_API_KEY من ملف .env مباشرة
+        ],
+        // --------------------------------------------
 
         // 'roundrobin' => [
         //     'transport' => 'roundrobin',
@@ -103,7 +113,7 @@ return [
         //     'retry_after' => 60,
         // ],
 
-   // ],
+    ], // <-- **مهم جدًا: هذا هو القوس الصحيح لإغلاق مصفوفة 'mailers'**
 
     /*
     |--------------------------------------------------------------------------
@@ -117,7 +127,8 @@ return [
     */
 
     'from' => [
-        'address' => env('MAIL_FROM_ADDRESS', 'noreply@yourdomain.com'), // استخدم عنوان بريد صالح من نطاقك الموثق في MailerSend
+        // تأكد أن هذا العنوان موثق في MailerSend إذا كنت تستخدمه
+        'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
         'name' => env('MAIL_FROM_NAME', config('app.name')),
     ],
 
