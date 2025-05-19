@@ -31,6 +31,12 @@ use Tamara\Exception\RequestException as TamaraRequestException;
 
 class PaymentController extends Controller
 {
+    // Define constants for event types since they are not accessible directly
+    const EVENT_TYPE_ORDER_APPROVED = 'order_approved';
+    const EVENT_TYPE_ORDER_DECLINED = 'order_declined';
+    const EVENT_TYPE_ORDER_CANCELED = 'order_canceled';
+    const EVENT_TYPE_ORDER_EXPIRED = 'order_expired';
+
     /**
      * Handle successful payment redirection from Tamara.
      */
@@ -124,7 +130,6 @@ class PaymentController extends Controller
         return $this->handleTamaraFailure($request, $invoice);
     }
 
-
     /**
      * Handles the incoming webhook notification from Tamara.
      * Using enhanced authentication approach to address auth issues
@@ -163,7 +168,7 @@ class PaymentController extends Controller
         $requestData = json_decode($rawContent, true) ?: [];
         $tamaraOrderId = $requestData['order_id'] ?? null;
         $orderReferenceId = $requestData['order_reference_id'] ?? null;
-        $eventType = $requestData['event_type'] ?? null;
+        $eventType = $requestData['event_type'] ?? ($requestData['order_status'] == 'approved' ? self::EVENT_TYPE_ORDER_APPROVED : null);
 
         // Log decoded data
         Log::info('Tamara Webhook Raw Data:', [
@@ -181,7 +186,7 @@ class PaymentController extends Controller
 
         // Process the webhook based on event type - BYPASSING AUTHENTICATION
         try {
-            if ($eventType === TamaraOrder::EVENT_TYPE_ORDER_APPROVED) {
+            if ($eventType === self::EVENT_TYPE_ORDER_APPROVED) {
                 Log::info('Processing Tamara order_approved event (bypass auth).', [
                     'tamara_order_id' => $tamaraOrderId, 
                     'order_reference_id' => $orderReferenceId
@@ -232,8 +237,13 @@ class PaymentController extends Controller
                     $tamaraCurrency = $invoice->currency; // Default to invoice currency
 
                     // Try to extract amount from payload
-                    $tamaraAmount = $requestData['total_amount']['amount'] ?? ($requestData['order_amount']['amount'] ?? null);
-                    $tamaraCurrency = $requestData['total_amount']['currency'] ?? ($requestData['order_amount']['currency'] ?? $invoice->currency);
+                    if (isset($requestData['total_amount']['amount'])) {
+                        $tamaraAmount = $requestData['total_amount']['amount'];
+                        $tamaraCurrency = $requestData['total_amount']['currency'] ?? $invoice->currency;
+                    } elseif (isset($requestData['order_amount']['amount'])) {
+                        $tamaraAmount = $requestData['order_amount']['amount'];
+                        $tamaraCurrency = $requestData['order_amount']['currency'] ?? $invoice->currency;
+                    }
                     
                     if ($tamaraAmount === null) {
                         Log::warning("Could not extract amount from Tamara webhook. Estimating based on invoice status.", [
@@ -342,7 +352,7 @@ class PaymentController extends Controller
                     }
                 });
 
-            } elseif (in_array($eventType, [TamaraOrder::EVENT_TYPE_ORDER_DECLINED, TamaraOrder::EVENT_TYPE_ORDER_CANCELED, TamaraOrder::EVENT_TYPE_ORDER_EXPIRED])) {
+            } elseif (in_array($eventType, [self::EVENT_TYPE_ORDER_DECLINED, self::EVENT_TYPE_ORDER_CANCELED, self::EVENT_TYPE_ORDER_EXPIRED])) {
                 Log::warning("Processing Tamara {$eventType} event (bypass auth).", ['tamara_order_id' => $tamaraOrderId, 'order_reference_id' => $orderReferenceId]);
                 DB::transaction(function() use ($eventType, $orderReferenceId, $tamaraOrderId) {
                     $invoice = Invoice::where(function ($query) use ($orderReferenceId, $tamaraOrderId) {
@@ -358,11 +368,9 @@ class PaymentController extends Controller
                     if ($invoice) {
                         $customer = $invoice->booking?->user;
                         $originalStatus = $invoice->status;
-                        $newStatus = match($eventType) {
-                            TamaraOrder::EVENT_TYPE_ORDER_DECLINED, TamaraOrder::EVENT_TYPE_ORDER_EXPIRED => Invoice::STATUS_FAILED,
-                            TamaraOrder::EVENT_TYPE_ORDER_CANCELED => Invoice::STATUS_CANCELLED,
-                            default => $originalStatus
-                        };
+                        $newStatus = $eventType === self::EVENT_TYPE_ORDER_DECLINED || $eventType === self::EVENT_TYPE_ORDER_EXPIRED 
+                            ? Invoice::STATUS_FAILED 
+                            : Invoice::STATUS_CANCELLED;
 
                         if ($newStatus !== $originalStatus) {
                             $invoice->status = $newStatus;
