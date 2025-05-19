@@ -132,15 +132,37 @@ Route::middleware(['auth', EnsureUserIsAdmin::class]) // استخدم EnsureUser
         Route::patch('invoices/{invoice}/status', [InvoiceController::class, 'updateStatus'])->name('invoices.updateStatus');
         Route::patch('invoices/{invoice}/confirm-bank-transfer', [InvoiceController::class, 'confirmBankTransfer'])->name('invoices.confirm-bank-transfer');
 		
-		Route::get('customers', [CustomerController::class, 'index'])->name('customers.index');
-		Route::get('customers/{customer}/edit', [CustomerController::class, 'edit'])->name('customers.edit');
-		Route::put('customers/{customer}', [CustomerController::class, 'update'])->name('customers.update');
-		Route::get('customers/{customer}', [CustomerController::class, 'show'])->name('customers.show');
+        Route::get('customers', [CustomerController::class, 'index'])->name('customers.index');
+        Route::get('customers/{customer}/edit', [CustomerController::class, 'edit'])->name('customers.edit');
+        Route::put('customers/{customer}', [CustomerController::class, 'update'])->name('customers.update');
+        Route::get('customers/{customer}', [CustomerController::class, 'show'])->name('customers.show');
 
         Route::get('sms-templates', [SmsTemplateController::class, 'index'])->name('sms-templates.index');
         Route::get('sms-templates/{smsTemplate}/edit', [SmsTemplateController::class, 'edit'])->name('sms-templates.edit');
         Route::put('sms-templates/{smsTemplate}', [SmsTemplateController::class, 'update'])->name('sms-templates.update');
 });
 
-// Fallback route for Tamara Webhook (إذا كنت تستخدمه) - يجب أن يكون خارج مجموعة middleware المصادقة
+// Tamara Webhook Routes - both lowercase and uppercase variants for compatibility
 Route::post('/tamara/webhook', [PaymentController::class, 'handleTamaraWebhook'])->name('tamara.webhook');
+Route::post('/tamara/Webhook', [PaymentController::class, 'handleTamaraWebhook']); // Uppercase 'W' variant
+
+// Tamara Webhook Test and Diagnostic Routes
+Route::get('/tamara/test', function() {
+    return response()->json([
+        'status' => 'ok',
+        'message' => 'Tamara routes are working',
+        'timestamp' => now()->toDateTimeString(),
+        'server_time' => date('Y-m-d H:i:s')
+    ]);
+});
+
+// Verification Route For Tamara Token (Use only temporarily for debugging)
+Route::get('/tamara/check-token', function() {
+    $token = config('services.tamara.notification_token');
+    return response()->json([
+        'token_length' => strlen($token),
+        'token_first_10_chars' => substr($token, 0, 10) . '...',
+        'server_time' => date('Y-m-d H:i:s'),
+        'timestamp' => time()
+    ]);
+});
