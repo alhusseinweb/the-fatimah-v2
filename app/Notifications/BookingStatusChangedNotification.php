@@ -2,9 +2,10 @@
 
 namespace App\Notifications;
 
+// ... (use statements كما هي أو مع إضافة اللازم) ...
 use App\Models\Booking;
-use App\Models\User;
-use App\Notifications\Channels\HttpSmsChannel; // <-- تم التغيير
+// use App\Models\User;
+use App\Notifications\Channels\HttpSmsChannel;
 use App\Notifications\Traits\ManagesSmsContent;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
@@ -12,8 +13,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache; // لإستخدام via
-use App\Models\SmsTemplate;      // لإستخدام via
+use Illuminate\Support\Facades\Cache;
+use App\Models\SmsTemplate;
 use Illuminate\Support\Str;
 
 
@@ -24,52 +25,66 @@ class BookingStatusChangedNotification extends Notification implements ShouldQue
     public Booking $booking;
     public string $oldStatus;
     public string $newStatus;
-    // public User $recipient; // $notifiable هو المستلم
 
-    public function __construct(Booking $booking, string $oldStatus, string $newStatus/*, User $recipient*/)
+    public function __construct(Booking $booking, string $oldStatus, string $newStatus)
     {
         $this->booking = $booking;
         $this->oldStatus = $oldStatus;
         $this->newStatus = $newStatus;
-        // $this->recipient = $recipient;
     }
 
     public function via(object $notifiable): array
     {
-        if ($this->newStatus === $this->oldStatus) { return []; }
+        if ($this->newStatus === $this->oldStatus) {
+            Log::info("BookingStatusChangedNotification: Old and new status are the same ({$this->newStatus}), skipping notification for booking ID {$this->booking->id}.");
+            return [];
+        }
 
-        $excludedStatuses = [
-            Booking::STATUS_CONFIRMED,
-            Booking::STATUS_CANCELLED_BY_ADMIN,
-            Booking::STATUS_CANCELLED_BY_USER,
+        // الحالات التي لها إشعارات مخصصة بها ولا يجب أن يرسل هذا الإشعار لها
+        $excludedStatusesForThisNotification = [
+            Booking::STATUS_CONFIRMED,          // يستخدم BookingConfirmedNotification
+            Booking::STATUS_CANCELLED_BY_ADMIN, // يستخدم BookingCancelledNotification
+            Booking::STATUS_CANCELLED_BY_USER,  // يستخدم BookingCancelledNotification
+            // Booking::STATUS_PENDING,         // حالة أولية، عادة ما يرسل لها BookingRequestReceived
         ];
-        if (in_array($this->newStatus, $excludedStatuses)) {
-            return []; // هذه الحالات لها إشعارات خاصة بها
+        if (in_array($this->newStatus, $excludedStatusesForThisNotification)) {
+            Log::info("BookingStatusChangedNotification: New status '{$this->newStatus}' has a dedicated notification, skipping this generic status change notification for booking ID {$this->booking->id}.");
+            return [];
         }
 
         $channels = [];
-        if ($notifiable->email && filter_var($notifiable->email, FILTER_VALIDATE_EMAIL)) {
+        if (isset($notifiable->email) && filter_var($notifiable->email, FILTER_VALIDATE_EMAIL)) {
             $channels[] = 'mail';
+        } else {
+            Log::warning("BookingStatusChangedNotification: Email not sent to notifiable ID {$notifiable->id}, email missing or invalid.", ['booking_id' => $this->booking->id]);
         }
-        if ($notifiable->mobile_number) {
+
+        if (isset($notifiable->mobile_number) && !empty($notifiable->mobile_number)) {
             $templateKey = $notifiable->is_admin ? 'booking_status_changed_admin' : 'booking_status_changed_customer';
-            $templateExists = Cache::rememberForever('sms_template_active_exists_' . $templateKey, function () use ($templateKey) {
+            $templateExists = Cache::remember('sms_template_active_exists_' . $templateKey, now()->addMinutes(60), function () use ($templateKey) {
                  return SmsTemplate::where('notification_type', $templateKey)->where('is_active', true)->exists();
             });
             if ($templateExists) {
-                $channels[] = HttpSmsChannel::class; // <-- تم التغيير
+                $channels[] = HttpSmsChannel::class;
             } else {
-                Log::warning("BookingStatusChangedNotification: SMS template '{$templateKey}' not found or not active, HttpSmsChannel skipped.", ['booking_id' => $this->booking->id]);
+                Log::warning("BookingStatusChangedNotification: SMS template '{$templateKey}' for notifiable ID {$notifiable->id} not found or not active, HttpSmsChannel skipped.", ['booking_id' => $this->booking->id]);
             }
+        } else {
+            Log::warning("BookingStatusChangedNotification: SMS not sent to notifiable ID {$notifiable->id}, mobile_number missing.", ['booking_id' => $this->booking->id]);
+        }
+        
+        if(empty($channels)){
+            Log::error("BookingStatusChangedNotification: No channels determined for notifiable ID {$notifiable->id}.", ['booking_id' => $this->booking->id, 'is_admin' => $notifiable->is_admin ?? 'N/A']);
         }
         return $channels;
     }
 
     protected function translateStatus(string $statusKey): string
     {
-        // ... (الكود الأصلي كما هو) ...
-        if (method_exists($this->booking, 'getStatusLabelAttribute')) {
-            // ...
+        // إذا كان لديك accessor في موديل Booking لـ status_label، يمكنك استخدامه
+        if (isset($this->booking->status_label) && $this->booking->getRawOriginal('status') === $statusKey) {
+             // هذا قد لا يعمل دائماً إذا كان status_label يعتمد على الحالة الحالية للموديل
+             // من الأفضل استخدام مصفوفة ترجمة أو دالة static
         }
         $statusTranslations = Booking::getStatusesWithOptions(); // استخدام الدالة من الموديل مباشرة
         return $statusTranslations[$statusKey] ?? Str::title(str_replace('_', ' ', $statusKey));
@@ -77,7 +92,6 @@ class BookingStatusChangedNotification extends Notification implements ShouldQue
 
     public function toMail(object $notifiable): MailMessage
     {
-        // ... (الكود الأصلي كما هو) ...
         $newStatusText = $this->translateStatus($this->newStatus);
         $oldStatusText = $this->translateStatus($this->oldStatus);
         $customerUser = $this->booking->user;
@@ -87,7 +101,7 @@ class BookingStatusChangedNotification extends Notification implements ShouldQue
 
         if ($notifiable->is_admin) {
             $mailMessage->subject("تحديث حالة الحجز رقم #{$this->booking->id} إلى: {$newStatusText}")
-                        ->greeting("مرحبا ايها المدير")
+                        ->greeting("مرحباً أيها المدير،")
                         ->line("تم تحديث حالة الحجز رقم #{$this->booking->id} للعميل {$customerUser->name}.")
                         ->line("الحالة السابقة: {$oldStatusText}")
                         ->line("الحالة الجديدة: **{$newStatusText}**")
@@ -95,25 +109,29 @@ class BookingStatusChangedNotification extends Notification implements ShouldQue
                         ->line("- الخدمة: {$serviceName}")
                         ->line("- الموعد: {$bookingDateTime}")
                         ->action('عرض الحجز', route('admin.bookings.show', $this->booking->id));
-        } else {
+        } else { // للعميل
             $mailMessage->subject("تحديث على حالة حجزك رقم #{$this->booking->id}")
                         ->greeting("مرحباً {$notifiable->name},")
                         ->line("تم تحديث حالة حجزك رقم #{$this->booking->id} المتعلق بخدمة '{$serviceName}'.")
                         ->line("الحالة الجديدة لحجزك هي: **{$newStatusText}**.")
                         ->line("موعد الحجز: {$bookingDateTime}.")
                         ->line("للمزيد من التفاصيل أو في حال وجود أي استفسارات، يرجى مراجعة حسابك أو التواصل معنا.")
-                        ->action('عرض تفاصيل حجزي', route('customer.bookings.index'));
+                        ->action('عرض تفاصيل حجزي', route('customer.bookings.index')); // أو customer.bookings.show إذا كان لديك
         }
-        return $mailMessage->salutation('مع خالص التقدير، فريق المصورة فاطمة علي');
+        return $mailMessage->salutation('مع خالص التقدير، فريق ' . config('app.name', 'المصورة فاطمة علي'));
     }
 
     public function toHttpSms(object $notifiable): array
     {
         $recipientPhoneNumber = $this->formatSmsRecipient($notifiable->mobile_number);
         if (!$recipientPhoneNumber) {
-            Log::warning('BookingStatusChangedNotification (toHttpSms): Recipient mobile number could not be determined.', ['booking_id' => $this->booking->id]);
+            Log::warning('BookingStatusChangedNotification (toHttpSms): Recipient mobile number could not be determined for notifiable ID ' . $notifiable->id, ['booking_id' => $this->booking->id]);
             return [];
         }
+
+        // --- START: التعديل الهام هنا ---
+        $templateIdentifier = $notifiable->is_admin ? 'booking_status_changed_admin' : 'booking_status_changed_customer';
+        // --- END: التعديل الهام هنا ---
 
         $newStatusTranslated = $this->translateStatus($this->newStatus);
         $oldStatusTranslated = $this->translateStatus($this->oldStatus);
@@ -122,10 +140,13 @@ class BookingStatusChangedNotification extends Notification implements ShouldQue
             '[old_status_translated]' => Str::limit($oldStatusTranslated, 25, '..'),
         ];
 
-        $messageContent = $this->getSmsMessageContent('booking_status_changed', $notifiable, $specificReplacements, $this->booking);
+        $messageContent = $this->getSmsMessageContent($templateIdentifier, $notifiable, $specificReplacements, $this->booking);
 
         if (empty($messageContent)) {
-             Log::warning('BookingStatusChangedNotification (toHttpSms): SMS message content is empty after processing template.', ['booking_id' => $this->booking->id, 'template_identifier' => 'booking_status_changed']);
+             Log::warning('BookingStatusChangedNotification (toHttpSms): SMS message content is empty after processing template for notifiable ID ' . $notifiable->id, [
+                'booking_id' => $this->booking->id, 
+                'template_identifier_used' => $templateIdentifier
+            ]);
             return [];
         }
 
