@@ -43,6 +43,7 @@ class PaymentSuccessNotification extends Notification implements ShouldQueue
         }
 
         if (isset($notifiable->mobile_number) && !empty($notifiable->mobile_number)) {
+            // **التعديل هنا: استخدام المفتاح الكامل في التحقق من وجود القالب**
             $templateKey = $notifiable->is_admin ? 'payment_success_admin' : 'payment_success_customer';
             $templateExists = Cache::remember('sms_template_active_exists_' . $templateKey, now()->addMinutes(60), function () use ($templateKey) {
                  return SmsTemplate::where('notification_type', $templateKey)->where('is_active', true)->exists();
@@ -115,16 +116,16 @@ class PaymentSuccessNotification extends Notification implements ShouldQueue
             '[paid_amount_short]' => number_format($this->actuallyPaidAmount, 0) . ' ' . $currencySymbol,
             '[invoice_total_amount]' => number_format($this->invoice->amount, 0) . ' ' . $currencySymbol,
             '[invoice_status]' => $this->invoice->status_label ?? $this->invoice->status,
-            // يمكنك إضافة متغيرات مثل [remaining_amount] إذا احتجت إليها في القالب
             '[remaining_amount_short]' => $this->invoice->status === Invoice::STATUS_PARTIALLY_PAID ? (number_format($this->invoice->remaining_amount, 0) . ' ' . $currencySymbol) : '',
         ];
 
+        // تم استخدام $templateIdentifier هنا
         $messageContent = $this->getSmsMessageContent($templateIdentifier, $notifiable, $specificReplacements, $this->invoice->booking);
 
         if (empty($messageContent)) {
             Log::warning('PaymentSuccessNotification (toHttpSms): SMS message content is empty after processing template for notifiable ID ' . $notifiable->id, [
-                'invoice_id' => $this->invoice->id, 
-                'template_identifier_used' => $templateIdentifier // تغيير اسم الحقل ليعكس المفتاح المستخدم
+                'invoice_id' => $this->invoice->id,
+                'template_identifier_used' => $templateIdentifier // تم تعديل اسم الحقل هنا
             ]);
             return [];
         }
