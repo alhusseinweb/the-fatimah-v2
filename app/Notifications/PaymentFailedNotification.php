@@ -2,10 +2,11 @@
 
 namespace App\Notifications;
 
+// ... (use statements كما هي أو مع إضافة اللازم إذا احتجت) ...
 use App\Models\Booking;
 use App\Models\Invoice;
-use App\Models\User;
-use App\Notifications\Channels\HttpSmsChannel; // <-- تم التغيير
+// use App\Models\User;
+use App\Notifications\Channels\HttpSmsChannel;
 use App\Notifications\Traits\ManagesSmsContent;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
@@ -13,8 +14,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache; // لإستخدام via
-use App\Models\SmsTemplate;      // لإستخدام via
+use Illuminate\Support\Facades\Cache;
+use App\Models\SmsTemplate;
 use Illuminate\Support\Str;
 
 
@@ -24,38 +25,44 @@ class PaymentFailedNotification extends Notification implements ShouldQueue
 
     public Invoice $invoice;
     public ?string $reason;
-    // public User $recipient; // $notifiable هو المستلم
 
-    public function __construct(Invoice $invoice, /* User $recipient, */ ?string $reason = null)
+    public function __construct(Invoice $invoice, ?string $reason = null)
     {
         $this->invoice = $invoice;
-        // $this->recipient = $recipient;
         $this->reason = $reason;
     }
 
     public function via(object $notifiable): array
     {
         $channels = [];
-        if ($notifiable->email && filter_var($notifiable->email, FILTER_VALIDATE_EMAIL)) {
+        if (isset($notifiable->email) && filter_var($notifiable->email, FILTER_VALIDATE_EMAIL)) {
             $channels[] = 'mail';
+        } else {
+            Log::warning("PaymentFailedNotification: Email not sent to notifiable ID {$notifiable->id}, email missing or invalid.", ['invoice_id' => $this->invoice->id]);
         }
-        if ($notifiable->mobile_number) {
+
+        if (isset($notifiable->mobile_number) && !empty($notifiable->mobile_number)) {
             $templateKey = $notifiable->is_admin ? 'payment_failed_admin' : 'payment_failed_customer';
-            $templateExists = Cache::rememberForever('sms_template_active_exists_' . $templateKey, function () use ($templateKey) {
+            $templateExists = Cache::remember('sms_template_active_exists_' . $templateKey, now()->addMinutes(60), function () use ($templateKey) {
                  return SmsTemplate::where('notification_type', $templateKey)->where('is_active', true)->exists();
             });
             if ($templateExists) {
-                $channels[] = HttpSmsChannel::class; // <-- تم التغيير
+                $channels[] = HttpSmsChannel::class;
             } else {
-                Log::warning("PaymentFailedNotification: SMS template '{$templateKey}' not found or not active, HttpSmsChannel skipped.", ['invoice_id' => $this->invoice->id]);
+                Log::warning("PaymentFailedNotification: SMS template '{$templateKey}' for notifiable ID {$notifiable->id} not found or not active, HttpSmsChannel skipped.", ['invoice_id' => $this->invoice->id]);
             }
+        } else {
+            Log::warning("PaymentFailedNotification: SMS not sent to notifiable ID {$notifiable->id}, mobile_number missing.", ['invoice_id' => $this->invoice->id]);
+        }
+        
+        if(empty($channels)){
+            Log::error("PaymentFailedNotification: No channels determined for notifiable ID {$notifiable->id}.", ['invoice_id' => $this->invoice->id, 'is_admin' => $notifiable->is_admin ?? 'N/A']);
         }
         return $channels;
     }
 
     public function toMail(object $notifiable): MailMessage
     {
-        // ... (الكود الأصلي كما هو) ...
         $booking = $this->invoice->booking;
         $customerUser = $booking ? $booking->user : null;
         $serviceName = $booking && $booking->service ? $booking->service->name_ar : 'خدمة غير محددة';
@@ -65,8 +72,8 @@ class PaymentFailedNotification extends Notification implements ShouldQueue
         $mailMessage = (new MailMessage);
 
         if ($notifiable->is_admin) {
-            $mailMessage->subject("تنبيه: فشل عملية دفع للفاتورة رقم #{$invoiceNumber}")
-                        ->greeting("مرحبا ايها المدير")
+            $mailMessage->subject("تنبيه إداري: فشل عملية دفع للفاتورة رقم #{$invoiceNumber}")
+                        ->greeting("مرحباً أيها المدير،")
                         ->line("نود إعلامك بفشل عملية دفع متعلقة بالفاتورة رقم #{$invoiceNumber} (حجز رقم #{$bookingId}).")
                         ->line("العميل: " . ($customerUser ? "{$customerUser->name} ({$customerUser->mobile_number})" : "غير محدد"))
                         ->line("الخدمة: {$serviceName}")
@@ -74,11 +81,14 @@ class PaymentFailedNotification extends Notification implements ShouldQueue
                         ->lineIf($this->reason, "سبب الفشل (إن وجد): {$this->reason}")
                         ->line("يرجى مراجعة تفاصيل الفاتورة والحجز في لوحة التحكم.")
                         ->action('عرض الفاتورة', route('admin.invoices.show', $this->invoice->id));
-        } else {
+        } else { // للعميل
             $customerInvoiceUrl = route('customer.invoices.show', $this->invoice->id);
-            $retryPaymentUrl = '#';
-            if ($this->invoice->payment_method === 'tamara' && $this->invoice->booking_id) {
+            $retryPaymentUrl = '#'; // رابط افتراضي
+            if ($this->invoice->booking_id) { // تحقق من وجود حجز مرتبط لإعادة المحاولة
+                 // افترض أن صفحة الانتظار هي المكان المناسب لإعادة المحاولة
                  $retryPaymentUrl = route('booking.pending', $this->invoice->booking_id);
+                 // أو إذا كان لديك مسار مخصص لإعادة دفع فاتورة:
+                 // $retryPaymentUrl = route('customer.invoices.retry-payment', $this->invoice->id);
             }
             $mailMessage->subject("مشكلة في عملية الدفع لحجزك رقم #{$bookingId}")
                         ->greeting("مرحباً {$notifiable->name},")
@@ -90,16 +100,20 @@ class PaymentFailedNotification extends Notification implements ShouldQueue
                         ->action('مراجعة الفاتورة أو إعادة محاولة الدفع', $retryPaymentUrl)
                         ->line("إذا استمرت المشكلة، يرجى التواصل معنا للمساعدة.");
         }
-        return $mailMessage->salutation('مع خالص التقدير، فريق المصورة فاطمة علي');
+        return $mailMessage->salutation('مع خالص التقدير، فريق ' . config('app.name', 'المصورة فاطمة علي'));
     }
 
     public function toHttpSms(object $notifiable): array
     {
         $recipientPhoneNumber = $this->formatSmsRecipient($notifiable->mobile_number);
         if (!$recipientPhoneNumber) {
-            Log::warning('PaymentFailedNotification (toHttpSms): Recipient mobile number could not be determined.', ['invoice_id' => $this->invoice->id]);
+            Log::warning('PaymentFailedNotification (toHttpSms): Recipient mobile number could not be determined for notifiable ID ' . $notifiable->id, ['invoice_id' => $this->invoice->id]);
             return [];
         }
+
+        // --- START: التعديل الهام هنا ---
+        $templateIdentifier = $notifiable->is_admin ? 'payment_failed_admin' : 'payment_failed_customer';
+        // --- END: التعديل الهام هنا ---
 
         $currencySymbol = $this->invoice->currency_symbol_short ?? ($this->invoice->currency ?? 'ر.س');
         $specificReplacements = [
@@ -109,10 +123,13 @@ class PaymentFailedNotification extends Notification implements ShouldQueue
             '[invoice_amount]' => number_format($this->invoice->amount, 0) . ' ' . $currencySymbol,
         ];
 
-        $messageContent = $this->getSmsMessageContent('payment_failed', $notifiable, $specificReplacements, $this->invoice->booking);
+        $messageContent = $this->getSmsMessageContent($templateIdentifier, $notifiable, $specificReplacements, $this->invoice->booking);
 
         if (empty($messageContent)) {
-            Log::warning('PaymentFailedNotification (toHttpSms): SMS message content is empty after processing template.', ['invoice_id' => $this->invoice->id, 'template_identifier' => 'payment_failed']);
+            Log::warning('PaymentFailedNotification (toHttpSms): SMS message content is empty after processing template for notifiable ID ' . $notifiable->id, [
+                'invoice_id' => $this->invoice->id, 
+                'template_identifier_used' => $templateIdentifier
+            ]);
             return [];
         }
 
