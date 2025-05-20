@@ -49,7 +49,7 @@ class BookingConfirmedNotification extends Notification implements ShouldQueue
                 Log::warning("BookingConfirmedNotification: SMS template '{$templateKey}' for notifiable ID {$notifiable->id} not found or not active, HttpSmsChannel skipped.", ['booking_id' => $this->booking->id]);
             }
         } else {
-             Log::warning("BookingConfirmedNotification: SMS not sent to notifiable ID {$notifiable->id}, mobile_number missing.", ['booking_id' => $this->booking->id]);
+            Log::warning("BookingConfirmedNotification: SMS not sent to notifiable ID {$notifiable->id}, mobile_number missing.", ['booking_id' => $this->booking->id]);
         }
         
         if(empty($channels)){
@@ -62,13 +62,13 @@ class BookingConfirmedNotification extends Notification implements ShouldQueue
     {
         $serviceName = $this->booking->service ? $this->booking->service->name_ar : 'الخدمة المختارة';
         $bookingDateTime = Carbon::parse($this->booking->booking_datetime)->translatedFormat('l، d F Y - الساعة h:i A');
-        $customerUser = $this->booking->user;
+        $customerUser = $this->booking->user; // هذا هو العميل صاحب الحجز
         $mailMessage = (new MailMessage);
 
         if ($notifiable->is_admin) {
-            $mailMessage->subject("تأكيد حجز: تم تأكيد الحجز رقم #{$this->booking->id} للعميل {$customerUser->name}")
+            $mailMessage->subject("تأكيد حجز إداري: تم تأكيد الحجز رقم #{$this->booking->id} للعميل {$customerUser->name}")
                         ->greeting("مرحباً أيها المدير،")
-                        ->line("تم تأكيد الحجز التالي بنجاح:")
+                        ->line("تم تأكيد الحجز التالي بنجاح (بواسطة إجراء إداري أو عملية دفع مكتملة):")
                         ->line("- العميل: {$customerUser->name} (جوال: {$customerUser->mobile_number})")
                         ->line("- الخدمة: {$serviceName}")
                         ->line("- الموعد: {$bookingDateTime}")
@@ -84,7 +84,7 @@ class BookingConfirmedNotification extends Notification implements ShouldQueue
                         ->line("رقم الحجز: **{$this->booking->id}**")
                         ->lineIf($this->booking->event_location, "مكان الحدث: **{$this->booking->event_location}**")
                         ->line("نشكر ثقتك ونتطلع لخدمتك قريباً. نرجو الالتزام بالموعد.")
-                        ->action('عرض تفاصيل حجوزاتي', route('customer.bookings.index')); // أو customer.bookings.show
+                        ->action('عرض تفاصيل حجوزاتي', route('customer.bookings.index')); // أو customer.bookings.show إذا كان لديك
         }
         return $mailMessage->salutation('مع خالص التقدير، فريق ' . config('app.name', 'المصورة فاطمة علي'));
     }
@@ -110,7 +110,7 @@ class BookingConfirmedNotification extends Notification implements ShouldQueue
 
         if (empty($messageContent)) {
             Log::warning('BookingConfirmedNotification (toHttpSms): SMS message content is empty after processing template for notifiable ID ' . $notifiable->id, [
-                'booking_id' => $this->booking->id, 
+                'booking_id' => $this->booking->id,
                 'template_identifier_used' => $templateIdentifier
             ]);
             return [];
