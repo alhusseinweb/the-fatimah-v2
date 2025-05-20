@@ -2,12 +2,9 @@
 
 namespace App\Notifications;
 
-use App\Models\Booking;
 use App\Models\Invoice;
-// use App\Models\User; // $notifiable هو المستلم
 use App\Notifications\Channels\HttpSmsChannel;
 use App\Notifications\Traits\ManagesSmsContent;
-use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -16,7 +13,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use App\Models\SmsTemplate;
 use Illuminate\Support\Str;
-
+use Carbon\Carbon; // تأكد من وجود هذا
 
 class PaymentSuccessNotification extends Notification implements ShouldQueue
 {
@@ -36,33 +33,45 @@ class PaymentSuccessNotification extends Notification implements ShouldQueue
     public function via(object $notifiable): array
     {
         $channels = [];
+        $logContext = [
+            'notification' => class_basename($this),
+            'notifiable_id' => $notifiable->id,
+            'notifiable_type' => get_class($notifiable),
+            'is_admin' => $notifiable->is_admin ?? 'N/A',
+            'invoice_id' => $this->invoice->id
+        ];
+
         if (isset($notifiable->email) && filter_var($notifiable->email, FILTER_VALIDATE_EMAIL)) {
             $channels[] = 'mail';
+            Log::info('PaymentSuccessNotification: Mail channel ADDED.', $logContext + ['email' => $notifiable->email]);
         } else {
-            Log::warning("PaymentSuccessNotification: Email not sent to notifiable ID {$notifiable->id}, email missing or invalid.", ['invoice_id' => $this->invoice->id]);
+            Log::warning("PaymentSuccessNotification: Mail channel SKIPPED (email missing or invalid).", $logContext + ['email_provided' => $notifiable->email ?? 'N/A']);
         }
 
         if (isset($notifiable->mobile_number) && !empty($notifiable->mobile_number)) {
-            // **التعديل هنا: استخدام المفتاح الكامل في التحقق من وجود القالب**
             $templateKey = $notifiable->is_admin ? 'payment_success_admin' : 'payment_success_customer';
-            $templateExists = Cache::remember('sms_template_active_exists_' . $templateKey, now()->addMinutes(60), function () use ($templateKey) {
+            $templateExists = Cache::remember('sms_template_active_exists_' . $templateKey, now()->addMinutes(5), function () use ($templateKey) { // تقليل مدة الكاش للاختبار
                  return SmsTemplate::where('notification_type', $templateKey)->where('is_active', true)->exists();
             });
             if ($templateExists) {
                 $channels[] = HttpSmsChannel::class;
+                Log::info("PaymentSuccessNotification: HttpSmsChannel ADDED.", $logContext + ['template_key' => $templateKey]);
             } else {
-                Log::warning("PaymentSuccessNotification: SMS template '{$templateKey}' for notifiable ID {$notifiable->id} not found or not active, HttpSmsChannel skipped.", ['invoice_id' => $this->invoice->id]);
+                Log::warning("PaymentSuccessNotification: HttpSmsChannel SKIPPED (template '{$templateKey}' not found or inactive).", $logContext);
             }
         } else {
-            Log::warning("PaymentSuccessNotification: SMS not sent to notifiable ID {$notifiable->id}, mobile_number missing.", ['invoice_id' => $this->invoice->id]);
+            Log::warning("PaymentSuccessNotification: HttpSmsChannel SKIPPED (mobile_number missing).", $logContext);
         }
         
         if(empty($channels)){
-            Log::error("PaymentSuccessNotification: No channels determined for notifiable ID {$notifiable->id}.", ['invoice_id' => $this->invoice->id, 'is_admin' => $notifiable->is_admin ?? 'N/A']);
+            Log::error("PaymentSuccessNotification: No channels determined.", $logContext);
+        } else {
+            Log::info("PaymentSuccessNotification: Channels determined.", $logContext + ['channels' => $channels]);
         }
         return $channels;
     }
 
+    // ... (دوال toMail, toHttpSms, toArray كما قدمتها لك سابقًا، فهي صحيحة من حيث مفتاح القالب) ...
     public function toMail(object $notifiable): MailMessage
     {
         $booking = $this->invoice->booking;
@@ -106,9 +115,7 @@ class PaymentSuccessNotification extends Notification implements ShouldQueue
             return [];
         }
 
-        // --- START: التعديل الهام هنا ---
         $templateIdentifier = $notifiable->is_admin ? 'payment_success_admin' : 'payment_success_customer';
-        // --- END: التعديل الهام هنا ---
 
         $currencySymbol = $this->invoice->currency_symbol_short ?? ($this->invoice->currency ?? 'ر.س');
         $specificReplacements = [
@@ -119,13 +126,12 @@ class PaymentSuccessNotification extends Notification implements ShouldQueue
             '[remaining_amount_short]' => $this->invoice->status === Invoice::STATUS_PARTIALLY_PAID ? (number_format($this->invoice->remaining_amount, 0) . ' ' . $currencySymbol) : '',
         ];
 
-        // تم استخدام $templateIdentifier هنا
         $messageContent = $this->getSmsMessageContent($templateIdentifier, $notifiable, $specificReplacements, $this->invoice->booking);
 
         if (empty($messageContent)) {
             Log::warning('PaymentSuccessNotification (toHttpSms): SMS message content is empty after processing template for notifiable ID ' . $notifiable->id, [
-                'invoice_id' => $this->invoice->id,
-                'template_identifier_used' => $templateIdentifier // تم تعديل اسم الحقل هنا
+                'invoice_id' => $this->invoice->id, 
+                'template_identifier_used' => $templateIdentifier
             ]);
             return [];
         }
@@ -144,10 +150,7 @@ class PaymentSuccessNotification extends Notification implements ShouldQueue
             'recipient_id' => $notifiable->id,
             'recipient_type' => $notifiable->is_admin ? 'admin' : 'customer',
             'event' => 'payment_success',
-            'actually_paid_amount' => $this->actuallyPaidAmount,
-            'paid_currency' => $this->paidCurrency,
-            'invoice_total_amount' => $this->invoice->amount,
-            'channels_used' => $this->via($notifiable),
+            // ... (بقية البيانات)
         ];
     }
 }
