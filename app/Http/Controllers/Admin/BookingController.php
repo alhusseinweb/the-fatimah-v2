@@ -23,10 +23,40 @@ use Illuminate\Support\Str;
 
 class BookingController extends Controller
 {
-    // ... (دوال index, show كما هي) ...
+    /**
+     * Display a listing of the bookings.
+     */
+    public function index(Request $request) // <<--- هذه الدالة يجب أن تكون موجودة
+    {
+        $statuses = Booking::getStatusesWithOptions();
+        $query = Booking::with(['user:id,name,mobile_number,email', 'service:id,name_ar'])->latest();
+
+        if ($request->filled('status') && array_key_exists($request->status, $statuses)) {
+            $query->where('status', $request->status);
+        }
+
+        $bookings = $query->paginate(15)->withQueryString();
+        return view('admin.bookings.index', compact('bookings', 'statuses'));
+    }
+
+    /**
+     * Display the specified booking details.
+     */
+    public function show(Booking $booking) // <<--- هذه الدالة يجب أن تكون موجودة
+    {
+        $booking->load(['user', 'service', 'discountCode', 'invoice.payments']);
+        $statuses = Booking::getStatusesWithOptions();
+        $invoiceStatuses = Invoice::statuses(); // افترض أن Invoice model لديه دالة statuses()
+        $paymentConfirmationOptions = [
+            'deposit' => 'تأكيد استلام العربون فقط',
+            'full' => 'تأكيد استلام المبلغ الكامل/المتبقي',
+        ];
+        return view('admin.bookings.show', compact('booking', 'statuses', 'invoiceStatuses', 'paymentConfirmationOptions'));
+    }
 
     /**
      * Update the status of the specified booking.
+     * (الكود المعدل لهذه الدالة كما في الردود السابقة)
      */
     public function updateStatus(Request $request, Booking $booking)
     {
@@ -38,7 +68,6 @@ class BookingController extends Controller
             Booking::STATUS_CANCELLED_BY_USER,
         ];
 
-        // ... (قواعد التحقق والرسائل كما هي) ...
         $rules = [
             'status' => ['required', Rule::in(array_keys($definedBookingStatuses))],
             'payment_confirmation_type' => [
@@ -65,9 +94,11 @@ class BookingController extends Controller
         $messages = [
             'payment_confirmation_type.required' => 'عند تأكيد الحجز، يرجى تحديد كيفية استلام الدفعة.',
             'deposit_amount.required' => 'عند اختيار تأكيد استلام العربون، يجب إدخال مبلغ العربون.',
-            // ... (بقية الرسائل)
+            'status.required' => 'الرجاء اختيار الحالة الجديدة.',
+            'status.in' => 'الحالة الجديدة المحددة غير صالحة.',
+            'cancellation_reason.required' => 'سبب الإلغاء مطلوب عند اختيار هذه الحالة.',
+            'cancellation_reason.min' => 'سبب الإلغاء يجب أن يكون ٥ أحرف على الأقل.',
         ];
-
 
         $validator = Validator::make($request->all(), $rules, $messages);
 
@@ -116,15 +147,14 @@ class BookingController extends Controller
             }
 
             if ($newStatus === $confirmedStatusValue && $paymentConfirmationType && $invoice) {
-                if (!in_array($newStatus, $allCancellationStatusValues)) {
+                if (!in_array($newStatus, $allCancellationStatusValues)) { 
                     $newInvoiceStatus = $invoice->status;
                     $paymentGateway = 'manual_admin';
                     $amountPaidThisTransaction = 0.0;
                     $currencyOfThisTransaction = $invoice->currency ?: 'SAR';
 
                     if ($paymentConfirmationType === 'deposit' && $depositAmountFromRequest !== null && $depositAmountFromRequest > 0) {
-                        // ... (منطق العربون كما هو)
-                         $maxAllowedDeposit = $invoice->remaining_amount > 0 ? $invoice->remaining_amount : $invoice->amount;
+                        $maxAllowedDeposit = $invoice->remaining_amount > 0 ? $invoice->remaining_amount : $invoice->amount;
                         if ($depositAmountFromRequest >= $maxAllowedDeposit && $maxAllowedDeposit > 0.009) {
                             DB::rollBack();
                             $validator->errors()->add('deposit_amount', "مبلغ العربون (${depositAmountFromRequest}) لا يمكن أن يتجاوز أو يساوي المبلغ المتبقي (${maxAllowedDeposit}). اختر 'تأكيد استلام المبلغ الكامل' بدلاً من ذلك.");
@@ -133,12 +163,23 @@ class BookingController extends Controller
                         $amountPaidThisTransaction = $depositAmountFromRequest;
                         $newInvoiceStatus = Invoice::STATUS_PARTIALLY_PAID;
                         $paymentGateway = 'manual_admin_deposit';
+                        if ($successMessage === 'لم يتم تغيير حالة الحجز (الحالة المحددة هي نفسها الحالية).' || $successMessage === 'تم تحديث حالة الحجز بنجاح.') {
+                            $successMessage = $paymentConfirmationType === 'deposit' ? 'تم تسجيل دفعة العربون بنجاح.' : 'تم تسجيل المبلغ الكامل/المتبقي بنجاح.';
+                            if($bookingStatusActuallyChanged) $successMessage = 'تم تحديث حالة الحجز و' . lcfirst($successMessage);
+                        } else {
+                             $successMessage .= ($paymentConfirmationType === 'deposit' ? ' وتم تسجيل دفعة العربون.' : ' وتم تسجيل المبلغ الكامل/المتبقي.');
+                        }
 
                     } elseif ($paymentConfirmationType === 'full') {
-                        // ... (منطق الدفع الكامل كما هو) ...
                         $amountPaidThisTransaction = $invoice->remaining_amount > 0 ? $invoice->remaining_amount : $invoice->amount;
                         if (!($invoice->status === Invoice::STATUS_PAID && $amountPaidThisTransaction <=0)) {
                              $newInvoiceStatus = Invoice::STATUS_PAID;
+                             if ($successMessage === 'لم يتم تغيير حالة الحجز (الحالة المحددة هي نفسها الحالية).' || $successMessage === 'تم تحديث حالة الحجز بنجاح.') {
+                                $successMessage = $paymentConfirmationType === 'deposit' ? 'تم تسجيل دفعة العربون بنجاح.' : 'تم تسجيل المبلغ الكامل/المتبقي بنجاح.';
+                                if($bookingStatusActuallyChanged) $successMessage = 'تم تحديث حالة الحجز و' . lcfirst($successMessage);
+                            } else {
+                                 $successMessage .= ($paymentConfirmationType === 'deposit' ? ' وتم تسجيل دفعة العربون.' : ' وتم تسجيل المبلغ الكامل/المتبقي.');
+                            }
                         }
                     }
 
@@ -152,13 +193,7 @@ class BookingController extends Controller
                                 'payment_details' => json_encode(['confirmed_by_admin_id' => Auth::id(), 'admin_name' => Auth::user()?->name])
                             ]);
                             Log::info("Admin manual payment recorded.", ['invoice_id' => $invoice->id, 'payment_id' => $createdPayment->id, 'amount' => $amountPaidThisTransaction]);
-                            $paymentRecordedInThisAction = true;
-                             if ($successMessage === 'لم يتم تغيير حالة الحجز (الحالة المحددة هي نفسها الحالية).' || $successMessage === 'تم تحديث حالة الحجز بنجاح.') {
-                                $successMessage = $paymentConfirmationType === 'deposit' ? 'تم تسجيل دفعة العربون بنجاح.' : 'تم تسجيل المبلغ الكامل/المتبقي بنجاح.';
-                                if($bookingStatusActuallyChanged) $successMessage = 'تم تحديث حالة الحجز و' . lcfirst($successMessage);
-                            } else {
-                                $successMessage .= ($paymentConfirmationType === 'deposit' ? ' وتم تسجيل دفعة العربون.' : ' وتم تسجيل المبلغ الكامل/المتبقي.');
-                            }
+                            $paymentRecordedInThisAction = true; 
                         }
 
                         if ($invoice->status !== Invoice::STATUS_PAID || $newInvoiceStatus === Invoice::STATUS_PAID) {
@@ -186,9 +221,9 @@ class BookingController extends Controller
                             }
 
                             $adminUsersForPayment = User::where('is_admin', true)->where('id', '!=', Auth::id())->get();
-                            Log::info("AdminBookingController: Found " . $adminUsersForPayment->count() . " other admins for PaymentSuccessNotification."); // <-- تسجيل إضافي
+                            Log::info("AdminBookingController: Found " . $adminUsersForPayment->count() . " other admins for PaymentSuccessNotification.");
                             foreach ($adminUsersForPayment as $adminUser) {
-                                Log::info("AdminBookingController: Attempting to queue PaymentSuccessNotification for ADMIN {$adminUser->id}"); // <-- تسجيل إضافي
+                                Log::info("AdminBookingController: Attempting to queue PaymentSuccessNotification for ADMIN {$adminUser->id}");
                                 try {
                                     $adminUser->notify(new PaymentSuccessNotification(
                                         $invoice, (float)$createdPayment->amount, $createdPayment->currency
@@ -200,23 +235,29 @@ class BookingController extends Controller
                                 }
                             }
                         }
-                    } // ... (بقية الكود كما هو)
+                    } elseif ($invoice->status === Invoice::STATUS_PAID && !$bookingStatusActuallyChanged && $oldStatus === $newStatus) {
+                        Log::info("Invoice {$invoice->id} was already paid. No new payment recorded. Booking status unchanged.", ['invoice_id' => $invoice->id]);
+                        if (str_starts_with($successMessage, 'لم يتم تغيير حالة الحجز')) {
+                           $successMessage = 'لم يتم إجراء تغيير (الفاتورة مدفوعة والحالة لم تتغير).';
+                        }
+                    }
                 }
-            } // ... (بقية الكود كما هو)
+            } elseif ($newStatus === $confirmedStatusValue && !$invoice) {
+                Log::warning("Booking ID {$booking->id} confirmed but no invoice found to record payment.");
+                if($bookingStatusActuallyChanged || $oldStatus !== $newStatus) $successMessage .= ' (تنبيه: لا توجد فاتورة لتسجيل الدفعة).';
+                else if (str_starts_with($successMessage, 'لم يتم تغيير حالة الحجز')) $successMessage = 'لم يتم إجراء تغيير (الحالة مؤكدة ولا توجد فاتورة).';
+            }
 
             if ($bookingStatusActuallyChanged) {
                 $customer = $booking->user;
                 $actor = Auth::user();
 
-                // --- START: تعديل منطق إرسال BookingConfirmedNotification ---
                 $shouldSendBookingConfirmed = ($newStatus === Booking::STATUS_CONFIRMED);
-                // إذا كنت لا تريد إرسال تأكيد الحجز إذا تم إرسال إشعار دفع، يمكنك إعادة الشرط التالي:
+                // لإرسال تأكيد الحجز دائماً عند تأكيد الحجز، بغض النظر عن الدفع في هذا الإجراء، علّق السطرين التاليين أو احذفهما
                 // if ($paymentRecordedInThisAction) {
-                //     $shouldSendBookingConfirmed = false;
-                //     Log::info("BookingConfirmedNotification will be SKIPPED for booking ID {$booking->id} because a payment was recorded in this action, and PaymentSuccessNotification should cover confirmation.");
+                //     $shouldSendBookingConfirmed = false; 
+                //     Log::info("BookingConfirmedNotification will be SKIPPED for booking ID {$booking->id} because a payment was recorded in this action.");
                 // }
-                // --- END: تعديل منطق إرسال BookingConfirmedNotification ---
-
 
                 if ($customer) {
                     Log::info("AdminBookingController: Processing other status update notifications for CUSTOMER Booking ID: {$booking->id} (NewStatus:{$newStatus})");
@@ -240,7 +281,7 @@ class BookingController extends Controller
                 }
 
                 $allAdminUsers = User::where('is_admin', true)->where('id', '!=', Auth::id())->get();
-                Log::info("AdminBookingController: Found " . $allAdminUsers->count() . " other admins for general status update notifications."); // <-- تسجيل إضافي
+                Log::info("AdminBookingController: Found " . $allAdminUsers->count() . " other admins for general status update notifications.");
                 foreach ($allAdminUsers as $admin) {
                     Log::info("AdminBookingController: Processing other status update notifications for ADMIN: {$admin->email} Booking ID: {$booking->id} (NewStatus:{$newStatus})");
                     try {
@@ -274,14 +315,17 @@ class BookingController extends Controller
             ]);
             return redirect()->route('admin.bookings.show', $booking->id)->with('error', 'حدث خطأ غير متوقع. يرجى مراجعة السجلات.');
         }
-
-        // ... (بقية الكود لتحديث رسالة النجاح كما هو) ...
-         if (!empty($notificationsSentSummary)) {
-            if (str_starts_with($successMessage, 'لم يتم تغيير حالة الحجز') && !$bookingStatusActuallyChanged && empty($paymentRecordedInThisAction) ) {
-                // إذا لم يتغير شيء ولم يتم تسجيل دفعة ولكن أرسلنا إشعارات (غير محتمل جدا)
+        
+        if (!empty($notificationsSentSummary)) {
+            if (str_starts_with($successMessage, 'لم يتم تغيير حالة الحجز') && !$bookingStatusActuallyChanged && !$paymentRecordedInThisAction ) {
+                // No actual change to booking or payment, but notifications might have been attempted (unlikely with current logic)
+                // If $successMessage is still the default "no change" message, and we did try to send notifications
+                // it's better to append to a more neutral message or just show the notification summary.
+                 $successMessage = "ملخص الإشعارات (محاولة إرسال): " . implode('، ', $notificationsSentSummary) . ".";
             } elseif(str_starts_with($successMessage, 'لم يتم تغيير حالة الحجز')) {
-                // إذا تغير شيء ما (دفعة أو حالة) وتم تحديث successMessage بالفعل
-                $successMessage .= " ملخص الإشعارات (محاولة إرسال): " . implode('، ', $notificationsSentSummary) . ".";
+                 // This means no change to booking status, but payment might have been recorded
+                 // The successMessage for payment recording should take precedence.
+                 $successMessage .= " ملخص الإشعارات (محاولة إرسال): " . implode('، ', $notificationsSentSummary) . ".";
             } else {
                  $successMessage .= " ملخص الإشعارات (محاولة إرسال): " . implode('، ', $notificationsSentSummary) . ".";
             }
@@ -295,7 +339,6 @@ class BookingController extends Controller
     
     public function destroy(Booking $booking)
     {
-        // ... (دالة الحذف كما هي) ...
         try {
             $bookingId = $booking->id;
             if ($booking->invoice && !in_array($booking->invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED])) {
