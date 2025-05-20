@@ -22,8 +22,9 @@ use Illuminate\Support\Str;
 
 use Tamara\Client as TamaraClient;
 use Tamara\Configuration as TamaraConfiguration;
-// use Tamara\Notification\Authenticator as TamaraAuthenticator; // لن يتم استخدامه بسبب تجاوز المصادقة
-use Tamara\Model\Order\Order as TamaraOrderModel;
+// Authenticator ليس مستخدماً في هذا الإصدار من الكود بسبب تجاوز المصادقة
+// use Tamara\Notification\Authenticator as TamaraAuthenticator; 
+// use Tamara\Model\Order\Order as TamaraOrderModel; // لا نحتاج إليه طالما نستخدم الثوابت المعرفة محليًا
 use Tamara\Request\Order\AuthoriseOrderRequest as TamaraAuthoriseOrderRequest;
 // use Tamara\Exception\ForbiddenException as TamaraForbiddenException;
 // use Tamara\Exception\RequestException as TamaraRequestException;
@@ -77,7 +78,7 @@ class PaymentController extends Controller
         }
 
         Log::info("Redirecting user after Tamara success redirect.", ['booking_id' => $bookingId, 'invoice_id' => $invoice->id, 'invoice_status_for_redirect' => $invoice->status]);
-        return Redirect::route('customer.invoices.show', $invoice->id)
+        return Redirect::route('customer.invoices.show', $invoice->id) 
                         ->with('success', $successMessage);
     }
 
@@ -129,8 +130,6 @@ class PaymentController extends Controller
 
     public function handleTamaraWebhook(Request $request)
     {
-        // ... (الكود كما هو في الرد السابق، مع تجاوز المصادقة وتصحيح منطق تحديث حالة الفاتورة) ...
-        // ... (تأكد من أن منطق استخلاص المبلغ وتحديث حالة الفاتورة داخل معالجة EVENT_TYPE_ORDER_APPROVED صحيح) ...
         Log::channel('daily')->info('Tamara Webhook Received - Full Request Details:', [
             'headers' => $request->headers->all(), 'content_type' => $request->getContentTypeFormat(),
             'method' => $request->getMethod(), 'ip_address' => $request->ip(),
@@ -142,9 +141,11 @@ class PaymentController extends Controller
 
         $rawContent = $request->getContent();
         $requestData = json_decode($rawContent, true) ?: [];
+        
         $tamaraOrderId = $requestData['order_id'] ?? null;
         $resolved_order_reference_id = $requestData['order_reference_id'] ?? ($requestData['order_number'] ?? null);
         $eventType = $requestData['event_type'] ?? null;
+
         if (!$eventType && isset($requestData['order_status'])) {
             $eventType = match (strtolower($requestData['order_status'])) {
                 'approved' => self::EVENT_TYPE_ORDER_APPROVED,
@@ -172,33 +173,67 @@ class PaymentController extends Controller
             if ($eventType === self::EVENT_TYPE_ORDER_APPROVED) {
                 Log::info('Processing Tamara order_approved event (auth bypassed).', ['tamara_order_id' => $tamaraOrderId, 'order_reference_id' => $resolved_order_reference_id]);
                 DB::transaction(function () use ($tamaraOrderId, $resolved_order_reference_id, $requestData, $eventType) { // أضفت eventType هنا
+                    
                     $invoice = Invoice::where(function ($query) use ($resolved_order_reference_id, $tamaraOrderId) {
-                        if ($resolved_order_reference_id) { $query->where('invoice_number', $resolved_order_reference_id); }
+                        if ($resolved_order_reference_id) {
+                            $query->where('invoice_number', $resolved_order_reference_id);
+                        }
                         $query->orWhere('payment_gateway_ref', $tamaraOrderId);
-                    })->with('booking.user', 'booking.service')->lockForUpdate()->first();
+                    })
+                    ->with('booking.user', 'booking.service')
+                    ->lockForUpdate() 
+                    ->first();
 
-                    if (!$invoice) { /* ... */ return; }
-                    if (!$invoice->booking || !$invoice->booking->user) { /* ... */ return; }
+                    if (!$invoice) {
+                        Log::warning('Webhook: Invoice not found for order_approved.', ['tamara_order_id' => $tamaraOrderId, 'attempted_order_reference_id' => $resolved_order_reference_id]);
+                        return;
+                    }
+                    if (!$invoice->booking || !$invoice->booking->user) {
+                         Log::warning('Webhook: Booking or User not found for invoice.', ['invoice_id' => $invoice->id]);
+                         return;
+                    }
 
-                    $existingPayment = Payment::where('transaction_id', $tamaraOrderId)->where('invoice_id', $invoice->id)->exists();
+                    $existingPayment = Payment::where('transaction_id', $tamaraOrderId)
+                                            ->where('invoice_id', $invoice->id)
+                                            ->exists();
+
                     $paymentActuallyCreatedInThisWebhookCall = false;
                     $amountPaidInThisTransaction = 0;
                     $tamaraCurrency = $invoice->currency ?: 'SAR';
 
                     if (!$existingPayment) {
-                        // ... (منطق استخلاص المبلغ وتحديث $amountPaidInThisTransaction و $tamaraCurrency كما في الرد السابق) ...
-                         $tamaraAmount = $requestData['total_amount']['amount'] ?? 
-                                        ($requestData['order_amount']['amount'] ?? 
-                                        (isset($requestData['data']['payment_amount']['amount']) ? $requestData['data']['payment_amount']['amount'] :
-                                        (isset($requestData['data']['total_amount']['amount']) ? $requestData['data']['total_amount']['amount'] : null)));
+                        // --- START: تصحيح منطق استخلاص المبلغ والعملة ---
+                        $tamaraAmount = null;
+                        // $tamaraCurrency مُهيأة بالفعل
 
-                        $tamaraCurrency = $requestData['total_amount']['currency'] ?? 
-                                          ($requestData['order_amount']['currency'] ?? 
-                                          (isset($requestData['data']['payment_amount']['currency']) ? $requestData['data']['payment_amount']['currency'] :
-                                          (isset($requestData['data']['total_amount']['currency']) ? $requestData['data']['total_amount']['currency'] : $tamaraCurrency)));
+                        if (isset($requestData['total_amount']['amount'])) {
+                            $tamaraAmount = $requestData['total_amount']['amount'];
+                            if (isset($requestData['total_amount']['currency'])) {
+                                $tamaraCurrency = $requestData['total_amount']['currency'];
+                            }
+                        } elseif (isset($requestData['order_amount']['amount'])) {
+                            $tamaraAmount = $requestData['order_amount']['amount'];
+                            if (isset($requestData['order_amount']['currency'])) {
+                                $tamaraCurrency = $requestData['order_amount']['currency'];
+                            }
+                        } elseif (isset($requestData['data']) && is_array($requestData['data'])) { // التحقق من أن data مصفوفة
+                            if (isset($requestData['data']['payment_amount']['amount'])) {
+                                $tamaraAmount = $requestData['data']['payment_amount']['amount'];
+                                if (isset($requestData['data']['payment_amount']['currency'])) {
+                                    $tamaraCurrency = $requestData['data']['payment_amount']['currency'];
+                                }
+                            } elseif (isset($requestData['data']['total_amount']['amount'])) {
+                                $tamaraAmount = $requestData['data']['total_amount']['amount'];
+                                if (isset($requestData['data']['total_amount']['currency'])) {
+                                    $tamaraCurrency = $requestData['data']['total_amount']['currency'];
+                                }
+                            }
+                        }
+                        // --- END: تصحيح منطق استخلاص المبلغ والعملة ---
                         
                         if ($tamaraAmount !== null) {
                             $amountPaidInThisTransaction = (float) $tamaraAmount;
+                            Log::info("Amount extracted directly from webhook payload for order_approved: {$amountPaidInThisTransaction} {$tamaraCurrency}", ['invoice_id' => $invoice->id]);
                         } else {
                             Log::warning("Could not extract amount from Tamara webhook for order_approved. Estimating based on invoice type.", ['tamara_order_id' => $tamaraOrderId, 'invoice_id' => $invoice->id, 'request_data_keys' => array_keys($requestData)]);
                             if ($invoice->payment_option === 'down_payment') {
@@ -212,61 +247,136 @@ class PaymentController extends Controller
                              Log::info("Estimated amount for payment_option '{$invoice->payment_option}': {$amountPaidInThisTransaction}", ['invoice_id' => $invoice->id]);
                         }
 
-
                         if ($amountPaidInThisTransaction > 0.009) {
-                            Payment::create([/* ... */]);
+                            Payment::create([
+                                'invoice_id' => $invoice->id,
+                                'transaction_id' => $tamaraOrderId,
+                                'amount' => $amountPaidInThisTransaction,
+                                'currency' => $tamaraCurrency,
+                                'status' => 'completed',
+                                'payment_gateway' => 'tamara',
+                                'payment_details' => json_encode(['tamara_order_id' => $tamaraOrderId, 'event_type' => $eventType, 'webhook_payload_received' => $requestData]) ?: null,
+                            ]);
                             Log::info("Payment record CREATED via webhook for order_approved.", ['invoice_id' => $invoice->id, 'amount' => $amountPaidInThisTransaction]);
                             $paymentActuallyCreatedInThisWebhookCall = true;
-                        } else { /* ... */ }
-                    } else { /* ... */ }
+                        } else {
+                             Log::info("Skipping payment creation as amount is zero or less for order_approved.", ['invoice_id' => $invoice->id, 'amount' => $amountPaidInThisTransaction]);
+                        }
+                    } else {
+                        Log::warning("Duplicate payment webhook (order_approved) or payment already recorded. Ignored for order_id.", [
+                            'invoice_id' => $invoice->id,
+                            'tamara_order_id' => $tamaraOrderId
+                        ]);
+                    }
 
                     if ($paymentActuallyCreatedInThisWebhookCall) {
                         $customer = $invoice->booking->user;
                         $originalInvoiceStatus = $invoice->status;
                         $newInvoiceStatus = $originalInvoiceStatus;
 
-                        // --- START: منطق تحديد حالة الفاتورة المعدل ---
                         if ($invoice->payment_option === 'down_payment') {
                             $newInvoiceStatus = Invoice::STATUS_PARTIALLY_PAID;
                             if (abs($amountPaidInThisTransaction - $invoice->amount) < 0.01 && $invoice->amount > 0) {
                                 $newInvoiceStatus = Invoice::STATUS_PAID;
                             }
                         } else { 
-                            $totalCurrentlyPaid = $invoice->payments()->where('status', 'completed')->sum('amount');
-                            if (abs(($totalCurrentlyPaid + $amountPaidInThisTransaction) - $invoice->amount) < 0.01 && $invoice->amount > 0) {
+                            $totalCurrentlyPaid = Payment::where('invoice_id', $invoice->id)->where('status', 'completed')->sum('amount');
+                            // $totalCurrentlyPaid لا يشمل $amountPaidInThisTransaction لأننا داخل معاملة وقد لا يكون قد تم حفظه بعد إذا كان هذا أول استدعاء.
+                            // لذلك، سنفترض أن $amountPaidInThisTransaction هو الدفعة الوحيدة أو المكملة.
+                            if (abs($amountPaidInThisTransaction - $invoice->amount) < 0.01 && $invoice->amount > 0) { // إذا كانت الدفعة الحالية تغطي الإجمالي
                                 $newInvoiceStatus = Invoice::STATUS_PAID;
-                            } elseif (($totalCurrentlyPaid + $amountPaidInThisTransaction) > 0) {
-                                $newInvoiceStatus = Invoice::STATUS_PARTIALLY_PAID;
-                            } else {
-                                $newInvoiceStatus = Invoice::STATUS_UNPAID;
+                            } elseif ($amountPaidInThisTransaction > 0 && $amountPaidInThisTransaction < $invoice->amount) {
+                                // إذا كانت الدفعة الحالية أقل من الإجمالي ولكن payment_option كان 'full'
+                                $newInvoiceStatus = Invoice::STATUS_PARTIALLY_PAID; 
+                                Log::warning("Invoice payment_option was 'full' but amount paid via Tamara seems partial.", [
+                                    'invoice_id' => $invoice->id, 'paid_amount' => $amountPaidInThisTransaction, 'invoice_amount' => $invoice->amount
+                                ]);
+                            } elseif ($amountPaidInThisTransaction <=0 && $originalInvoiceStatus !== Invoice::STATUS_PAID){ // لا تغير الحالة إذا كان المبلغ صفر ولم تكن مدفوعة
+                                $newInvoiceStatus = $originalInvoiceStatus;
                             }
                         }
-                        // --- END: منطق تحديد حالة الفاتورة المعدل ---
 
-                        if ($newInvoiceStatus !== $originalInvoiceStatus || /* ... */ ) {
-                           // ... (تحديث الفاتورة)
+                        if ($newInvoiceStatus !== $originalInvoiceStatus || ($newInvoiceStatus === Invoice::STATUS_PAID && $invoice->paid_at === null) || ($newInvoiceStatus === Invoice::STATUS_PARTIALLY_PAID && $invoice->paid_at === null)) {
+                            $invoice->status = $newInvoiceStatus;
+                            if (($newInvoiceStatus === Invoice::STATUS_PAID || $newInvoiceStatus === Invoice::STATUS_PARTIALLY_PAID) && $invoice->paid_at === null) {
+                                $invoice->paid_at = Carbon::now();
+                            }
+                            $invoice->save();
+                            Log::info("Invoice status updated to '{$newInvoiceStatus}' via order_approved webhook (after payment creation).", ['invoice_id' => $invoice->id]);
                         }
-                        // ... (إرسال الإشعارات ومنطق Authorise API كما كان)
+
+                        if ($customer) {
+                            $customer->notify(new PaymentSuccessNotification($invoice, $amountPaidInThisTransaction, $tamaraCurrency));
+                            Log::info("PaymentSuccessNotification queued for CUSTOMER {$customer->id} via order_approved webhook.");
+                        }
+                        $admins = User::where('is_admin', true)->get();
+                        foreach($admins as $admin) {
+                            $admin->notify(new PaymentSuccessNotification($invoice, $amountPaidInThisTransaction, $tamaraCurrency));
+                            Log::info("PaymentSuccessNotification queued for ADMIN {$admin->id} via order_approved webhook.");
+                        }
+
+                        $booking = $invoice->booking;
+                        if ($booking && $booking->status !== Booking::STATUS_CONFIRMED && in_array($newInvoiceStatus, [Invoice::STATUS_PAID, Invoice::STATUS_PARTIALLY_PAID])) {
+                            $oldBookingStatus = $booking->status;
+                            $booking->status = Booking::STATUS_CONFIRMED;
+                            $booking->save();
+                            Log::info('Booking status updated to confirmed via order_approved webhook.', ['booking_id' => $booking->id, 'old_status' => $oldBookingStatus]);
+                            if ($customer) {
+                                $customer->notify(new BookingConfirmedNotification($booking));
+                                Log::info("BookingConfirmedNotification queued for CUSTOMER {$customer->id} via order_approved webhook.");
+                            }
+                            foreach($admins as $admin) {
+                                $admin->notify(new BookingConfirmedNotification($booking));
+                                Log::info("BookingConfirmedNotification queued for ADMIN {$admin->id} via order_approved webhook.");
+                            }
+                        }
+                        
+                        if (in_array($newInvoiceStatus, [Invoice::STATUS_PAID, Invoice::STATUS_PARTIALLY_PAID])) {
+                            try {
+                                $apiUrlAuth = config('services.tamara.url'); $apiTokenAuth = config('services.tamara.token'); $timeoutAuth = config('services.tamara.request_timeout', 10);
+                                if(!empty($apiUrlAuth) && !empty($apiTokenAuth)) {
+                                    $configurationAuth = TamaraConfiguration::create($apiUrlAuth, $apiTokenAuth, $timeoutAuth);
+                                    $client = TamaraClient::create($configurationAuth);
+                                    $authoriseOrderRequest = new TamaraAuthoriseOrderRequest($tamaraOrderId);
+                                    Log::debug("Attempting Authorise API via webhook (order_approved).", ['tamara_order_id' => $tamaraOrderId]);
+                                    $authoriseResponse = $client->authoriseOrder($authoriseOrderRequest);
+                                    if ($authoriseResponse->isSuccess()) {
+                                        Log::info('Tamara Authorise API successful via webhook (order_approved).', ['tamara_order_id' => $tamaraOrderId, 'response_order_id' => $authoriseResponse->getOrderId(), 'response_status' => $authoriseResponse->getOrderStatus()]);
+                                    } else {
+                                        Log::error('Tamara Authorise API failed via webhook (order_approved).', ['tamara_order_id' => $tamaraOrderId, 'errors' => $authoriseResponse->getErrors()]);
+                                    }
+                                } else {
+                                    Log::error('Tamara Authorise API config missing (URL or Token). Skipping Authorise call.');
+                                }
+                            } catch (Throwable $authError) {
+                                Log::error('Exception during Tamara Authorise API call via webhook (order_approved).', ['tamara_order_id' => $tamaraOrderId, 'error' => $authError->getMessage()]);
+                            }
+                        }
                     }
                 });
+
             } elseif ($eventType === self::EVENT_TYPE_ORDER_AUTHORISED) {
-                // ... (الكود كما هو)
+                // ... (الكود كما هو) ...
             } elseif (in_array($eventType, [self::EVENT_TYPE_ORDER_DECLINED, self::EVENT_TYPE_ORDER_CANCELED, self::EVENT_TYPE_ORDER_EXPIRED])) {
-                // ... (الكود كما هو)
+                // ... (الكود كما هو) ...
             } else {
-                // ... (الكود كما هو)
+                Log::info("Received unhandled Tamara webhook event type (auth bypassed): {$eventType}", ['tamara_order_id' => $tamaraOrderId]);
             }
             return response()->json(['status' => 'success'], 200);
         } catch (Throwable $e) {
-            // ... (الكود كما هو)
+            Log::error('Unhandled exception during webhook processing (auth bypassed).', [
+                'event_type' => $eventType, // $eventType should be defined by this point
+                'tamara_order_id' => $tamaraOrderId,
+                'message' => $e->getMessage(), 'file' => $e->getFile(), 'line' => $e->getLine(),
+                'trace' => Str::limit($e->getTraceAsString(), 1500)
+            ]);
+            return response()->json(['status' => 'success_but_error_logged'], 200);
         }
     }
 
-    /**
-     * Retry payment for a given invoice using Tamara.
-     */
     public function retryTamaraPayment(Request $request, Invoice $invoice): RedirectResponse
     {
+        // ... (الكود المعدل لهذه الدالة كما في الرد السابق) ...
         Log::debug('Entering retryTamaraPayment method.', ['invoice_id' => $invoice->id, 'current_invoice_status' => $invoice->status, 'original_payment_option' => $invoice->payment_option]);
 
         if (auth()->guest() || !$invoice->booking || $invoice->booking->user_id !== auth()->id()) {
@@ -284,7 +394,6 @@ class PaymentController extends Controller
             return Redirect::route('customer.invoices.show', $invoice)->with('error', "لا يمكن إعادة محاولة الدفع لهذه الفاتورة بالحالة الحالية: " . ($invoice->status_label ?? $invoice->status));
         }
 
-        // --- START: تعديل منطق تحديد المبلغ وخيار الدفع لإعادة المحاولة ---
         $amountToRetry = 0.0;
         $retryPaymentOption = $invoice->payment_option ?? 'full'; 
 
@@ -306,7 +415,6 @@ class PaymentController extends Controller
             $retryPaymentOption = 'full';
             Log::info("Retry for full payment invoice (or remaining of it). Attempting to pay amount.", ['invoice_id' => $invoice->id, 'amount_to_retry_calculated' => $amountToRetry]);
         }
-        // --- END: تعديل منطق تحديد المبلغ وخيار الدفع لإعادة المحاولة ---
 
         $amountToRetry = round((float)$amountToRetry, 2);
 
