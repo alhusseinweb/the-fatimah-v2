@@ -62,20 +62,19 @@ class PaymentController extends Controller
         $previousStatus = session('previous_invoice_status_' . $invoice->id, $initialStatus);
         $sessionKey = 'previous_invoice_status_' . $invoice->id;
         
-        // The key issue - we need to check if payment has completed
-        // Calculate total payments for this invoice
+        // Check for payments to determine status - this is the key fix
         $totalPaid = Payment::where('invoice_id', $invoice->id)
-                           ->where('status', 'completed')
-                           ->sum('amount');
-                           
-        // Check if invoice is fully paid now
-        $isPaidInFull = abs($totalPaid - $invoice->amount) < 0.01;
+                        ->where('status', 'completed')
+                        ->sum('amount');
+                        
+        // If total paid amount is approximately equal to invoice amount, mark as fully paid
+        $isPaidInFull = abs($totalPaid - $invoice->amount) < 0.01 && $invoice->amount > 0;
         
-        // Update the invoice status if it's now fully paid but marked as partially paid
+        // Update invoice status if it's fully paid now but still marked as partially paid
         if ($isPaidInFull && $initialStatus === Invoice::STATUS_PARTIALLY_PAID) {
             $invoice->status = Invoice::STATUS_PAID;
             $invoice->save();
-            Log::info("Invoice status updated from {$initialStatus} to PAID in success redirect handler - confirmed full payment", 
+            Log::info("Invoice status updated from {$initialStatus} to PAID in success redirect handler - full payment confirmed", 
                     ['invoice_id' => $invoice->id, 'total_paid' => $totalPaid, 'invoice_amount' => $invoice->amount]);
         }
         
@@ -92,8 +91,7 @@ class PaymentController extends Controller
         } elseif ($invoice->status === Invoice::STATUS_PARTIALLY_PAID) {
             $successMessage = 'تم استلام دفعة العربون بنجاح! تم تأكيد حجزك.';
         } else {
-            Log::info("Tamara success redirect, but final invoice status from DB is '{$invoice->status}'. Webhook should update it soon.", 
-                    ['invoice_id' => $invoice->id, 'total_paid' => $totalPaid, 'invoice_amount' => $invoice->amount]);
+            Log::info("Tamara success redirect, but final invoice status from DB is '{$invoice->status}'. Webhook should update it soon.", ['invoice_id' => $invoice->id]);
         }
 
         if (session()->has($sessionKey)) {
@@ -298,43 +296,29 @@ class PaymentController extends Controller
                         $originalInvoiceStatus = $invoice->status;
                         $newInvoiceStatus = $originalInvoiceStatus;
 
-                        // Modified logic to better handle payment status determination
-                        if ($invoice->payment_option === 'down_payment') {
+                        // Calculate total amount paid so far
+                        $totalPaid = Payment::where('invoice_id', $invoice->id)
+                                      ->where('status', 'completed')
+                                      ->sum('amount');
+                        
+                        // Improved logic to accurately detect full payment status
+                        if (abs($totalPaid - $invoice->amount) < 0.01 && $invoice->amount > 0) {
+                            // Invoice is fully paid if total matches full amount
+                            $newInvoiceStatus = Invoice::STATUS_PAID;
+                            Log::info("Invoice is now fully paid with total payments: {$totalPaid}", [
+                                'invoice_id' => $invoice->id,
+                                'invoice_amount' => $invoice->amount,
+                                'payment_option' => $invoice->payment_option
+                            ]);
+                        } elseif ($totalPaid > 0 && $totalPaid < $invoice->amount) {
+                            // Invoice is partially paid if some payment exists but less than full amount
                             $newInvoiceStatus = Invoice::STATUS_PARTIALLY_PAID;
-                            
-                            // Check if this payment completes the invoice
-                            $totalPaid = Payment::where('invoice_id', $invoice->id)
-                                              ->where('status', 'completed')
-                                              ->sum('amount');
-                            
-                            if (abs($totalPaid - $invoice->amount) < 0.01 && $invoice->amount > 0) {
-                                $newInvoiceStatus = Invoice::STATUS_PAID;
-                                Log::info("Invoice with down_payment payment_option is now fully paid.", [
-                                    'invoice_id' => $invoice->id, 
-                                    'total_paid' => $totalPaid, 
-                                    'invoice_amount' => $invoice->amount
-                                ]);
-                            }
-                        } else { 
-                            $totalPaid = Payment::where('invoice_id', $invoice->id)
-                                              ->where('status', 'completed')
-                                              ->sum('amount');
-                            
-                            // The key fix in the webhook handler - check if total payments match invoice amount
-                            if (abs($totalPaid - $invoice->amount) < 0.01 && $invoice->amount > 0) {
-                                $newInvoiceStatus = Invoice::STATUS_PAID;
-                                Log::info("Invoice is now fully paid with total payments of {$totalPaid}.", [
-                                    'invoice_id' => $invoice->id,
-                                    'invoice_amount' => $invoice->amount
-                                ]);
-                            } elseif ($totalPaid > 0 && $totalPaid < $invoice->amount) {
-                                $newInvoiceStatus = Invoice::STATUS_PARTIALLY_PAID; 
-                                Log::info("Invoice payment is partial, total paid: {$totalPaid} of {$invoice->amount}.", [
-                                    'invoice_id' => $invoice->id
-                                ]);
-                            } elseif ($amountPaidInThisTransaction <=0 && $originalInvoiceStatus !== Invoice::STATUS_PAID) {
-                                $newInvoiceStatus = $originalInvoiceStatus;
-                            }
+                            Log::info("Invoice is partially paid with total: {$totalPaid} of {$invoice->amount}", [
+                                'invoice_id' => $invoice->id
+                            ]);
+                        } elseif ($amountPaidInThisTransaction <= 0 && $originalInvoiceStatus !== Invoice::STATUS_PAID) {
+                            // Keep original status if no payment
+                            $newInvoiceStatus = $originalInvoiceStatus;
                         }
 
                         if ($newInvoiceStatus !== $originalInvoiceStatus || ($newInvoiceStatus === Invoice::STATUS_PAID && $invoice->paid_at === null) || ($newInvoiceStatus === Invoice::STATUS_PARTIALLY_PAID && $invoice->paid_at === null)) {
@@ -483,4 +467,12 @@ class PaymentController extends Controller
                     $invoice->payment_gateway_ref = $checkoutResponse['order_id'];
                     $invoice->save();
                 }
-                Log::info('Tamara retry checkout URL obtained an
+                Log::info('Tamara retry checkout URL obtained and invoice updated with new gateway ref.', ['invoice_id' => $invoice->id, 'tamara_order_id' => $checkoutResponse['order_id']]);
+                return Redirect::away($checkoutResponse['checkout_url']);
+            } else {
+                session()->forget($sessionKey);
+                Log::error('Failed to get valid checkout response from TamaraService on retry.', ['invoice_id' => $invoice->id, 'response' => $checkoutResponse]);
+                return Redirect::route('customer.invoices.show', $invoice)->with('error', 'فشل بدء عملية الدفع. يرجى المحاولة مرة أخرى.');
+            }
+        } catch (Throwable $e) {
+            session()->
