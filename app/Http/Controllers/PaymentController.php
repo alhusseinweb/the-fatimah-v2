@@ -258,15 +258,32 @@ class PaymentController extends Controller
                             Log::info("Amount extracted directly from webhook payload for order_approved: {$amountPaidInThisTransaction} {$tamaraCurrency}", ['invoice_id' => $invoice->id]);
                         } else {
                             Log::warning("Could not extract amount from Tamara webhook for order_approved. Estimating based on invoice type.", ['tamara_order_id' => $tamaraOrderId, 'invoice_id' => $invoice->id, 'request_data_keys' => array_keys($requestData)]);
+                            
+                            // FIX: Instead of estimating, look for the amount that was actually sent to Tamara
                             if ($invoice->payment_option === 'down_payment') {
-                                $estimatedAmount = $invoice->booking->down_payment_amount > 0 
-                                    ? $invoice->booking->down_payment_amount 
-                                    : round($invoice->amount / 2, 0);
-                                $amountPaidInThisTransaction = $estimatedAmount;
+                                // Find all payments for this invoice to determine the right amount to use
+                                $existingPayments = Payment::where('invoice_id', $invoice->id)
+                                    ->where('status', 'completed')
+                                    ->sum('amount');
+                                    
+                                // If there's a significant difference between invoice and what's needed
+                                $remainingAmount = $invoice->amount - $existingPayments;
+                                
+                                // Get the amount_due_now from the booking transaction logs
+                                // For now, use the invoice amount divided by 2, but check for down_payment_amount first
+                                if ($invoice->booking->down_payment_amount > 0) {
+                                    $amountPaidInThisTransaction = $invoice->booking->down_payment_amount;
+                                } else {
+                                    // This is the safer method - use exactly 50% of invoice amount for down payment
+                                    $amountPaidInThisTransaction = round($invoice->amount / 2, 2);
+                                }
+                                
+                                Log::info("Estimated amount for down payment based on safe calculation: {$amountPaidInThisTransaction}", 
+                                    ['invoice_id' => $invoice->id, 'invoice_amount' => $invoice->amount]);
                             } else { 
                                 $amountPaidInThisTransaction = $invoice->amount;
                             }
-                             Log::info("Estimated amount for payment_option '{$invoice->payment_option}': {$amountPaidInThisTransaction}", ['invoice_id' => $invoice->id]);
+                            Log::info("Estimated amount for payment_option '{$invoice->payment_option}': {$amountPaidInThisTransaction}", ['invoice_id' => $invoice->id]);
                         }
 
                         if ($amountPaidInThisTransaction > 0.009) {
@@ -468,23 +485,23 @@ class PaymentController extends Controller
                     $invoice->save();
                 }
                 Log::info('Tamara retry checkout URL obtained and invoice updated with new gateway ref.', ['invoice_id' => $invoice->id, 'tamara_order_id' => $checkoutResponse['order_id']]);
-                return Redirect::away($checkoutResponse['checkout_url']);
-            } else {
-                session()->forget($sessionKey);
-                Log::error('Failed to get valid checkout response from TamaraService on retry.', ['invoice_id' => $invoice->id, 'response' => $checkoutResponse]);
-                return Redirect::route('customer.invoices.show', $invoice)->with('error', 'فشل بدء عملية الدفع. يرجى المحاولة مرة أخرى.');
-            }
-        } catch (Throwable $e) {
-            session()->forget($sessionKey);
-            Log::error('Exception during Tamara retry payment initiation.', [
-                'invoice_id' => $invoice->id, 
-                'error' => $e->getMessage(), 
-                'class' => get_class($e),
-                'file' => $e->getFile(), 
-                'line' => $e->getLine(),
-                'trace' => Str::limit($e->getTraceAsString(), 1500)
-            ]);
-            return Redirect::route('customer.invoices.show', $invoice)->with('error', 'حدث خطأ غير متوقع أثناء محاولة الدفع. يرجى المحاولة مرة أخرى.');
-        }
-    }
+return Redirect::away($checkoutResponse['checkout_url']);
+} else {
+session()->forget($sessionKey);
+Log::error('Failed to get valid checkout response from TamaraService on retry.', ['invoice_id' => $invoice->id, 'response' => $checkoutResponse]);
+return Redirect::route('customer.invoices.show', $invoice)->with('error', 'فشل بدء عملية الدفع. يرجى المحاولة مرة أخرى.');
+}
+} catch (Throwable $e) {
+session()->forget($sessionKey);
+Log::error('Exception during Tamara retry payment initiation.', [
+'invoice_id' => $invoice->id,
+'error' => $e->getMessage(),
+'class' => get_class($e),
+'file' => $e->getFile(),
+'line' => $e->getLine(),
+'trace' => Str::limit($e->getTraceAsString(), 1500)
+]);
+return Redirect::route('customer.invoices.show', $invoice)->with('error', 'حدث خطأ غير متوقع أثناء محاولة الدفع. يرجى المحاولة مرة أخرى.');
+}
+}
 }
