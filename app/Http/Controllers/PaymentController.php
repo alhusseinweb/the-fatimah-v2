@@ -475,4 +475,16 @@ class PaymentController extends Controller
                 return Redirect::route('customer.invoices.show', $invoice)->with('error', 'فشل بدء عملية الدفع. يرجى المحاولة مرة أخرى.');
             }
         } catch (Throwable $e) {
-            session()->
+            session()->forget($sessionKey);
+            Log::error('Exception during Tamara retry payment initiation.', [
+                'invoice_id' => $invoice->id, 
+                'error' => $e->getMessage(), 
+                'class' => get_class($e),
+                'file' => $e->getFile(), 
+                'line' => $e->getLine(),
+                'trace' => Str::limit($e->getTraceAsString(), 1500)
+            ]);
+            return Redirect::route('customer.invoices.show', $invoice)->with('error', 'حدث خطأ غير متوقع أثناء محاولة الدفع. يرجى المحاولة مرة أخرى.');
+        }
+    }
+}
