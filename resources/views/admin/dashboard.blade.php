@@ -234,69 +234,6 @@
         </div>
     </div>
 
-    <div class="row g-4 mt-2">
-        <div class="col-lg-6">
-            <div class="card shadow-sm border-0 h-100">
-                <div class="card-header">
-                    <h6 class="m-0 fw-bold text-danger"><i class="fas fa-times-circle me-2"></i> فواتير فشلت أو غير مدفوعة (أحدث 5)</h6>
-                </div>
-                <div class="card-body pt-2">
-                    @if(isset($failedOrUnpaidInvoices) && $failedOrUnpaidInvoices->count() > 0)
-                        <div class="list-group list-group-flush">
-                            @foreach($failedOrUnpaidInvoices as $invoice)
-                                <a href="{{ route('admin.invoices.show', $invoice->id) }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center flex-wrap px-2 py-2">
-                                    <div class="mb-1 mb-md-0">
-                                        <span class="fw-bold">فاتورة #{{ $invoice->invoice_number }}</span>
-                                        <small class="text-muted ms-2">({{ $invoice->booking?->user?->name ?? 'عميل غير معروف' }})</small>
-                                        <small class="text-muted d-block d-md-inline ms-md-2"> - {{ \Carbon\Carbon::parse($invoice->created_at)->translatedFormat('d M Y') }}</small>
-                                    </div>
-                                    <div class="text-end">
-                                        <span class="me-2 fw-bold">{{ number_format($invoice->amount, 2) }} {{ $invoice->currency_symbol_short ?? $invoice->currency }}</span>
-                                        <span class="status-pill {{ $invoice->status_badge_class ?? 'bg-secondary' }}">
-                                            {{ $invoice->status_label ?? getInvoiceStatusTranslation($invoice->status ?? '', $invoiceStatusTranslations) }}
-                                        </span>
-                                    </div>
-                                </a>
-                            @endforeach
-                        </div>
-                    @else
-                        <p class="text-center text-muted mt-3 py-4"><i class="fas fa-check-double me-1"></i> لا توجد فواتير فاشلة أو غير مدفوعة حالياً.</p>
-                    @endif
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-6">
-            <div class="card shadow-sm border-0 h-100">
-                <div class="card-header">
-                    <h6 class="m-0 fw-bold text-info"><i class="fas fa-adjust me-2"></i> فواتير مدفوعة جزئياً (أحدث 5)</h6>
-                </div>
-                <div class="card-body pt-2">
-                    @if(isset($partiallyPaidInvoices) && $partiallyPaidInvoices->count() > 0)
-                        <div class="list-group list-group-flush">
-                            @foreach($partiallyPaidInvoices as $invoice)
-                                <a href="{{ route('admin.invoices.show', $invoice->id) }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center flex-wrap px-2 py-2">
-                                    <div class="mb-1 mb-md-0">
-                                        <span class="fw-bold">فاتورة #{{ $invoice->invoice_number }}</span>
-                                        <small class="text-muted ms-2">({{ $invoice->booking?->user?->name ?? 'عميل غير معروف' }})</small>
-                                        <small class="text-muted d-block d-md-inline ms-md-2"> - {{ \Carbon\Carbon::parse($invoice->created_at)->translatedFormat('d M Y') }}</small>
-                                    </div>
-                                    <div class="text-end">
-                                        <span class="me-2 fw-bold">{{ number_format($invoice->amount, 2) }} {{ $invoice->currency_symbol_short ?? $invoice->currency }}</span>
-                                        <span class="status-pill {{ $invoice->status_badge_class ?? 'bg-secondary' }}">
-                                            {{ $invoice->status_label ?? getInvoiceStatusTranslation($invoice->status ?? '', $invoiceStatusTranslations) }}
-                                        </span>
-                                    </div>
-                                </a>
-                            @endforeach
-                        </div>
-                    @else
-                        <p class="text-center text-muted mt-3 py-4"><i class="fas fa-check-double me-1"></i> لا توجد فواتير مدفوعة جزئياً حالياً.</p>
-                    @endif
-                </div>
-            </div>
-        </div>
-    </div>
-
 @endsection
 
 @push('styles')
