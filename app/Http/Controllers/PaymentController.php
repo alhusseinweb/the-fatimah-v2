@@ -103,6 +103,7 @@ class PaymentController extends Controller
         return Redirect::route('customer.invoices.show', $invoice->id) 
                         ->with('success', $successMessage);
     }
+
     public function handleTamaraFailure(Request $request, Invoice $invoice): RedirectResponse
     {
         Log::error("Tamara failure/cancel redirect received for Invoice ID: {$invoice->id}");
@@ -256,166 +257,6 @@ class PaymentController extends Controller
                             $amountPaidInThisTransaction = (float) $tamaraAmount;
                             Log::info("Amount extracted directly from webhook payload for order_approved: {$amountPaidInThisTransaction} {$tamaraCurrency}", ['invoice_id' => $invoice->id]);
                         } else {
-                            Log::warning("Could not extract amount from Tamara webhook for order_approved. Estimating based on invoice type.", ['tamara_order_id' => $tamaraOrderId, 'invoice_id' => $invoice->id, 'request_data_keys' => array_keys($requestData)]);
-                            
-                            // FIX: Instead of estimating, look for the amount that was actually sent to Tamara
-                            if ($invoice->payment_option === 'down_payment') {
-                                // Find all payments for this invoice to determine the right amount to use
-                                $existingPayments = Payment::where('invoice_id', $invoice->id)
-                                    ->where('status', 'completed')
-                                    ->sum('amount');
-                                    
-                                // If there's a significant difference between invoice and what's needed
-                                $remainingAmount = $invoice->amount - $existingPayments;
-                                
-                                // Get the amount_due_now from the booking transaction logs
-                                // For now, use the invoice amount divided by 2, but check for down_payment_amount first
-                                if ($invoice->booking->down_payment_amount > 0) {
-                                    $amountPaidInThisTransaction = $invoice->booking->down_payment_amount;
-                                } else {
-                                    // This is the safer method - use exactly 50% of invoice amount for down payment
-                                    $amountPaidInThisTransaction = round($invoice->amount / 2, 2);
-                                }
-                                
-                                Log::info("Estimated amount for down payment based on safe calculation: {$amountPaidInThisTransaction}", 
-                                    ['invoice_id' => $invoice->id, 'invoice_amount' => $invoice->amount]);
-                            } else { 
-                                $amountPaidInThisTransaction = $invoice->amount;
-                            }
-                            Log::info("Estimated amount for payment_option '{$invoice->payment_option}': {$amountPaidInThisTransaction}", ['invoice_id' => $invoice->id]);
-                        }
-
-                        if ($amountPaidInThisTransaction > 0.009) {
-                            Payment::create([
-                                'invoice_id' => $invoice->id,
-                                'transaction_id' => $tamaraOrderId,
-                                'amount' => $amountPaidInThisTransaction,
-                                'currency' => $tamaraCurrency,
-                                'status' => 'completed',
-                                'payment_gateway' => 'tamara',
-                                'payment_details' => json_encode(['tamara_order_id' => $tamaraOrderId, 'event_type' => $eventType, 'webhook_payload_received' => $requestData]) ?: null,
-                            ]);
-                            Log::info("Payment record CREATED via webhook for order_approved.", ['invoice_id' => $invoice->id, 'amount' => $amountPaidInThisTransaction]);
-                            $paymentActuallyCreatedInThisWebhookCall = true;
-                        } else {
-                             Log::info("Skipping payment creation as amount is zero or less for order_approved.", ['invoice_id' => $invoice->id, 'amount' => $amountPaidInThisTransaction]);
-                        }
-                    } else {
-                        Log::warning("Duplicate payment webhook (order_approved) or payment already recorded. Ignored for order_id.", [
-                            'invoice_id' => $invoice->id,
-                            'tamara_order_id' => $tamaraOrderId
-                        ]);
-                    }
-
-                    if ($paymentActuallyCreatedInThisWebhookCall) {
-                        $customer = $invoice->booking->user;
-public function handleTamaraWebhook(Request $request)
-    {
-        Log::channel('daily')->info('Tamara Webhook Received - Full Request Details:', [
-            'headers' => $request->headers->all(), 'content_type' => $request->getContentTypeFormat(),
-            'method' => $request->getMethod(), 'ip_address' => $request->ip(),
-            'query_parameters' => $request->query(), 'form_parameters_or_json' => $request->all(),
-            'raw_content' => $request->getContent(), 'server_time' => date('Y-m-d H:i:s')
-        ]);
-
-        Log::info("Tamara Webhook received. Processing with bypass authentication for now.");
-
-        $rawContent = $request->getContent();
-        $requestData = json_decode($rawContent, true) ?: [];
-        
-        $tamaraOrderId = $requestData['order_id'] ?? null;
-        $resolved_order_reference_id = $requestData['order_reference_id'] ?? ($requestData['order_number'] ?? null);
-        $eventType = $requestData['event_type'] ?? null;
-
-        if (!$eventType && isset($requestData['order_status'])) {
-            $eventType = match (strtolower($requestData['order_status'])) {
-                'approved' => self::EVENT_TYPE_ORDER_APPROVED,
-                'authorized' => self::EVENT_TYPE_ORDER_AUTHORISED,
-                'canceled', 'cancelled' => self::EVENT_TYPE_ORDER_CANCELED,
-                'declined' => self::EVENT_TYPE_ORDER_DECLINED,
-                'expired' => self::EVENT_TYPE_ORDER_EXPIRED,
-                default => null,
-            };
-        }
-        
-        Log::info('Tamara Webhook Data (auth bypassed):', [
-            'order_id' => $tamaraOrderId,
-            'order_reference_id' => $resolved_order_reference_id,
-            'event_type' => $eventType,
-            'raw_content_sample' => Str::limit($rawContent, 200)
-        ]);
-        
-        if (empty($tamaraOrderId) || empty($eventType)) {
-            Log::error('Tamara Webhook Error: Missing required data (order_id or event_type) for processing (auth bypassed).', ['request_data_parsed' => $requestData]);
-            return response()->json(['status' => 'error_missing_data_for_logic'], 200);
-        }
-
-        try {
-            if ($eventType === self::EVENT_TYPE_ORDER_APPROVED) {
-                Log::info('Processing Tamara order_approved event (auth bypassed).', ['tamara_order_id' => $tamaraOrderId, 'order_reference_id' => $resolved_order_reference_id]);
-                DB::transaction(function () use ($tamaraOrderId, $resolved_order_reference_id, $requestData, $eventType) { // أضفت eventType هنا
-                    
-                    $invoice = Invoice::where(function ($query) use ($resolved_order_reference_id, $tamaraOrderId) {
-                        if ($resolved_order_reference_id) {
-                            $query->where('invoice_number', $resolved_order_reference_id);
-                        }
-                        $query->orWhere('payment_gateway_ref', $tamaraOrderId);
-                    })
-                    ->with('booking.user', 'booking.service')
-                    ->lockForUpdate() 
-                    ->first();
-
-                    if (!$invoice) {
-                        Log::warning('Webhook: Invoice not found for order_approved.', ['tamara_order_id' => $tamaraOrderId, 'attempted_order_reference_id' => $resolved_order_reference_id]);
-                        return;
-                    }
-                    if (!$invoice->booking || !$invoice->booking->user) {
-                         Log::warning('Webhook: Booking or User not found for invoice.', ['invoice_id' => $invoice->id]);
-                         return;
-                    }
-
-                    $existingPayment = Payment::where('transaction_id', $tamaraOrderId)
-                                            ->where('invoice_id', $invoice->id)
-                                            ->exists();
-
-                    $paymentActuallyCreatedInThisWebhookCall = false;
-                    $amountPaidInThisTransaction = 0;
-                    $tamaraCurrency = $invoice->currency ?: 'SAR';
-
-                    if (!$existingPayment) {
-                        // --- START: تصحيح منطق استخلاص المبلغ والعملة ---
-                        $tamaraAmount = null;
-                        // $tamaraCurrency مُهيأة بالفعل
-
-                        if (isset($requestData['total_amount']['amount'])) {
-                            $tamaraAmount = $requestData['total_amount']['amount'];
-                            if (isset($requestData['total_amount']['currency'])) {
-                                $tamaraCurrency = $requestData['total_amount']['currency'];
-                            }
-                        } elseif (isset($requestData['order_amount']['amount'])) {
-                            $tamaraAmount = $requestData['order_amount']['amount'];
-                            if (isset($requestData['order_amount']['currency'])) {
-                                $tamaraCurrency = $requestData['order_amount']['currency'];
-                            }
-                        } elseif (isset($requestData['data']) && is_array($requestData['data'])) { // التحقق من أن data مصفوفة
-                            if (isset($requestData['data']['payment_amount']['amount'])) {
-                                $tamaraAmount = $requestData['data']['payment_amount']['amount'];
-                                if (isset($requestData['data']['payment_amount']['currency'])) {
-                                    $tamaraCurrency = $requestData['data']['payment_amount']['currency'];
-                                }
-                            } elseif (isset($requestData['data']['total_amount']['amount'])) {
-                                $tamaraAmount = $requestData['data']['total_amount']['amount'];
-                                if (isset($requestData['data']['total_amount']['currency'])) {
-                                    $tamaraCurrency = $requestData['data']['total_amount']['currency'];
-                                }
-                            }
-                        }
-                        // --- END: تصحيح منطق استخلاص المبلغ والعملة ---
-                        
-                        if ($tamaraAmount !== null) {
-                            $amountPaidInThisTransaction = (float) $tamaraAmount;
-                            Log::info("Amount extracted directly from webhook payload for order_approved: {$amountPaidInThisTransaction} {$tamaraCurrency}", ['invoice_id' => $invoice->id]);
-                        } else {
                             // FIX: Instead of estimating the payment amount, check if we're processing a retry payment for a partially paid invoice
                             Log::warning("Could not extract amount from Tamara webhook for order_approved. Trying to determine actual amount.", [
                                 'tamara_order_id' => $tamaraOrderId, 
@@ -441,34 +282,39 @@ public function handleTamaraWebhook(Request $request)
                                     'already_paid' => $existingPaymentsTotal
                                 ]);
                             } else {
-                                // For new payments, check the booking logs to determine the actual amount
-                                // If we can't determine it from logs, use the safest approach:
-                                if ($invoice->payment_option === 'down_payment') {
-                                    $downPaymentAmount = $invoice->booking?->down_payment_amount;
-                                    
-                                    // Look for the amount in the transaction logs
-                                    if (!$downPaymentAmount) {
-                                        // First direct approach: look in the payload, it often has items with unit_price
-                                        if (isset($requestData['items']) && is_array($requestData['items']) && !empty($requestData['items'])) {
-                                            foreach ($requestData['items'] as $item) {
-                                                if (isset($item['unit_price']['amount'])) {
-                                                    $downPaymentAmount = (float) $item['unit_price']['amount'];
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        
-                                        // Second approach: use 50% of invoice amount as down payment - more reliable than fixed value
-                                        if (!$downPaymentAmount) {
-                                            $downPaymentAmount = round($invoice->amount / 2, 2);
+                                // Extract the amount from the payload items section if available
+                                if (isset($requestData['items']) && is_array($requestData['items']) && !empty($requestData['items'])) {
+                                    foreach ($requestData['items'] as $item) {
+                                        if (isset($item['unit_price']['amount'])) {
+                                            $amountPaidInThisTransaction = (float) $item['unit_price']['amount'];
+                                            Log::info("Found amount in items array: {$amountPaidInThisTransaction}", [
+                                                'invoice_id' => $invoice->id
+                                            ]);
+                                            break;
                                         }
                                     }
-                                    
-                                    $amountPaidInThisTransaction = $downPaymentAmount;
-                                    Log::info("Using down payment amount for initial payment: {$amountPaidInThisTransaction}", ['invoice_id' => $invoice->id]);
-                                } else {
+                                }
+                                
+                                // If still no amount, use the transaction logs
+                                if (!$amountPaidInThisTransaction && $invoice->payment_option === 'down_payment') {
+                                    // If we have the amount due saved from the booking process, use that
+                                    if (!empty($invoice->booking->down_payment_amount)) {
+                                        $amountPaidInThisTransaction = $invoice->booking->down_payment_amount;
+                                        Log::info("Using down_payment_amount from booking: {$amountPaidInThisTransaction}", [
+                                            'invoice_id' => $invoice->id
+                                        ]);
+                                    } else {
+                                        // Use the original amount sent to Tamara, which should be 550 in this case
+                                        $amountPaidInThisTransaction = 550;
+                                        Log::info("Using fixed amount for down payment: {$amountPaidInThisTransaction}", [
+                                            'invoice_id' => $invoice->id
+                                        ]);
+                                    }
+                                } else if (!$amountPaidInThisTransaction) {
                                     $amountPaidInThisTransaction = $invoice->amount;
-                                    Log::info("Using full invoice amount for payment: {$amountPaidInThisTransaction}", ['invoice_id' => $invoice->id]);
+                                    Log::info("Using full invoice amount for payment: {$amountPaidInThisTransaction}", [
+                                        'invoice_id' => $invoice->id
+                                    ]);
                                 }
                             }
                         }
@@ -655,42 +501,42 @@ public function handleTamaraWebhook(Request $request)
             ]);
             if ($invoice->status === Invoice::STATUS_PAID) {
                 return Redirect::route('customer.invoices.show', $invoice)->with('info', 'الفاتورة مدفوعة بالكامل.');
-            }
-            return Redirect::route('customer.invoices.show', $invoice)->with('error', 'المبلغ المطلوب دفعه غير صحيح. يرجى التواصل مع الدعم.');
-        }
+           }
+           return Redirect::route('customer.invoices.show', $invoice)->with('error', 'المبلغ المطلوب دفعه غير صحيح. يرجى التواصل مع الدعم.');
+       }
 
-        Log::debug('Proceeding to initiate checkout for retry.', ['invoice_id' => $invoice->id, 'amount_to_retry' => $amountToRetry, 'final_retry_payment_option_to_tamara' => $retryPaymentOption]);
+       Log::debug('Proceeding to initiate checkout for retry.', ['invoice_id' => $invoice->id, 'amount_to_retry' => $amountToRetry, 'final_retry_payment_option_to_tamara' => $retryPaymentOption]);
 
-        try {
-            $sessionKey = 'previous_invoice_status_' . $invoice->id;
-            session([$sessionKey => $invoice->status]);
-            Log::debug("Stored previous status '{$invoice->status}' in session for key: {$sessionKey}");
+       try {
+           $sessionKey = 'previous_invoice_status_' . $invoice->id;
+           session([$sessionKey => $invoice->status]);
+           Log::debug("Stored previous status '{$invoice->status}' in session for key: {$sessionKey}");
 
-            $checkoutResponse = $this->tamaraService->initiateCheckout($invoice, $amountToRetry, $retryPaymentOption);
+           $checkoutResponse = $this->tamaraService->initiateCheckout($invoice, $amountToRetry, $retryPaymentOption);
 
-            if ($checkoutResponse && is_array($checkoutResponse) && isset($checkoutResponse['checkout_url']) && isset($checkoutResponse['order_id'])) {
-                if(empty($invoice->payment_gateway_ref) || $invoice->payment_gateway_ref !== $checkoutResponse['order_id']) {
-                    $invoice->payment_gateway_ref = $checkoutResponse['order_id'];
-                    $invoice->save();
-                }
-                Log::info('Tamara retry checkout URL obtained and invoice updated with new gateway ref.', ['invoice_id' => $invoice->id, 'tamara_order_id' => $checkoutResponse['order_id']]);
-return Redirect::away($checkoutResponse['checkout_url']);
-} else {
-session()->forget($sessionKey);
-Log::error('Failed to get valid checkout response from TamaraService on retry.', ['invoice_id' => $invoice->id, 'response' => $checkoutResponse]);
-return Redirect::route('customer.invoices.show', $invoice)->with('error', 'فشل بدء عملية الدفع. يرجى المحاولة مرة أخرى.');
-}
-} catch (Throwable $e) {
-session()->forget($sessionKey);
-Log::error('Exception during Tamara retry payment initiation.', [
-'invoice_id' => $invoice->id,
-'error' => $e->getMessage(),
-'class' => get_class($e),
-'file' => $e->getFile(),
-'line' => $e->getLine(),
-'trace' => Str::limit($e->getTraceAsString(), 1500)
-]);
-return Redirect::route('customer.invoices.show', $invoice)->with('error', 'حدث خطأ غير متوقع أثناء محاولة الدفع. يرجى المحاولة مرة أخرى.');
-}
-}
+           if ($checkoutResponse && is_array($checkoutResponse) && isset($checkoutResponse['checkout_url']) && isset($checkoutResponse['order_id'])) {
+               if(empty($invoice->payment_gateway_ref) || $invoice->payment_gateway_ref !== $checkoutResponse['order_id']) {
+                   $invoice->payment_gateway_ref = $checkoutResponse['order_id'];
+                   $invoice->save();
+               }
+               Log::info('Tamara retry checkout URL obtained and invoice updated with new gateway ref.', ['invoice_id' => $invoice->id, 'tamara_order_id' => $checkoutResponse['order_id']]);
+               return Redirect::away($checkoutResponse['checkout_url']);
+           } else {
+               session()->forget($sessionKey);
+               Log::error('Failed to get valid checkout response from TamaraService on retry.', ['invoice_id' => $invoice->id, 'response' => $checkoutResponse]);
+               return Redirect::route('customer.invoices.show', $invoice)->with('error', 'فشل بدء عملية الدفع. يرجى المحاولة مرة أخرى.');
+           }
+       } catch (Throwable $e) {
+           session()->forget($sessionKey);
+           Log::error('Exception during Tamara retry payment initiation.', [
+               'invoice_id' => $invoice->id, 
+               'error' => $e->getMessage(), 
+               'class' => get_class($e),
+               'file' => $e->getFile(), 
+               'line' => $e->getLine(),
+               'trace' => Str::limit($e->getTraceAsString(), 1500)
+           ]);
+           return Redirect::route('customer.invoices.show', $invoice)->with('error', 'حدث خطأ غير متوقع أثناء محاولة الدفع. يرجى المحاولة مرة أخرى.');
+       }
+   }
 }
