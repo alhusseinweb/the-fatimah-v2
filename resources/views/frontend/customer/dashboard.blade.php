@@ -198,7 +198,7 @@
                     {{-- ============================================= --}}
                     {{-- Section 1: Upcoming Appointments             --}}
                     {{-- ============================================= --}}
-                    <div class="col-lg-6 mb-4">
+                    <div class="col-lg-12 mb-4">
                         <div class="data-card"> {{-- استخدام data-card كحاوية للعنوان والبطاقات --}}
                             <div class="data-card-header">
                                 <h3 class="data-card-title"> المواعيد القادمة </h3>
@@ -246,60 +246,7 @@
                         </div>
                     </div>
 
-                    {{-- ============================================= --}}
-                    {{-- Section 2: Unpaid/Partially Paid Invoices    --}}
-                    {{-- ============================================= --}}
-                    <div class="col-lg-6 mb-4">
-                         <div class="data-card">
-                            <div class="data-card-header">
-                                <h3 class="data-card-title"> الفواتير غير المدفوعة/المدفوعة جزئياً </h3>
-                            </div>
-                             <div class="data-card-content p-0">
-                                @if(isset($unpaidInvoices) && $unpaidInvoices->count() > 0)
-                                     <div class="item-cards-list p-3">
-                                        @foreach($unpaidInvoices as $invoice)
-                                            <div class="card item-card mb-3">
-                                                <div class="card-body">
-                                                    <div class="item-card-row">
-                                                        <div class="item-details">
-                                                            <div class="item-title">
-                                                                فاتورة #<span class="invoice-number-cell" dir="ltr">{{ $invoice->invoice_number }}</span>
-                                                                 <span class="text-muted small">({{ $invoice->booking?->service?->name_ar ?? 'N/A' }})</span>
-                                                            </div>
-                                                            <div class="item-info">
-                                                                المبلغ المتبقي: {{ toArabicDigits(number_format($invoice->remaining_amount, 0)) }} {{ $invoice->currency }}
-                                                            </div>
-                                                        </div>
-                                                        <div class="item-status">
-                                                             <span class="badge {{ $invoice->status_badge_class ?? 'badge-secondary' }}">
-                                                                {{ $invoice->status_label ?? Str::ucfirst($invoice->status) }}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                     <hr class="my-2">
-                                                    <div class="item-actions justify-content-end">
-                                                         <a href="{{ route('customer.invoices.show', $invoice->id) }}" class="btn-action btn-invoice" title="عرض الفاتورة">
-                                                             عرض الفاتورة
-                                                         </a>
-                                                         @if($invoice->payment_method == 'tamara' && in_array($invoice->status, [\App\Models\Invoice::STATUS_UNPAID, \App\Models\Invoice::STATUS_PARTIALLY_PAID, \App\Models\Invoice::STATUS_FAILED, \App\Models\Invoice::STATUS_CANCELLED, \App\Models\Invoice::STATUS_EXPIRED]) && $invoice->remaining_amount > 0)
-                                                             <form method="POST" action="{{ route('payment_retry_tamara', $invoice) }}" class="d-inline m-0">
-                                                                 @csrf
-                                                                 <button type="submit" class="btn-action btn-pay" title="دفع الآن عبر تمارا"> دفع الآن </button>
-                                                             </form>
-                                                         @endif
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        @endforeach
-                                     </div>
-                                @else
-                                    <div class="empty-message m-3">
-                                        <p>لا توجد فواتير تتطلب الدفع حالياً.</p>
-                                    </div>
-                                @endif
-                             </div>
-                        </div>
-                    </div>
+                    {{-- Section 2 (Unpaid/Partially Paid Invoices) has been removed as requested --}}
                 </div>
 
                 {{-- ============================================= --}}
