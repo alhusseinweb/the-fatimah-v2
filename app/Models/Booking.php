@@ -7,8 +7,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Carbon\Carbon;
-// لا حاجة لاستيراد User و Setting هنا إذا لم تكن هناك دوال تستخدمهما مباشرة في هذا السياق
-// سيتم استيرادهما في المتحكمات أو الخدمات عند الحاجة.
+// use App\Models\User; // لا حاجة له هنا إذا لم يستخدم بشكل مباشر
+// use App\Models\Setting; // لا حاجة له هنا بعد إزالة الملحق الذي يستخدمه
 
 class Booking extends Model
 {
@@ -20,15 +20,15 @@ class Booking extends Model
     public const STATUS_CANCELLED_BY_USER = 'cancelled_by_user';
     public const STATUS_CANCELLED_BY_ADMIN = 'cancelled_by_admin';
     public const STATUS_NO_SHOW = 'no_show';
-    public const STATUS_RESCHEDULED_BY_ADMIN = 'rescheduled_by_admin'; // <-- تم إضافته
-    public const STATUS_RESCHEDULED_BY_USER = 'rescheduled_by_user'; // <-- تم إضافته
+    public const STATUS_RESCHEDULED_BY_ADMIN = 'rescheduled_by_admin';
+    public const STATUS_RESCHEDULED_BY_USER = 'rescheduled_by_user';
 
     protected $fillable = [
         'user_id',
         'service_id',
         'booking_datetime',
         'status',
-        'cancellation_reason', // <-- تم إضافته
+        'cancellation_reason',
         'event_location',
         'groom_name_ar',
         'groom_name_en',
@@ -36,9 +36,12 @@ class Booking extends Model
         'bride_name_en',
         'customer_notes',
         'agreed_to_policy',
-        'invoice_id',
+        'invoice_id', // تأكد من أن هذا الحقل يُدار بشكل صحيح (عادةً ما يتم تعيينه بعد إنشاء الفاتورة)
         'discount_code_id',
         'reminder_sent_at',
+        // --- MODIFICATION START ---
+        'down_payment_amount', // إضافة الحقل هنا للسماح بالحفظ
+        // --- MODIFICATION END ---
     ];
 
     protected $casts = [
@@ -47,6 +50,9 @@ class Booking extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'reminder_sent_at' => 'datetime',
+        // --- MODIFICATION START (Optional, but good practice) ---
+        'down_payment_amount' => 'float', // تحويل النوع إلى float
+        // --- MODIFICATION END ---
     ];
 
     public function user(): BelongsTo
@@ -78,8 +84,8 @@ class Booking extends Model
             self::STATUS_CANCELLED_BY_USER => 'ملغي (بواسطة العميل)',
             self::STATUS_CANCELLED_BY_ADMIN => 'ملغي (بواسطة الإدارة)',
             self::STATUS_NO_SHOW => 'لم يحضر العميل',
-            self::STATUS_RESCHEDULED_BY_ADMIN => 'تمت إعادة جدولته (بواسطة الإدارة)', // نص مقترح
-            self::STATUS_RESCHEDULED_BY_USER => 'طلب إعادة جدولة (بواسطة العميل)', // نص مقترح
+            self::STATUS_RESCHEDULED_BY_ADMIN => 'تمت إعادة جدولته (بواسطة الإدارة)',
+            self::STATUS_RESCHEDULED_BY_USER => 'طلب إعادة جدولة (بواسطة العميل)',
         ];
     }
 
@@ -87,7 +93,6 @@ class Booking extends Model
     {
         return [
             self::STATUS_CANCELLED_BY_ADMIN,
-            // يمكنك إضافة STATUS_CANCELLED_BY_USER هنا إذا أردت
         ];
     }
 
@@ -104,18 +109,22 @@ class Booking extends Model
             self::STATUS_CANCELLED_BY_USER, self::STATUS_CANCELLED_BY_ADMIN => 'badge bg-danger text-white',
             self::STATUS_PENDING => 'badge bg-warning text-dark',
             self::STATUS_NO_SHOW => 'badge bg-secondary text-white',
-            self::STATUS_RESCHEDULED_BY_ADMIN, self::STATUS_RESCHEDULED_BY_USER => 'badge bg-info text-dark', // مثال لـ badge
+            self::STATUS_RESCHEDULED_BY_ADMIN, self::STATUS_RESCHEDULED_BY_USER => 'badge bg-info text-dark',
             default => 'badge bg-light text-dark border',
         };
     }
 
+    // --- MODIFICATION START ---
+    // قم بإزالة أو تعطيل هذا الملحق (accessor) بالكامل.
+    // إذا ظل هذا الملحق موجودًا، فسيقوم دائمًا بإعادة حساب قيمة الدفعة الأولى
+    // بناءً على السعر الأصلي للخدمة، متجاوزًا القيمة الصحيحة المحسوبة (بعد الخصم)
+    // والتي تم حفظها بواسطة BookingController.
+    /*
     public function getDownPaymentAmountAttribute(): float
     {
+        // هذا المنطق يتسبب في المشكلة لأنه يتجاهل الخصومات
         if ($this->service && $this->service->price_sar > 0) {
-            // من الأفضل استيراد Setting في الأعلى إذا كنت ستستخدمه هنا
-            // use App\Models\Setting;
             $downPaymentPercentageSetting = \App\Models\Setting::where('key', 'down_payment_percentage')->first();
-            // تم تعديل القيمة الافتراضية لتكون 0.5 (50%) إذا لم يتم العثور على الإعداد
             $downPaymentPercentage = $downPaymentPercentageSetting ? (float) $downPaymentPercentageSetting->value : 0.5;
 
             if ($downPaymentPercentage > 0 && $downPaymentPercentage <= 1) {
@@ -124,4 +133,6 @@ class Booking extends Model
         }
         return 0.00;
     }
+    */
+    // --- MODIFICATION END ---
 }
