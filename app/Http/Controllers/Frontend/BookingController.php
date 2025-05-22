@@ -22,10 +22,8 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\View\View;
 use Illuminate\Validation\Rule;
 use App\Services\TamaraService;
-// --- START: التعديلات المطلوبة ---
-use App\Notifications\BookingRequestReceived; // <-- تم التغيير/الإضافة
-use App\Models\User; // <-- تم الإضافة (إذا لم يكن موجودًا)
-// --- END: التعديلات المطلوبة ---
+use App\Notifications\BookingRequestReceived;
+use App\Models\User;
 
 class BookingController extends Controller
 {
@@ -85,7 +83,7 @@ class BookingController extends Controller
                               ->with('error', 'الوقت المحدد غير صحيح.');
          }
 
-         if ($bookingDateTime < Carbon::now()->subMinutes(5)) {
+         if ($bookingDateTime < Carbon::now()->subMinutes(5)) { // Allow a small grace period for submission
               return redirect()->route('booking.calendar', $service->id)
                               ->with('error', 'لا يمكن اختيار وقت في الماضي.');
          }
@@ -139,7 +137,7 @@ class BookingController extends Controller
         $service = Service::findOrFail($validatedData['service_id']);
         try {
             $bookingDateTime = Carbon::createFromFormat('Y-m-d H:i', $validatedData['date'] . ' ' . $validatedData['time']);
-             if ($bookingDateTime < Carbon::now()->subMinutes(2)) {
+             if ($bookingDateTime < Carbon::now()->subMinutes(2)) { // Reduced grace period check
                  return back()->withInput()->with('error', 'الوقت المختار أصبح في الماضي. يرجى اختيار وقت آخر.');
              }
         } catch (\Exception $e) {
@@ -147,7 +145,7 @@ class BookingController extends Controller
         }
 
         $discountCode = null; $discountAmount = 0;
-        $totalAmount = $service->price_sar; $finalTotalAmount = $totalAmount;
+        $totalAmount = $service->price_sar; $finalTotalAmount = $totalAmount; // This is price before discount
         $discountValueRaw = 0;
         $discountType = null;
 
@@ -168,31 +166,40 @@ class BookingController extends Controller
                    } elseif ($discountType === DiscountCode::TYPE_FIXED) {
                         $discountAmount = $discountValueRaw;
                    }
-                   $discountAmount = min($discountAmount, $totalAmount);
-                   $finalTotalAmount = $totalAmount - $discountAmount;
+                   $discountAmount = min($discountAmount, $totalAmount); // Ensure discount doesn't exceed total
+                   $finalTotalAmount = $totalAmount - $discountAmount; // This is price AFTER discount
              } else {
+                   // This case should ideally be caught by Rule::exists, but good as a fallback
                    return back()->withInput()->withErrors(['discount_code' => 'كود الخصم المدخل غير صالح أو منتهي الصلاحية.']);
              }
         }
-        $finalTotalAmount = round($finalTotalAmount, 2);
+        $finalTotalAmount = round($finalTotalAmount, 2); // Ensure two decimal places for monetary value
 
         $paymentOption = $validatedData['payment_option'];
+        // Amount due now is based on the final amount after discount
         $amountDueNow = ($paymentOption === 'down_payment') ? round($finalTotalAmount / 2, 0) : round($finalTotalAmount, 0);
+        // For consistency, let's use 2 decimal places for amountDueNow as well, though Tamara might handle integers fine
+        $amountDueNow = round($amountDueNow, 2);
+
 
         Log::debug('Booking Submit - Before Transaction:', [
-            'payment_option_var' => $paymentOption,
-            'amount_due_now' => $amountDueNow,
-            'final_total_amount' => $finalTotalAmount,
-            'discount_applied' => $discountCode ? $discountCode->code : 'None'
+            'service_price_before_discount' => $totalAmount,
+            'discount_amount_calculated' => $discountAmount,
+            'final_total_amount_after_discount' => $finalTotalAmount,
+            'payment_option_selected' => $paymentOption,
+            'amount_due_now_calculated' => $amountDueNow, // This is the key value (e.g., 550)
+            'discount_code_applied' => $discountCode ? $discountCode->code : 'None'
         ]);
 
         $booking = null; $invoice = null; $user = Auth::user();
         if (!$user) {
+             // This should ideally be caught by middleware if the route is protected
              return redirect()->route('login')->with('error', 'يرجى تسجيل الدخول أولاً.');
         }
 
         try {
-            DB::transaction(function () use ($validatedData, $bookingDateTime, $service, $discountCode, $finalTotalAmount, $paymentOption, $user, &$booking, &$invoice) {
+            // Pass $amountDueNow to the transaction closure
+            DB::transaction(function () use ($validatedData, $bookingDateTime, $service, $discountCode, $finalTotalAmount, $paymentOption, $user, &$booking, &$invoice, $amountDueNow) {
                 $booking = Booking::create([
                     'user_id' => $user->id,
                     'service_id' => $service->id,
@@ -202,24 +209,31 @@ class BookingController extends Controller
                     'groom_name_en' => $validatedData['groom_name_en'],
                     'bride_name_en' => $validatedData['bride_name_en'],
                     'customer_notes' => $validatedData['customer_notes'],
-                    'agreed_to_policy' => true,
+                    'agreed_to_policy' => true, // Already validated
                     'discount_code_id' => $discountCode?->id,
+                    // --- MODIFICATION START: Store the calculated down payment amount ---
+                    'down_payment_amount' => ($paymentOption === 'down_payment') ? $amountDueNow : null,
+                    // --- MODIFICATION END ---
                 ]);
-                Log::debug('Booking Submit - Inside Transaction - Booking Created:', ['booking_id' => $booking->id]);
+                Log::debug('Booking Submit - Inside Transaction - Booking Created:', [
+                    'booking_id' => $booking->id,
+                    'stored_down_payment_amount' => $booking->down_payment_amount
+                ]);
 
                 $invoice = Invoice::create([
                     'booking_id' => $booking->id,
-                    'invoice_number' => 'INV-' . $booking->id . '-' . time(),
-                    'amount' => $finalTotalAmount,
+                    'invoice_number' => 'INV-' . $booking->id . '-' . time(), // Consider a more robust unique invoice number
+                    'amount' => $finalTotalAmount, // Full amount after discount
                     'currency' => 'SAR',
-                    'status' => Invoice::STATUS_UNPAID,
+                    'status' => Invoice::STATUS_UNPAID, // Initial status
                     'payment_method' => $validatedData['payment_method'],
-                    'payment_option' => $paymentOption,
-                    'due_date' => Carbon::today(),
+                    'payment_option' => $paymentOption, // 'full' or 'down_payment'
+                    'due_date' => Carbon::today(), // Or bookingDateTime or other logic
                 ]);
                  Log::debug('Booking Submit - Inside Transaction - Invoice Created:', [
                     'invoice_id' => $invoice->id,
-                    'saved_payment_option' => $invoice->payment_option
+                    'invoice_total_amount' => $invoice->amount,
+                    'saved_payment_option_on_invoice' => $invoice->payment_option
                 ]);
 
                 if ($discountCode) {
@@ -230,21 +244,21 @@ class BookingController extends Controller
             });
 
         } catch (\Exception $e) {
-             Log::error('Booking Creation Transaction Failed: ' . $e->getMessage(), ['exception' => $e]);
+             Log::error('Booking Creation Transaction Failed: ' . $e->getMessage(), [
+                'exception_class' => get_class($e),
+                'trace' => $e->getTraceAsString()
+            ]);
              return back()->withInput()->with('error', 'حدث خطأ غير متوقع أثناء إنشاء الحجز. يرجى المحاولة مرة أخرى أو التواصل معنا.');
         }
 
-        // --- 6. إرسال إشعار استلام طلب الحجز (تم التعديل هنا) ---
-        if ($booking && $user) {
+        if ($booking && $user) { // Ensure booking and user exist before sending notifications
             try {
-                $paymentMethodForNotification = $validatedData['payment_method']; // طريقة الدفع المختارة
+                $paymentMethodForNotification = $validatedData['payment_method'];
                 Log::info("Attempting to send BookingRequestReceived notification for Booking ID: {$booking->id}");
 
-                // إرسال للعميل
                 $user->notify(new BookingRequestReceived($booking, $paymentMethodForNotification));
                 Log::info("BookingRequestReceived notification queued for CUSTOMER for Booking ID: {$booking->id}");
 
-                // إرسال للمديرين
                 $admins = User::where('is_admin', true)->get();
                 foreach ($admins as $admin) {
                     $admin->notify(new BookingRequestReceived($booking, $paymentMethodForNotification));
@@ -254,22 +268,39 @@ class BookingController extends Controller
                  Log::error("Failed to queue BookingRequestReceived notifications for Booking ID: {$booking->id}", ['error' => $e->getMessage()]);
             }
         }
-        // --- نهاية تعديل إرسال الإشعار ---
 
         if ($validatedData['payment_method'] === 'bank_transfer') {
              Log::info("Redirecting to pending page for bank transfer.", ['booking_id' => $booking->id]);
              return redirect()->route('booking.pending', $booking->id);
         }
         elseif ($validatedData['payment_method'] === 'tamara') {
-             Log::info("Initiating Tamara checkout.", ['booking_id' => $booking->id, 'invoice_id' => $invoice->id, 'amount_due' => $amountDueNow]);
+             // Ensure $invoice and $amountDueNow are available. They should be if transaction succeeded.
+             if (!$invoice || $amountDueNow <= 0) {
+                Log::error("Tamara initiation skipped due to missing invoice or zero/negative amountDueNow.", [
+                    'booking_id' => $booking?->id,
+                    'invoice_id' => $invoice?->id,
+                    'amount_due_now' => $amountDueNow ?? 'Not set'
+                ]);
+                return redirect()->route('booking.pending', $booking->id)
+                                 ->with('error', 'حدث خطأ في تجهيز معلومات الدفع لتمارا. يرجى المحاولة لاحقاً.');
+             }
+
+             Log::info("Initiating Tamara checkout.", [
+                'booking_id' => $booking->id,
+                'invoice_id' => $invoice->id,
+                'amount_to_send_to_tamara' => $amountDueNow, // This is the 550 SAR
+                'payment_option_for_tamara' => $paymentOption // 'down_payment' or 'full'
+            ]);
+
              $checkoutResponse = $this->tamaraService->initiateCheckout($invoice, $amountDueNow, $paymentOption);
+
              if ($checkoutResponse && isset($checkoutResponse['checkout_url']) && isset($checkoutResponse['order_id'])) {
                   $invoice->payment_gateway_ref = $checkoutResponse['order_id'];
                   $invoice->save();
                   Log::info("Tamara checkout URL obtained. Redirecting user.", ['invoice_id' => $invoice->id, 'tamara_order_id' => $checkoutResponse['order_id']]);
                   return redirect()->away($checkoutResponse['checkout_url']);
              } else {
-                  Log::error("Tamara initiateCheckout failed in BookingController.", ['invoice_id' => $invoice->id, 'response' => $checkoutResponse]);
+                  Log::error("Tamara initiateCheckout failed in BookingController.", ['invoice_id' => $invoice->id, 'response_from_tamara_service' => $checkoutResponse]);
                   return redirect()->route('booking.pending', $booking->id)
                                  ->with('error', 'لم نتمكن من بدء الدفع مع تمارا حالياً. يمكنك المحاولة لاحقاً من صفحة حسابك أو اختيار التحويل البنكي إذا كان متاحاً.');
              }
@@ -284,13 +315,32 @@ class BookingController extends Controller
      */
      public function showPendingPage(Booking $booking) : View|RedirectResponse
      {
-          if(Auth::id() !== $booking->user_id) { return redirect()->route('home')->with('error', 'غير مصرح لك بعرض هذا الحجز.'); }
-          $booking->load(['service', 'invoice']);
+          if(Auth::id() !== $booking->user_id && !(Auth::user() && Auth::user()->is_admin)) { // Allow admin to view
+            Log::warning("Unauthorized attempt to view pending page.", ['booking_id' => $booking->id, 'user_id' => Auth::id()]);
+            return redirect()->route('home')->with('error', 'غير مصرح لك بعرض هذا الحجز.');
+          }
+
+          $booking->load(['service', 'invoice.payments']); // Load payments to calculate paid amount if needed
           $bankAccounts = BankAccount::where('is_active', true)->get();
           $invoice = $booking->invoice;
-          $amountDueNowOnPending = null; $paymentOptionOnPending = $invoice?->payment_option ?? 'full';
-          if ($invoice && $invoice->status == Invoice::STATUS_UNPAID) { $amountDueNowOnPending = ($paymentOptionOnPending === 'down_payment') ? round($invoice->amount / 2, 0) : round($invoice->amount, 0); }
-          elseif ($invoice && $invoice->status == Invoice::STATUS_PARTIALLY_PAID) { $amountDueNowOnPending = $invoice->remaining_amount ?? round($invoice->amount - ($invoice->amount / 2), 0); }
+
+          $amountDueNowOnPending = 0.0;
+          $paymentOptionOnPending = $invoice?->payment_option ?? 'full';
+
+          if ($invoice) {
+            if ($invoice->status == Invoice::STATUS_UNPAID) {
+                $amountDueNowOnPending = ($paymentOptionOnPending === 'down_payment' && $booking->down_payment_amount > 0)
+                                        ? $booking->down_payment_amount
+                                        : $invoice->amount;
+            } elseif ($invoice->status == Invoice::STATUS_PARTIALLY_PAID) {
+                $amountDueNowOnPending = $invoice->remaining_amount > 0.009 ? $invoice->remaining_amount : 0.0;
+            } elseif ($invoice->status == Invoice::STATUS_PAID) {
+                $amountDueNowOnPending = 0.0;
+            }
+            // Ensure two decimal places
+            $amountDueNowOnPending = round($amountDueNowOnPending, 2);
+          }
+
 
           return view('frontend.booking.pending', compact('booking', 'bankAccounts', 'amountDueNowOnPending', 'paymentOptionOnPending'));
      }
