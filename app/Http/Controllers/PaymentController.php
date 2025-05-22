@@ -22,12 +22,7 @@ use Illuminate\Support\Str;
 
 use Tamara\Client as TamaraClient;
 use Tamara\Configuration as TamaraConfiguration;
-// Authenticator ليس مستخدماً في هذا الإصدار من الكود بسبب تجاوز المصادقة
-// use Tamara\Notification\Authenticator as TamaraAuthenticator;
-// use Tamara\Model\Order\Order as TamaraOrderModel; // لا نحتاج إليه طالما نستخدم الثوابت المعرفة محليًا
 use Tamara\Request\Order\AuthoriseOrderRequest as TamaraAuthoriseOrderRequest;
-// use Tamara\Exception\ForbiddenException as TamaraForbiddenException;
-// use Tamara\Exception\RequestException as TamaraRequestException;
 
 use App\Services\TamaraService;
 
@@ -57,33 +52,39 @@ class PaymentController extends Controller
             return Redirect::route('home')->with('error', 'حدث خطأ ما.');
         }
 
-        // Store the current invoice state before we check anything
         $initialStatus = $invoice->status;
         $previousStatus = session('previous_invoice_status_' . $invoice->id, $initialStatus);
         $sessionKey = 'previous_invoice_status_' . $invoice->id;
-
-        // Check for payments to determine status
+        
         $totalPaid = Payment::where('invoice_id', $invoice->id)
                         ->where('status', 'completed')
                         ->sum('amount');
-
-        // FIX: Use slightly increased tolerance (0.1) for comparing float values
+                        
         $isPaidInFull = abs($totalPaid - $invoice->amount) < 0.1 && $invoice->amount > 0;
-
-        // Update invoice status if it's fully paid now but still marked as partially paid
+        
         if ($isPaidInFull && $initialStatus !== Invoice::STATUS_PAID) {
             $invoice->status = Invoice::STATUS_PAID;
+            // Ensure paid_at is set if moving to PAID
+            if ($invoice->paid_at === null) {
+                $invoice->paid_at = Carbon::now();
+            }
             $invoice->save();
-            Log::info("Invoice status updated from {$initialStatus} to PAID in success redirect handler - full payment confirmed",
+            Log::info("Invoice status updated from {$initialStatus} to PAID in success redirect handler - full payment confirmed", 
+                    ['invoice_id' => $invoice->id, 'total_paid' => $totalPaid, 'invoice_amount' => $invoice->amount]);
+        } elseif ($totalPaid > 0 && !$isPaidInFull && $initialStatus !== Invoice::STATUS_PARTIALLY_PAID && $initialStatus !== Invoice::STATUS_PAID) {
+            // If there's some payment and it's not fully paid, and it wasn't already partially paid or paid
+            $invoice->status = Invoice::STATUS_PARTIALLY_PAID;
+            if ($invoice->paid_at === null) { // Set paid_at on first payment (even partial)
+                $invoice->paid_at = Carbon::now();
+            }
+            $invoice->save();
+            Log::info("Invoice status updated from {$initialStatus} to PARTIALLY_PAID in success redirect handler.",
                     ['invoice_id' => $invoice->id, 'total_paid' => $totalPaid, 'invoice_amount' => $invoice->amount]);
         }
-
-        // Refresh to get the latest status after our update
+        
         $invoice->refresh();
-
-        // Prepare success message based on the status change
+        
         $successMessage = 'تم استلام دفعتك بنجاح!';
-
         if ($invoice->status === Invoice::STATUS_PAID) {
             $successMessage = ($previousStatus === Invoice::STATUS_PARTIALLY_PAID)
                 ? "تم استلام المبلغ المتبقي للفاتورة بنجاح! شكراً لثقتكم بنا."
@@ -91,7 +92,7 @@ class PaymentController extends Controller
         } elseif ($invoice->status === Invoice::STATUS_PARTIALLY_PAID) {
             $successMessage = 'تم استلام دفعة العربون بنجاح! تم تأكيد حجزك.';
         } else {
-            Log::info("Tamara success redirect, but final invoice status from DB is '{$invoice->status}'. Webhook should update it soon.", ['invoice_id' => $invoice->id]);
+            Log::info("Tamara success redirect, but final invoice status from DB is '{$invoice->status}'. Webhook should update it soon or might have already processed.", ['invoice_id' => $invoice->id]);
         }
 
         if (session()->has($sessionKey)) {
@@ -100,7 +101,7 @@ class PaymentController extends Controller
         }
 
         Log::info("Redirecting user after Tamara success redirect.", ['booking_id' => $bookingId, 'invoice_id' => $invoice->id, 'invoice_status_for_redirect' => $invoice->status]);
-        return Redirect::route('customer.invoices.show', $invoice->id)
+        return Redirect::route('customer.invoices.show', $invoice->id) 
                         ->with('success', $successMessage);
     }
 
@@ -118,6 +119,7 @@ class PaymentController extends Controller
 
         if (!in_array($originalStatus, [Invoice::STATUS_PAID, Invoice::STATUS_PARTIALLY_PAID])) {
             Log::info("Tamara failure redirect: Invoice status '{$originalStatus}' for invoice: {$invoice->id}. No status change from redirect. Webhook will handle if truly failed.");
+            // Send notification only if status indicates payment was pending/failed
             if ($customer) {
                 try {
                     $customer->notify(new PaymentFailedNotification($invoice, $reason));
@@ -194,7 +196,7 @@ class PaymentController extends Controller
         try {
             if ($eventType === self::EVENT_TYPE_ORDER_APPROVED) {
                 Log::info('Processing Tamara order_approved event (auth bypassed).', ['tamara_order_id' => $tamaraOrderId, 'order_reference_id' => $resolved_order_reference_id]);
-                DB::transaction(function () use ($tamaraOrderId, $resolved_order_reference_id, $requestData, $eventType) { // أضفت eventType هنا
+                DB::transaction(function () use ($tamaraOrderId, $resolved_order_reference_id, $requestData, $eventType) {
 
                     $invoice = Invoice::where(function ($query) use ($resolved_order_reference_id, $tamaraOrderId) {
                         if ($resolved_order_reference_id) {
@@ -202,7 +204,7 @@ class PaymentController extends Controller
                         }
                         $query->orWhere('payment_gateway_ref', $tamaraOrderId);
                     })
-                    ->with('booking.user', 'booking.service')
+                    ->with('booking.user', 'booking.service') // Ensure booking and user are loaded
                     ->lockForUpdate()
                     ->first();
 
@@ -220,13 +222,11 @@ class PaymentController extends Controller
                                             ->exists();
 
                     $paymentActuallyCreatedInThisWebhookCall = false;
-                    $amountPaidInThisTransaction = 0;
+                    $amountPaidInThisTransaction = 0.0;
                     $tamaraCurrency = $invoice->currency ?: 'SAR';
 
                     if (!$existingPayment) {
-                        // --- START: تصحيح منطق استخلاص المبلغ والعملة ---
                         $tamaraAmount = null;
-                        // $tamaraCurrency مُهيأة بالفعل
 
                         if (isset($requestData['total_amount']['amount'])) {
                             $tamaraAmount = $requestData['total_amount']['amount'];
@@ -238,7 +238,7 @@ class PaymentController extends Controller
                             if (isset($requestData['order_amount']['currency'])) {
                                 $tamaraCurrency = $requestData['order_amount']['currency'];
                             }
-                        } elseif (isset($requestData['data']) && is_array($requestData['data'])) { // التحقق من أن data مصفوفة
+                        } elseif (isset($requestData['data']) && is_array($requestData['data'])) {
                             if (isset($requestData['data']['payment_amount']['amount'])) {
                                 $tamaraAmount = $requestData['data']['payment_amount']['amount'];
                                 if (isset($requestData['data']['payment_amount']['currency'])) {
@@ -251,140 +251,73 @@ class PaymentController extends Controller
                                 }
                             }
                         }
-                        // --- END: تصحيح منطق استخلاص المبلغ والعملة ---
 
                         if ($tamaraAmount !== null) {
                             $amountPaidInThisTransaction = (float) $tamaraAmount;
                             Log::info("Amount extracted directly from webhook payload for order_approved: {$amountPaidInThisTransaction} {$tamaraCurrency}", ['invoice_id' => $invoice->id]);
                         } else {
-                            // We need to be more careful with the amount extraction, especially if discounts are applied
-                            Log::warning("Could not extract amount from Tamara webhook for order_approved. Trying to determine actual amount.", [
+                            Log::warning("Could not extract amount directly from Tamara webhook for order_approved. Using fallback logic.", [
                                 'tamara_order_id' => $tamaraOrderId,
                                 'invoice_id' => $invoice->id,
                                 'request_data_keys' => array_keys($requestData)
                             ]);
 
-                            // First, check the logs to extract the actual amount that was sent to Tamara
-                            $logEntries = DB::table('logs')
-                                ->where(function($query) use ($invoice) {
-                                    $query->where('message', 'LIKE', "%Tamara Payload for Invoice ID {$invoice->id}%")
-                                          ->orWhere('message', 'LIKE', "%Tamara checkout initiated successfully for Invoice ID: {$invoice->id}%");
-                                })
-                                ->orderBy('created_at', 'desc')
-                                ->limit(1)
-                                ->get();
-
-                            if ($logEntries->count() > 0) {
-                                $logContent = $logEntries->first()->message;
-                                $matches = [];
-
-                                // Try pattern for "Amount: 950" format
-                                if (preg_match('/Amount: (\d+(\.\d+)?)/', $logContent, $matches)) {
-                                    $amountPaidInThisTransaction = (float) $matches[1];
-                                    Log::info("Found amount in Tamara logs: {$amountPaidInThisTransaction}", [
-                                        'invoice_id' => $invoice->id,
-                                        'source' => 'log_pattern_match'
+                            // START --- Fallback logic for amount determination (NO DB::table('logs') ---
+                            if ($invoice->payment_option === 'down_payment') {
+                                if ($invoice->booking && isset($invoice->booking->down_payment_amount) && $invoice->booking->down_payment_amount > 0.009) {
+                                    $amountPaidInThisTransaction = (float) $invoice->booking->down_payment_amount;
+                                    Log::info("Using down_payment_amount from associated booking: {$amountPaidInThisTransaction}", ['invoice_id' => $invoice->id]);
+                                } else {
+                                    Log::error("Critical: Could not determine down_payment_amount for invoice {$invoice->id} when webhook payload lacked amount. Booking down_payment_amount not set or invalid.", [
+                                        'booking_id' => $invoice->booking_id ?? null,
+                                        'booking_down_payment_amount' => $invoice->booking->down_payment_amount ?? 'not_set'
                                     ]);
+                                    $amountPaidInThisTransaction = 0.0; // Prevent payment creation with uncertain amount
                                 }
-                                // Try pattern for "amount_due:950.0" format
-                                elseif (preg_match('/amount_due":?(\d+(\.\d+)?)/', $logContent, $matches)) {
-                                    $amountPaidInThisTransaction = (float) $matches[1];
-                                    Log::info("Found amount in Tamara logs: {$amountPaidInThisTransaction}", [
+                            } elseif ($invoice->status === Invoice::STATUS_PARTIALLY_PAID) {
+                                $existingPaymentsTotal = Payment::where('invoice_id', $invoice->id)
+                                    ->where('status', 'completed')
+                                    ->sum('amount');
+                                $remainingAmount = $invoice->amount - $existingPaymentsTotal;
+
+                                if ($remainingAmount > 0.009) {
+                                    $amountPaidInThisTransaction = (float) $remainingAmount;
+                                    Log::info("Using calculated remaining amount for partially paid invoice: {$amountPaidInThisTransaction}", [
                                         'invoice_id' => $invoice->id,
-                                        'source' => 'amount_due_match'
-                                    ]);
-                                }
-                                // Try pattern for "amount":950.0" format in total_amount
-                                elseif (preg_match('/total_amount":\s*{\s*"amount":\s*(\d+(\.\d+)?)/', $logContent, $matches)) {
-                                    $amountPaidInThisTransaction = (float) $matches[1];
-                                    Log::info("Found amount in Tamara logs: {$amountPaidInThisTransaction}", [
-                                        'invoice_id' => $invoice->id,
-                                        'source' => 'total_amount_match'
-                                    ]);
-                                }
-                            }
-
-                            // If we still don't have the amount, check if we're processing a remaining balance payment
-                            if (empty($amountPaidInThisTransaction)) {
-                                // For partially paid invoices, calculate remaining amount
-                                if ($invoice->status === Invoice::STATUS_PARTIALLY_PAID) {
-                                    $existingPaymentsTotal = Payment::where('invoice_id', $invoice->id)
-                                        ->where('status', 'completed')
-                                        ->sum('amount');
-
-                                    $remainingAmount = $invoice->amount - $existingPaymentsTotal;
-
-                                    if ($remainingAmount > 0) {
-                                        $amountPaidInThisTransaction = $remainingAmount;
-                                        Log::info("Using remaining amount for partially paid invoice: {$amountPaidInThisTransaction}", [
-                                            'invoice_id' => $invoice->id,
-                                            'total_due' => $invoice->amount,
-                                            'already_paid' => $existingPaymentsTotal
-                                        ]);
-                                    }
-                                }
-                            }
-
-                            // If still no amount, but we have items array in the webhook payload, try there
-                            if (empty($amountPaidInThisTransaction) && isset($requestData['items']) && is_array($requestData['items']) && !empty($requestData['items'])) {
-                                foreach ($requestData['items'] as $item) {
-                                    if (isset($item['unit_price']['amount'])) {
-                                        $amountPaidInThisTransaction = (float) $item['unit_price']['amount'];
-                                        Log::info("Found amount in items array: {$amountPaidInThisTransaction}", [
-                                            'invoice_id' => $invoice->id
-                                        ]);
-                                        break;
-                                    } elseif (isset($item['total_amount']['amount'])) {
-                                        $amountPaidInThisTransaction = (float) $item['total_amount']['amount'];
-                                        Log::info("Found amount in items total_amount: {$amountPaidInThisTransaction}", [
-                                            'invoice_id' => $invoice->id
-                                        ]);
-                                        break;
-                                    }
-                                }
-                            }
-
-                            // Last resort - check transaction logs for "Before Transaction" entries
-                            if (empty($amountPaidInThisTransaction)) {
-                                $transactionLogs = DB::table('logs')
-                                    ->where('message', 'LIKE', "%Booking Submit - Before Transaction%")
-                                    ->where('message', 'LIKE', "%invoice_id\":{$invoice->id}%")
-                                    ->orderBy('created_at', 'desc')
-                                    ->first();
-
-                                if ($transactionLogs) {
-                                    $logContent = $transactionLogs->message;
-                                    if (preg_match('/amount_due_now":(\d+(\.\d+)?)/', $logContent, $matches)) {
-                                        $amountPaidInThisTransaction = (float) $matches[1];
-                                        Log::info("Found amount in transaction logs: {$amountPaidInThisTransaction}", [
-                                            'invoice_id' => $invoice->id
-                                        ]);
-                                    }
-                                }
-                            }
-
-                            // If all else fails, use a safe default that accounts for possible discounts
-                            if (empty($amountPaidInThisTransaction)) {
-                                // Check if there's a discount applied to this invoice/booking
-                                $discountApplied = !empty($invoice->booking->discount_code);
-
-                                if ($invoice->payment_option === 'down_payment') {
-                                    // For down payments, use the transaction amount from the logs if available
-                                    // Otherwise use 950 as the default for discounted transactions
-                                    $amountPaidInThisTransaction = 950.0; // Defaulting based on observation of typical downpayment.
-                                    Log::info("Using fallback discount-aware amount for down payment: {$amountPaidInThisTransaction}", [
-                                        'invoice_id' => $invoice->id,
-                                        'discount_applied' => $discountApplied
+                                        'total_due' => $invoice->amount,
+                                        'already_paid' => $existingPaymentsTotal
                                     ]);
                                 } else {
-                                    // For full payments, use the invoice amount (which should already include discounts)
-                                    $amountPaidInThisTransaction = $invoice->amount;
-                                    Log::info("Using invoice amount for full payment: {$amountPaidInThisTransaction}", [
-                                        'invoice_id' => $invoice->id
-                                    ]);
+                                    $amountPaidInThisTransaction = 0.0;
+                                    Log::info("Calculated remaining for partially paid is zero or less.", ['invoice_id' => $invoice->id, 'remaining' => $remainingAmount]);
+                                }
+                            } else { // Default to full invoice amount if not down_payment and not partially_paid retry
+                                $amountPaidInThisTransaction = (float) $invoice->amount;
+                                Log::info("Using full invoice amount as fallback: {$amountPaidInThisTransaction}", ['invoice_id' => $invoice->id]);
+                            }
+
+                            // Last attempt: Check 'items' in webhook data if other fallbacks didn't yield a positive amount
+                            if (empty($amountPaidInThisTransaction) || $amountPaidInThisTransaction <= 0.009) {
+                                if (isset($requestData['items']) && is_array($requestData['items']) && !empty($requestData['items'])) {
+                                    $itemAmount = 0.0;
+                                    foreach ($requestData['items'] as $item) {
+                                        if (isset($item['unit_price']['amount'])) {
+                                            $itemAmount = (float) $item['unit_price']['amount'];
+                                            break;
+                                        } elseif (isset($item['total_amount']['amount'])) {
+                                            $itemAmount = (float) $item['total_amount']['amount'];
+                                            break;
+                                        }
+                                    }
+                                    if ($itemAmount > 0.009) {
+                                        $amountPaidInThisTransaction = $itemAmount;
+                                        Log::info("Found amount in webhook items array as final fallback: {$amountPaidInThisTransaction}", ['invoice_id' => $invoice->id]);
+                                    }
                                 }
                             }
+                            // END --- Fallback logic for amount determination ---
                         }
+
 
                         if ($amountPaidInThisTransaction > 0.009) {
                             Payment::create([
@@ -399,7 +332,7 @@ class PaymentController extends Controller
                             Log::info("Payment record CREATED via webhook for order_approved.", ['invoice_id' => $invoice->id, 'amount' => $amountPaidInThisTransaction]);
                             $paymentActuallyCreatedInThisWebhookCall = true;
                         } else {
-                             Log::info("Skipping payment creation as amount is zero or less for order_approved.", ['invoice_id' => $invoice->id, 'amount' => $amountPaidInThisTransaction]);
+                             Log::info("Skipping payment creation as amount is zero or less for order_approved.", ['invoice_id' => $invoice->id, 'calculated_amount' => $amountPaidInThisTransaction]);
                         }
                     } else {
                         Log::warning("Duplicate payment webhook (order_approved) or payment already recorded. Ignored for order_id.", [
@@ -413,34 +346,27 @@ class PaymentController extends Controller
                         $originalInvoiceStatus = $invoice->status;
                         $newInvoiceStatus = $originalInvoiceStatus;
 
-                        // Calculate total amount paid so far with the new payment
                         $totalPaid = Payment::where('invoice_id', $invoice->id)
                                       ->where('status', 'completed')
                                       ->sum('amount');
 
-                        // FIX: Improved logic to accurately detect full payment status with a proper tolerance
-                        if (abs($totalPaid - $invoice->amount) < 0.1 && $invoice->amount > 0) {
-                            // Invoice is fully paid if total matches full amount within tolerance
+                        if (abs($totalPaid - $invoice->amount) < 0.1 && $invoice->amount > 0.009) {
                             $newInvoiceStatus = Invoice::STATUS_PAID;
                             Log::info("Invoice is now fully paid with total payments: {$totalPaid}", [
-                                'invoice_id' => $invoice->id,
-                                'invoice_amount' => $invoice->amount,
-                                'payment_option' => $invoice->payment_option,
+                                'invoice_id' => $invoice->id, 'invoice_amount' => $invoice->amount,
                                 'difference' => abs($totalPaid - $invoice->amount)
                             ]);
-                        } elseif ($totalPaid > 0 && $totalPaid < $invoice->amount) {
-                            // Invoice is partially paid if some payment exists but less than full amount
+                        } elseif ($totalPaid > 0.009 && $totalPaid < ($invoice->amount - 0.009) ) { // Check if less than full amount with tolerance
                             $newInvoiceStatus = Invoice::STATUS_PARTIALLY_PAID;
                             Log::info("Invoice is partially paid with total: {$totalPaid} of {$invoice->amount}", [
-                                'invoice_id' => $invoice->id,
-                                'remaining' => $invoice->amount - $totalPaid
+                                'invoice_id' => $invoice->id, 'remaining' => $invoice->amount - $totalPaid
                             ]);
-                        } elseif ($amountPaidInThisTransaction <= 0 && $originalInvoiceStatus !== Invoice::STATUS_PAID) {
-                            // Keep original status if no payment
-                            $newInvoiceStatus = $originalInvoiceStatus;
+                        } elseif ($amountPaidInThisTransaction <= 0.009 && $originalInvoiceStatus !== Invoice::STATUS_PAID) {
+                            $newInvoiceStatus = $originalInvoiceStatus; // Keep original if no payment made this time
                         }
 
-                        if ($newInvoiceStatus !== $originalInvoiceStatus || ($newInvoiceStatus === Invoice::STATUS_PAID && $invoice->paid_at === null) || ($newInvoiceStatus === Invoice::STATUS_PARTIALLY_PAID && $invoice->paid_at === null)) {
+
+                        if ($newInvoiceStatus !== $originalInvoiceStatus || (($newInvoiceStatus === Invoice::STATUS_PAID || $newInvoiceStatus === Invoice::STATUS_PARTIALLY_PAID) && $invoice->paid_at === null)) {
                             $invoice->status = $newInvoiceStatus;
                             if (($newInvoiceStatus === Invoice::STATUS_PAID || $newInvoiceStatus === Invoice::STATUS_PARTIALLY_PAID) && $invoice->paid_at === null) {
                                 $invoice->paid_at = Carbon::now();
@@ -497,13 +423,10 @@ class PaymentController extends Controller
                             }
                         }
                     }
-                }); // نهاية الـ DB::transaction للدالة order_approved
+                });
 
             } elseif ($eventType === self::EVENT_TYPE_ORDER_AUTHORISED) {
                 Log::info('Processing Tamara order_authorised event (auth bypassed).', ['tamara_order_id' => $tamaraOrderId, 'order_reference_id' => $resolved_order_reference_id]);
-                // عادةً ما يكون هذا الحدث مجرد تأكيد مبدئي، وقد يليه order_approved.
-                // يمكننا تحديث حالة الفاتورة إلى "قيد المعالجة" إذا لزم الأمر،
-                // ولكن الأفضل انتظار order_approved لتسجيل الدفعة وتأكيد الحجز.
                 $invoice = Invoice::where(function ($query) use ($resolved_order_reference_id, $tamaraOrderId) {
                     if ($resolved_order_reference_id) {
                         $query->where('invoice_number', $resolved_order_reference_id);
@@ -511,15 +434,13 @@ class PaymentController extends Controller
                     $query->orWhere('payment_gateway_ref', $tamaraOrderId);
                 })->first();
 
-                if ($invoice && $invoice->status === Invoice::STATUS_PENDING) { // أو أي حالة أولية أخرى
-                    // $invoice->status = Invoice::STATUS_PROCESSING_TAMARA; // حالة افتراضية جديدة إذا أردت
-                    // $invoice->save();
+                if ($invoice && $invoice->status === Invoice::STATUS_PENDING) {
                     Log::info("Invoice status could be updated to 'processing' on order_authorised, but currently no change is made. Waiting for order_approved.", ['invoice_id' => $invoice->id]);
                 }
 
             } elseif (in_array($eventType, [self::EVENT_TYPE_ORDER_DECLINED, self::EVENT_TYPE_ORDER_CANCELED, self::EVENT_TYPE_ORDER_EXPIRED])) {
                 Log::info("Processing Tamara {$eventType} event (auth bypassed).", ['tamara_order_id' => $tamaraOrderId, 'order_reference_id' => $resolved_order_reference_id]);
-                DB::transaction(function () use ($tamaraOrderId, $resolved_order_reference_id, $eventType, $requestData) {
+                DB::transaction(function () use ($tamaraOrderId, $resolved_order_reference_id, $eventType, $requestData) { // Added $requestData
                     $invoice = Invoice::where(function ($query) use ($resolved_order_reference_id, $tamaraOrderId) {
                         if ($resolved_order_reference_id) {
                             $query->where('invoice_number', $resolved_order_reference_id);
@@ -544,10 +465,17 @@ class PaymentController extends Controller
                         $newInvoiceStatus = Invoice::STATUS_EXPIRED;
                     }
 
-                    $reason = $requestData['reason'] ?? "Tamara: {$eventType}";
+                    // Extract reason from webhook data if available
+                    $reason = "Tamara: {$eventType}"; // Default reason
+                    if (isset($requestData['data']) && is_array($requestData['data']) && isset($requestData['data']['failure_reason'])) {
+                        $reason = $requestData['data']['failure_reason'];
+                    } elseif (isset($requestData['reason'])) {
+                        $reason = $requestData['reason'];
+                    }
+
 
                     if ($invoice->status !== Invoice::STATUS_PAID && $invoice->status !== Invoice::STATUS_PARTIALLY_PAID) {
-                        if ($invoice->status !== $newInvoiceStatus) {
+                         if ($invoice->status !== $newInvoiceStatus && !empty($newInvoiceStatus) ) {
                            $invoice->status = $newInvoiceStatus;
                            $invoice->save();
                            Log::info("Invoice status updated to '{$newInvoiceStatus}' via {$eventType} webhook.", ['invoice_id' => $invoice->id]);
@@ -566,18 +494,19 @@ class PaymentController extends Controller
                     } else {
                         Log::info("Invoice {$invoice->id} already {$invoice->status}. No status change from Tamara {$eventType} webhook.", ['tamara_order_id' => $tamaraOrderId]);
                     }
-                }); // نهاية الـ DB::transaction للأحداث الأخرى
+                });
             } else {
                 Log::info("Received unhandled Tamara webhook event type (auth bypassed): {$eventType}", ['tamara_order_id' => $tamaraOrderId]);
             }
             return response()->json(['status' => 'success'], 200);
         } catch (Throwable $e) {
             Log::error('Unhandled exception during webhook processing (auth bypassed).', [
-                'event_type' => $eventType ?? 'unknown', // $eventType should be defined by this point
+                'event_type' => $eventType ?? 'unknown',
                 'tamara_order_id' => $tamaraOrderId,
                 'message' => $e->getMessage(), 'file' => $e->getFile(), 'line' => $e->getLine(),
                 'trace' => Str::limit($e->getTraceAsString(), 1500)
             ]);
+            // Still return 200 to Tamara to prevent excessive retries, error is logged.
             return response()->json(['status' => 'success_but_error_logged'], 200);
         }
     }
@@ -605,35 +534,41 @@ class PaymentController extends Controller
         $retryPaymentOption = $invoice->payment_option ?? 'full';
 
         if ($invoice->payment_option === 'down_payment') {
-            if ($invoice->status === Invoice::STATUS_PARTIALLY_PAID) {
-                $amountToRetry = $invoice->remaining_amount > 0 ? $invoice->remaining_amount : 0;
-                $retryPaymentOption = 'full';
-                Log::info("Retry for partially paid invoice. Attempting to pay remaining amount.", ['invoice_id' => $invoice->id, 'remaining_amount' => $amountToRetry]);
-            } else {
-                $downPaymentAmount = $invoice->booking?->down_payment_amount > 0
+            if ($invoice->status === Invoice::STATUS_PARTIALLY_PAID) { // Should not happen if down_payment was the only option and it's already partially_paid by itself
+                $amountToRetry = $invoice->remaining_amount > 0.009 ? $invoice->remaining_amount : 0.0;
+                $retryPaymentOption = 'full'; // Attempt to pay remaining for the whole invoice
+                Log::info("Retry for partially paid (originally down_payment) invoice. Attempting to pay remaining full amount.", ['invoice_id' => $invoice->id, 'remaining_amount' => $amountToRetry]);
+            } else { // For unpaid, failed, cancelled, expired down_payment
+                $downPaymentAmount = $invoice->booking?->down_payment_amount > 0.009
                                     ? $invoice->booking->down_payment_amount
-                                    : round($invoice->amount / 2, 0); // Defaulting logic if not set
+                                    : 0.0; // Avoid round / 2 if not set. It should be explicitly set.
+                if ($downPaymentAmount <= 0.009 && $invoice->amount > 0.009) { // Fallback if down_payment_amount is not on booking
+                    $downPaymentAmount = round($invoice->amount / 2, 0); // Less ideal fallback
+                     Log::warning("down_payment_amount not found on booking {$invoice->booking_id} for invoice {$invoice->id}, using 50% of total.", ['invoice_total' => $invoice->amount, 'calculated_down_payment' => $downPaymentAmount]);
+                }
                 $amountToRetry = $downPaymentAmount;
                 $retryPaymentOption = 'down_payment';
-                Log::info("Retry for unpaid/failed down payment. Attempting to pay down payment amount.", ['invoice_id' => $invoice->id, 'down_payment_amount' => $amountToRetry]);
+                Log::info("Retry for unpaid/failed down payment. Attempting to pay down payment amount.", ['invoice_id' => $invoice->id, 'down_payment_amount_to_retry' => $amountToRetry]);
             }
-        } else { // Assumes full payment if not 'down_payment'
-            $amountToRetry = $invoice->status === Invoice::STATUS_PARTIALLY_PAID ? ($invoice->remaining_amount ?? $invoice->amount) : $invoice->amount;
+        } else { // Original payment was 'full'
+            $amountToRetry = ($invoice->status === Invoice::STATUS_PARTIALLY_PAID && $invoice->remaining_amount > 0.009)
+                             ? $invoice->remaining_amount
+                             : $invoice->amount;
             $retryPaymentOption = 'full';
             Log::info("Retry for full payment invoice (or remaining of it). Attempting to pay amount.", ['invoice_id' => $invoice->id, 'amount_to_retry_calculated' => $amountToRetry]);
         }
 
         $amountToRetry = round((float)$amountToRetry, 2);
 
-        if ($amountToRetry <= 0.009) { // Using a small threshold instead of exactly 0
+        if ($amountToRetry <= 0.009) {
             Log::info('Retry attempt skipped as calculated amount to retry is zero or less.', [
                 'invoice_id' => $invoice->id, 'calculated_amountToRetry' => $amountToRetry,
                 'invoice_status' => $invoice->status, 'original_payment_option' => $invoice->payment_option
             ]);
-            if ($invoice->status === Invoice::STATUS_PAID) { // Check if already paid
+            if ($invoice->status === Invoice::STATUS_PAID) {
                 return Redirect::route('customer.invoices.show', $invoice)->with('info', 'الفاتورة مدفوعة بالكامل.');
            }
-           return Redirect::route('customer.invoices.show', $invoice)->with('error', 'المبلغ المطلوب دفعه غير صحيح. يرجى التواصل مع الدعم.');
+           return Redirect::route('customer.invoices.show', $invoice)->with('error', 'المبلغ المطلوب دفعه غير صحيح أو أن الفاتورة لا تتطلب دفعة حالياً. يرجى التواصل مع الدعم إذا كنت تعتقد أن هذا خطأ.');
        }
 
        Log::debug('Proceeding to initiate checkout for retry.', ['invoice_id' => $invoice->id, 'amount_to_retry' => $amountToRetry, 'final_retry_payment_option_to_tamara' => $retryPaymentOption]);
@@ -647,7 +582,7 @@ class PaymentController extends Controller
 
            if ($checkoutResponse && is_array($checkoutResponse) && isset($checkoutResponse['checkout_url']) && isset($checkoutResponse['order_id'])) {
                if(empty($invoice->payment_gateway_ref) || $invoice->payment_gateway_ref !== $checkoutResponse['order_id']) {
-                   $invoice->payment_gateway_ref = $checkoutResponse['order_id'];
+                   $invoice->payment_gateway_ref = $checkoutResponse['order_id']; // Update with new Tamara order ID for this attempt
                    $invoice->save();
                }
                Log::info('Tamara retry checkout URL obtained and invoice updated with new gateway ref.', ['invoice_id' => $invoice->id, 'tamara_order_id' => $checkoutResponse['order_id']]);
