@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Almarai:wght@300;400;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="{{ asset('css/admin.css') }}"> {{-- تأكد من وجود هذا الملف وتنسيقاته --}}
+    <link rel="stylesheet" href="{{ asset('css/admin.css') }}">
     @stack('styles')
 </head>
 <body class="admin-body">
@@ -21,7 +21,6 @@
              <span class="navbar-toggler-icon"></span>
         </button>
         <a class="navbar-brand" href="{{ route('admin.dashboard') }}">
-            {{-- محاولة جلب الشعار من الإعدادات أو استخدام شعار افتراضي --}}
             <img src="{{ asset(optional(App\Models\Setting::where('key', 'logo_path_dark')->first())->value ?? 'images/logo.png') }}" alt="{{ config('app.name', 'Laravel') }}" style="height: 30px;">
              - لوحة التحكم
         </a>
@@ -83,6 +82,13 @@
                              <i class="fas fa-fw fa-calendar-check"></i> <span>الحجوزات</span>
                          </a>
                      </li>
+                     {{-- --- MODIFICATION START: Add Manual Booking Link --- --}}
+                     <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('admin.manual-booking.*') ? 'active' : '' }}" href="{{ route('admin.manual-booking.create') }}">
+                            <i class="fas fa-fw fa-plus-square"></i> <span>إنشاء حجز يدوي</span>
+                        </a>
+                     </li>
+                     {{-- --- MODIFICATION END --- --}}
                      <li class="nav-item">
                          <a class="nav-link {{ request()->routeIs('admin.invoices.*') ? 'active' : '' }}" href="{{ route('admin.invoices.index') }}">
                              <i class="fas fa-fw fa-file-invoice-dollar"></i> <span>الفواتير</span>
@@ -93,14 +99,12 @@
                              <i class="fas fa-fw fa-calendar-alt"></i> <span>التوافر</span>
                          </a>
                      </li>
-                    {{-- *** تعديل هنا: إضافة رابط إدارة العملاء *** --}}
                      <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('admin.customers.*') ? 'active' : '' }}" href="{{ route('admin.customers.index') }}">
                             <i class="fas fa-fw fa-users"></i>
                             <span>إدارة العملاء</span>
                         </a>
                      </li>
-                    {{-- *** نهاية التعديل *** --}}
 
                      <li class="nav-item nav-heading mt-3 mb-1 text-muted small text-uppercase">الإعدادات والتكوين</li>
                      <li class="nav-item">
@@ -131,14 +135,10 @@
             </div>
         </nav>
 
-         {{-- Sidebar Backdrop --}}
          <div class="sidebar-backdrop d-lg-none"></div>
 
-
-        {{-- Main Content Area --}}
         <main class="admin-content flex-grow-1 p-3 p-md-4">
             <div class="container-fluid">
-
                 @if (session('success'))
                     <div class="alert alert-success alert-dismissible fade show" role="alert">
                         {{ session('success') }}
@@ -170,10 +170,7 @@
                 @endif
 
                 @yield('content')
-
-             </div> {{-- نهاية container-fluid --}}
-
-             {{-- Footer --}}
+             </div>
              <footer class="px-4 admin-footer">
                  <div class="container-fluid border-top py-3 mt-4">
                      <div class="row">
@@ -183,15 +180,10 @@
                      </div>
                  </div>
              </footer>
-
         </main>
+    </div>
 
-    </div> {{-- نهاية d-flex --}}
-
-
-    {{-- Bootstrap Bundle JS --}}
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-
      <script>
         document.addEventListener('DOMContentLoaded', function() {
             const sidebarBackdrop = document.querySelector('.sidebar-backdrop');
@@ -230,24 +222,23 @@
 
                 const observer = new MutationObserver(toggleSidebarClass);
                 observer.observe(sidebarElement, { attributes: true, attributeFilter: ['class'] });
-                toggleSidebarClass();
+                toggleSidebarClass(); // Initial check
             }
 
-             if(sidebarToggler && adminWrapper) {
+             if(sidebarToggler && adminWrapper) { // Ensure toggler and wrapper exist
                  sidebarToggler.addEventListener('click', function() {
+                     // Use a slight delay to allow bootstrap's collapse to update class
                      setTimeout(() => {
                          if (sidebarElement.classList.contains('show')) {
                              adminWrapper.classList.add('sidebar-open');
                          } else {
                              adminWrapper.classList.remove('sidebar-open');
                          }
-                     }, 50);
+                     }, 50); // 50ms delay, adjust if needed
                  });
              }
         });
     </script>
-
     @stack('scripts')
-
 </body>
 </html>
