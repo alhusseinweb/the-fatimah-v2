@@ -228,7 +228,6 @@
     .btn-tamara-pay img {
         height: 20px;
         margin-left: 8px; /* RTL: margin-left, LTR: margin-right */
-        /* لا حاجة للفلتر إذا كان الشعار الأصلي ملوناً ومناسباً للخلفية الداكنة */
     }
     html[dir="ltr"] .btn-tamara-pay img { margin-left: 0; margin-right: 8px; }
 
@@ -243,17 +242,17 @@
         .info-label { min-width: 100px; font-size: 0.9em; }
         .info-value { font-size: 0.9em; }
         .btn-action { padding: 6px 12px; font-size: 13px; }
-        .invoice-actions { justify-content: center; } /* توسيط الأزرار في الجوال */
+        .invoice-actions { justify-content: center; }
     }
 
     @media (max-width: 576px) {
-        .invoice-card-body { padding: 20px; } /* تعديل الحشو */
-        .info-row { flex-direction: column; align-items: flex-start; } /* جعل الليبل فوق القيمة */
+        .invoice-card-body { padding: 20px; }
+        .info-row { flex-direction: column; align-items: flex-start; }
         .info-label { width: auto; margin-bottom: 4px; margin-left: 0;}
          html[dir="ltr"] .info-label { margin-right: 0; }
-        .info-value { display: block; width: 100%; } /* جعل القيمة تأخذ عرض كامل */
-        .invoice-actions { flex-direction: column; align-items: stretch; } /* الأزرار تحت بعضها */
-        .invoice-actions .btn-action { width: 100%; margin-bottom: 10px; } /* الأزرار بعرض كامل */
+        .info-value { display: block; width: 100%; }
+        .invoice-actions { flex-direction: column; align-items: stretch; }
+        .invoice-actions .btn-action { width: 100%; margin-bottom: 10px; }
         .invoice-actions .btn-action:last-child { margin-bottom: 0; }
     }
 </style>
@@ -264,7 +263,6 @@
     <div class="invoice-card">
         <div class="invoice-card-header">
             <h1 class="invoice-card-title">
-                {{-- !!! تم التعديل: إزالة التحويل لرقم الفاتورة في العنوان !!! --}}
                 تفاصيل الفاتورة رقم {{ $invoice->invoice_number ?: $invoice->id }}
             </h1>
             <a href="{{ route('customer.dashboard') }}" class="btn-action btn-back">
@@ -276,15 +274,35 @@
             @php
                 $alertClass = '';
                 $alertText = '';
-                $allowTamaraPayment = false; // Flag to determine if Tamara payment should be offered
-                $remainingAmount = $invoice->remaining_amount ?? 0; // Assuming remaining_amount accessor exists and is correct
-                $isTamaraGenerallyEnabled = class_exists(App\Services\TamaraService::class); // Check if Tamara service is available
+                $allowTamaraPayment = false;
+                $isTamaraGenerallyEnabled = class_exists(App\Services\TamaraService::class);
 
-                if (!isset($invoice->remaining_amount)) { // Fallback if remaining_amount accessor isn't there or is null
+                // --- MODIFICATION START: Helper function for conditional number formatting ---
+                if (!function_exists('formatAmountConditionally')) {
+                    function formatAmountConditionally($value) {
+                        $value = (float) $value;
+                        // نقرب لأقرب هللتين لتجنب مشاكل الفاصلة العائمة الصغيرة جداً
+                        $roundedToTwoDecimals = round($value, 2);
+                        // نتحقق إذا كان الجزء العشري من الرقم المقرب هو صفر
+                        $hasSignificantFraction = (fmod($roundedToTwoDecimals, 1) != 0);
+
+                        $formattedNumber = number_format($roundedToTwoDecimals, $hasSignificantFraction ? 2 : 0);
+                        
+                        if (function_exists('toArabicDigits')) {
+                            return toArabicDigits($formattedNumber);
+                        }
+                        return $formattedNumber;
+                    }
+                }
+                // --- MODIFICATION END ---
+
+                $remainingAmount = $invoice->remaining_amount ?? 0;
+                if (!isset($invoice->remaining_amount)) {
                     $totalPaidForInvoice = $invoice->payments->where('status', 'completed')->sum('amount');
                     $remainingAmount = $invoice->amount - $totalPaidForInvoice;
                 }
-                $remainingAmount = (float) $remainingAmount; // Ensure it's float
+                $remainingAmount = (float) $remainingAmount;
+
 
                 switch ($invoice->status) {
                     case \App\Models\Invoice::STATUS_PAID:
@@ -294,7 +312,9 @@
                     case \App\Models\Invoice::STATUS_PARTIALLY_PAID:
                         $alertClass = 'alert-info';
                         if ($remainingAmount > 0.009) {
-                            $alertText = 'تم دفع جزء. المبلغ المتبقي: ' . toArabicDigits(number_format($remainingAmount, 2)) . ' ' . $invoice->currency;
+                             // --- MODIFICATION START: Use new formatting function ---
+                            $alertText = 'تم دفع جزء. المبلغ المتبقي: ' . formatAmountConditionally($remainingAmount) . ' ' . $invoice->currency;
+                             // --- MODIFICATION END ---
                             if ($isTamaraGenerallyEnabled) {
                                 $allowTamaraPayment = true;
                             }
@@ -332,9 +352,7 @@
                     <form method="POST" action="{{ route('payment_retry_tamara', $invoice->id) }}" class="m-0">
                         @csrf
                         <button type="submit" class="btn btn-sm btn-tamara-pay">
-                            {{-- --- MODIFICATION START: Updated Tamara logo path --- --}}
                             <img src="{{ asset('images/tamara.png') }}" alt="Tamara">
-                            {{-- --- MODIFICATION END --- --}}
                             {{ $invoice->status == \App\Models\Invoice::STATUS_PARTIALLY_PAID ? 'ادفع المتبقي عبر تمارا' : 'ادفع الآن عبر تمارا' }}
                         </button>
                     </form>
@@ -342,7 +360,6 @@
             </div>
             @endif
 
-            {{-- قسم تفاصيل الفاتورة --}}
             <div class="invoice-section">
                 <h2 class="invoice-section-title">معلومات الفاتورة</h2>
                 <div class="row">
@@ -360,14 +377,20 @@
                         </div>
                     </div>
                      <div class="col-md-6">
-                        <div class="info-row"> <span class="info-label">المبلغ الإجمالي:</span> <span class="info-value fw-bold">{{ toArabicDigits(number_format($invoice->amount, 2)) }} {{ $invoice->currency }}</span> </div>
+                         {{-- --- MODIFICATION START: Use new formatting function --- --}}
+                        <div class="info-row"> <span class="info-label">المبلغ الإجمالي:</span> <span class="info-value fw-bold">{{ formatAmountConditionally($invoice->amount) }} {{ $invoice->currency }}</span> </div>
+                         {{-- --- MODIFICATION END --- --}}
                     </div>
                     <div class="col-md-6">
-                        <div class="info-row"> <span class="info-label">المبلغ المدفوع:</span> <span class="info-value text-success fw-bold">{{ toArabicDigits(number_format($invoice->total_paid_amount, 2)) }} {{ $invoice->currency }}</span> </div>
+                         {{-- --- MODIFICATION START: Use new formatting function --- --}}
+                        <div class="info-row"> <span class="info-label">المبلغ المدفوع:</span> <span class="info-value text-success fw-bold">{{ formatAmountConditionally($invoice->total_paid_amount) }} {{ $invoice->currency }}</span> </div>
+                         {{-- --- MODIFICATION END --- --}}
                     </div>
                     @if ($remainingAmount > 0.009 && $invoice->status != \App\Models\Invoice::STATUS_PAID)
                          <div class="col-md-6">
-                            <div class="info-row"> <span class="info-label">المبلغ المتبقي:</span> <span class="info-value text-danger fw-bold">{{ toArabicDigits(number_format($remainingAmount, 2)) }} {{ $invoice->currency }}</span> </div>
+                             {{-- --- MODIFICATION START: Use new formatting function --- --}}
+                            <div class="info-row"> <span class="info-label">المبلغ المتبقي:</span> <span class="info-value text-danger fw-bold">{{ formatAmountConditionally($remainingAmount) }} {{ $invoice->currency }}</span> </div>
+                             {{-- --- MODIFICATION END --- --}}
                         </div>
                      @endif
                      <div class="col-md-6">
