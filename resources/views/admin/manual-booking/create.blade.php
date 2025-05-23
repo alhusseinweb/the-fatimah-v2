@@ -14,6 +14,10 @@
     .form-section {
         margin-bottom: 2rem;
     }
+    /* لتحسين مظهر حقل الوقت قليلاً إذا لزم الأمر */
+    .flatpickr-time input.form-control[readonly] {
+        background-color: #fff; /* لجعله يبدو كحقل عادي حتى لو كان للقراءة فقط بواسطة flatpickr */
+    }
 </style>
 @endpush
 
@@ -79,12 +83,14 @@
                         </div>
                          <div class="col-md-3 mb-3">
                             <label for="booking_date" class="form-label">تاريخ الحجز <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control flatpickr-date @error('booking_date') is-invalid @enderror" id="booking_date" name="booking_date" value="{{ old('booking_date') }}" placeholder="YYYY-MM-DD" required>
+                            <input type="text" class="form-control flatpickr-date @error('booking_date') is-invalid @enderror" id="booking_date" name="booking_date" value="{{ old('booking_date') }}" placeholder="اختر التاريخ" required>
                             @error('booking_date') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
                         <div class="col-md-3 mb-3">
                             <label for="booking_time" class="form-label">وقت الحجز <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control flatpickr-time @error('booking_time') is-invalid @enderror" id="booking_time" name="booking_time" value="{{ old('booking_time') }}" placeholder="HH:MM" required>
+                            {{-- --- MODIFICATION START: Improved placeholder for time input --- --}}
+                            <input type="text" class="form-control flatpickr-time @error('booking_time') is-invalid @enderror" id="booking_time" name="booking_time" value="{{ old('booking_time') }}" placeholder="اختر الوقت" required>
+                            {{-- --- MODIFICATION END --- --}}
                             @error('booking_time') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
                     </div>
@@ -153,18 +159,26 @@
     document.addEventListener('DOMContentLoaded', function () {
         flatpickr(".flatpickr-date", {
             altInput: true,
-            altFormat: "j F, Y",
-            dateFormat: "Y-m-d",
-            locale: "ar", // Apply Arabic localization
-            minDate: "today"
+            altFormat: "j F, Y", // تنسيق العرض للمستخدم
+            dateFormat: "Y-m-d",    // تنسيق القيمة المرسلة للخادم
+            locale: "ar",
+            // --- MODIFICATION START: Removed minDate to allow past dates ---
+            // minDate: "today" 
+            // --- MODIFICATION END ---
         });
+
+        // --- MODIFICATION START: Improved Flatpickr config for time ---
         flatpickr(".flatpickr-time", {
             enableTime: true,
             noCalendar: true,
-            dateFormat: "H:i",
+            dateFormat: "H:i",     // القيمة المرسلة للخادم (24 ساعة)
+            altInput: true,        // عرض تنسيق بديل للمستخدم
+            altFormat: "h:i K",    // تنسيق العرض للمستخدم (12 ساعة مع AM/PM)
             minuteIncrement: 15,
-            time_24hr: false // Use 12hr format if preferred, then adjust time format validation if needed
+            locale: "ar"           // لتطبيق الترجمة على أزرار الوقت إذا وجدت
+            // time_24hr: false, // لم يعد ضرورياً بشكل صريح عند استخدام altFormat المناسب
         });
+        // --- MODIFICATION END ---
 
         const serviceSelect = document.getElementById('service_id');
         const bookingAmountInput = document.getElementById('booking_amount');
@@ -179,7 +193,6 @@
                     bookingAmountInput.value = '';
                 }
             });
-            // Trigger change on load if a service is pre-selected (e.g., from old input)
             if(serviceSelect.value) {
                  serviceSelect.dispatchEvent(new Event('change'));
             }
