@@ -27,7 +27,10 @@ use App\Http\Controllers\Admin\InvoiceController;
 use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Middleware\EnsureUserIsAdmin;
 use App\Http\Controllers\Admin\SmsTemplateController;
-use App\Http\Controllers\Admin\GoogleCalendarController; // <-- *** استيراد المتحكم الجديد لـ Google Calendar ***
+use App\Http\Controllers\Admin\GoogleCalendarController;
+// --- MODIFICATION START: Import new AdminManualBookingController ---
+use App\Http\Controllers\Admin\AdminManualBookingController;
+// --- MODIFICATION END ---
 
 /*
 |--------------------------------------------------------------------------
@@ -45,7 +48,7 @@ Route::get('/', function () {
     $settings['homepage_slider_images'] = isset($settings['homepage_slider_images'])
                                             ? (json_decode($settings['homepage_slider_images'], true) ?? [])
                                             : [];
-    $services = Service::where('is_active', true)->take(6)->get();
+    $services = Service::where('is_active', true)->orderBy('name_ar')->take(6)->get();
     return view('frontend.homepage', compact('settings', 'services'));
 })->name('home');
 
@@ -95,7 +98,7 @@ Route::middleware('guest')->group(function () {
 Route::post('/logout', [OtpLoginController::class, 'logout'])->middleware('auth')->name('logout');
 
 // --- Admin Routes ---
-Route::middleware(['auth', EnsureUserIsAdmin::class]) // استخدم EnsureUserIsAdmin::class بدلاً من 'isAdmin' إذا كان هذا هو اسم الكلاس الفعلي للـ middleware
+Route::middleware(['auth', EnsureUserIsAdmin::class])
      ->prefix('admin')
      ->name('admin.')
      ->group(function () {
@@ -113,15 +116,12 @@ Route::middleware(['auth', EnsureUserIsAdmin::class]) // استخدم EnsureUser
         Route::post('availability/exceptions', [AdminAvailabilityController::class, 'storeException'])->name('availability.exceptions.store');
         Route::delete('availability/exceptions/{exception}', [AdminAvailabilityController::class, 'destroyException'])->name('availability.exceptions.destroy');
 
-        // Routes for general settings
         Route::get('settings', [SettingController::class, 'edit'])->name('settings.edit');
         Route::patch('settings', [SettingController::class, 'update'])->name('settings.update');
 
-        // --- بداية: مسارات Google Calendar Integration ---
         Route::get('/settings/google-calendar/connect', [GoogleCalendarController::class, 'connect'])->name('settings.google-calendar.connect');
         Route::get('/settings/google-calendar/callback', [GoogleCalendarController::class, 'callback'])->name('settings.google-calendar.callback');
         Route::post('/settings/google-calendar/disconnect', [GoogleCalendarController::class, 'disconnect'])->name('settings.google-calendar.disconnect');
-        // --- نهاية: مسارات Google Calendar Integration ---
 
         Route::get('bookings', [AdminBookingController::class, 'index'])->name('bookings.index');
         Route::get('bookings/{booking}', [AdminBookingController::class, 'show'])->name('bookings.show');
@@ -140,11 +140,16 @@ Route::middleware(['auth', EnsureUserIsAdmin::class]) // استخدم EnsureUser
         Route::get('sms-templates', [SmsTemplateController::class, 'index'])->name('sms-templates.index');
         Route::get('sms-templates/{smsTemplate}/edit', [SmsTemplateController::class, 'edit'])->name('sms-templates.edit');
         Route::put('sms-templates/{smsTemplate}', [SmsTemplateController::class, 'update'])->name('sms-templates.update');
+
+        // --- MODIFICATION START: Routes for Manual Booking by Admin ---
+        Route::get('manual-booking/create', [AdminManualBookingController::class, 'create'])->name('manual-booking.create');
+        Route::post('manual-booking', [AdminManualBookingController::class, 'store'])->name('manual-booking.store');
+        // --- MODIFICATION END ---
 });
 
-// Tamara Webhook Routes - both lowercase and uppercase variants for compatibility
+// Tamara Webhook Routes
 Route::post('/tamara/webhook', [PaymentController::class, 'handleTamaraWebhook'])->name('tamara.webhook');
-Route::post('/tamara/Webhook', [PaymentController::class, 'handleTamaraWebhook']); // Uppercase 'W' variant
+Route::post('/tamara/Webhook', [PaymentController::class, 'handleTamaraWebhook']);
 
 // Tamara Webhook Test and Diagnostic Routes
 Route::get('/tamara/test', function() {
@@ -156,7 +161,6 @@ Route::get('/tamara/test', function() {
     ]);
 });
 
-// Verification Route For Tamara Token (Use only temporarily for debugging)
 Route::get('/tamara/check-token', function() {
     $token = config('services.tamara.notification_token');
     return response()->json([
