@@ -69,7 +69,7 @@
         margin-bottom: 30px; /* زيادة الهامش */
     }
      .invoice-section:last-of-type {
-         margin-bottom: 0; /* إزالة الهامش من آخر قسم */
+        margin-bottom: 0; /* إزالة الهامش من آخر قسم */
      }
 
 
@@ -102,9 +102,9 @@
         border-bottom: 1px dashed #eee; /* إضافة خط منقط خفيف */
     }
      .info-row:last-child {
-         margin-bottom: 0;
-         padding-bottom: 0;
-         border-bottom: none;
+        margin-bottom: 0;
+        padding-bottom: 0;
+        border-bottom: none;
      }
 
 
@@ -128,9 +128,9 @@
      .info-value.text-primary { color: #0d6efd !important; } /* للمدفوع جزئياً */
      /* كلاس إضافي لرقم الفاتورة لضمان الاتجاه الصحيح */
      .invoice-number-value {
-         direction: ltr;
-         text-align: right;
-         display: inline-block; /* لضمان تطبيق الاتجاه */
+        direction: ltr;
+        text-align: right;
+        display: inline-block; /* لضمان تطبيق الاتجاه */
      }
      html[dir="ltr"] .invoice-number-value { text-align: left;}
 
@@ -160,12 +160,12 @@
 
     /* أزرار الإجراءات */
     .invoice-actions { /* كلاس جديد لحاوية الأزرار */
-         display: flex;
-         gap: 10px;
-         margin-top: 25px;
-         flex-wrap: wrap;
-         justify-content: center; /* توسيط الأزرار */
-     }
+        display: flex;
+        gap: 10px;
+        margin-top: 25px;
+        flex-wrap: wrap;
+        justify-content: center; /* توسيط الأزرار */
+    }
 
     .btn-action {
         padding: 8px 18px; /* تعديل الحشو */
@@ -210,10 +210,27 @@
         color: white;
     }
      .btn-pay { /* زر الدفع الآن */
-         background-color: #28a745;
-         color: white;
+        background-color: #28a745; /* اللون الأخضر الأصلي */
+        color: white;
      }
       .btn-pay:hover { background-color: #218838; color: white;}
+
+    .btn-tamara-pay { /* كلاس جديد لزر تمارا */
+        background-color: #4A4A4A; /* لون خلفية تمارا برتقالي أو حسب الشعار */
+        border-color: #4A4A4A;
+        color: white;
+    }
+    .btn-tamara-pay:hover {
+        background-color: #3A3A3A;
+        border-color: #3A3A3A;
+        color: white;
+    }
+    .btn-tamara-pay img {
+        height: 20px;
+        margin-left: 8px; /* RTL: margin-left, LTR: margin-right */
+        filter: brightness(0) invert(1); /* لجعل الشعار أبيض إذا كان الأصلي داكناً */
+    }
+    html[dir="ltr"] .btn-tamara-pay img { margin-left: 0; margin-right: 8px; }
 
 
     /* تنسيقات التوافق مع الجوال */
@@ -250,54 +267,83 @@
                 {{-- !!! تم التعديل: إزالة التحويل لرقم الفاتورة في العنوان !!! --}}
                 تفاصيل الفاتورة رقم {{ $invoice->invoice_number ?: $invoice->id }}
             </h1>
-            {{-- !!! تم التعديل: تغيير رابط ونص زر الرجوع !!! --}}
             <a href="{{ route('customer.dashboard') }}" class="btn-action btn-back">
-                 العودة إلى لوحة التحكم
+                العودة إلى لوحة التحكم
             </a>
         </div>
         <div class="invoice-card-body">
 
-            {{-- رسالة حالة الدفع كـ Alert --}}
-             @php
-                 $alertClass = ''; $alertText = ''; $showPayButton = false;
-                 $remainingAmount = $invoice->remaining_amount ?? 0;
+            {{-- --- MODIFICATION START: Revised logic for payment status alert and Tamara button --- --}}
+            @php
+                $alertClass = '';
+                $alertText = '';
+                $allowTamaraPayment = false; // Flag to determine if Tamara payment should be offered
+                $remainingAmount = $invoice->remaining_amount ?? 0; // Assuming remaining_amount accessor exists and is correct
+                $isTamaraGenerallyEnabled = class_exists(App\Services\TamaraService::class); // Check if Tamara service is available
 
-                 switch ($invoice->status) {
-                     case \App\Models\Invoice::STATUS_PAID:
-                         $alertClass = 'alert-success'; $alertText = 'الفاتورة مدفوعة بالكامل.'; break;
-                     case \App\Models\Invoice::STATUS_PARTIALLY_PAID:
-                         $alertClass = 'alert-primary'; $alertText = 'تم دفع العربون. المبلغ المتبقي: ' . toArabicDigits(number_format($remainingAmount, 0)) . ' ' . $invoice->currency;
-                         if($invoice->payment_method == 'tamara' && $remainingAmount > 0) $showPayButton = true; // إظهار الزر فقط إذا كان هناك مبلغ متبقي
-                         break;
-                     case \App\Models\Invoice::STATUS_UNPAID:
-                          $alertClass = 'alert-warning'; $alertText = 'الفاتورة بانتظار الدفع.';
-                          if($invoice->payment_method == 'tamara') $showPayButton = true;
-                          break;
-                     case \App\Models\Invoice::STATUS_FAILED:
-                          $alertClass = 'alert-danger'; $alertText = 'فشلت عملية الدفع الأخيرة.';
-                          if($invoice->payment_method == 'tamara') $showPayButton = true;
-                          break;
-                      case \App\Models\Invoice::STATUS_CANCELLED:
-                      case \App\Models\Invoice::STATUS_EXPIRED:
-                          $alertClass = 'alert-secondary'; $alertText = 'الفاتورة ملغاة أو منتهية الصلاحية.'; break;
-                      default:
-                          $alertClass = 'alert-info'; $alertText = 'الحالة: ' . ($invoice->status_label ?? $invoice->status); break;
-                  }
-              @endphp
-              @if($alertText)
-              <div class="alert {{ $alertClass }} d-flex justify-content-between align-items-center mb-4" role="alert">
-                  <span>{{ $alertText }}</span>
-                  {{-- زر الدفع المتبقي/إعادة المحاولة --}}
-                  @if($showPayButton && $remainingAmount > 0)
-                      <form method="POST" action="{{ route('payment_retry_tamara', $invoice) }}" class="m-0">
-                          @csrf
-                          <button type="submit" class="btn btn-sm btn-pay">
-                               {{ $invoice->status == \App\Models\Invoice::STATUS_PARTIALLY_PAID ? 'دفع المتبقي الآن' : 'دفع الآن' }}
-                          </button>
-                      </form>
-                  @endif
-              </div>
-              @endif
+                // لتسهيل القراءة، يمكن حساب المبلغ المتبقي إذا لم يكن موجوداً كـ accessor
+                if (!isset($invoice->remaining_amount)) {
+                    $totalPaidForInvoice = $invoice->payments->where('status', 'completed')->sum('amount');
+                    $remainingAmount = $invoice->amount - $totalPaidForInvoice;
+                }
+
+
+                switch ($invoice->status) {
+                    case \App\Models\Invoice::STATUS_PAID:
+                        $alertClass = 'alert-success';
+                        $alertText = 'الفاتورة مدفوعة بالكامل.';
+                        break;
+                    case \App\Models\Invoice::STATUS_PARTIALLY_PAID:
+                        $alertClass = 'alert-info'; // Changed to info for better distinction
+                        if ($remainingAmount > 0.009) { // Check with a small threshold for float precision
+                            $alertText = 'تم دفع جزء. المبلغ المتبقي: ' . toArabicDigits(number_format($remainingAmount, 2)) . ' ' . $invoice->currency;
+                            if ($isTamaraGenerallyEnabled) {
+                                $allowTamaraPayment = true;
+                            }
+                        } else {
+                            // Should ideally be PAID status if remaining is zero or less
+                            $alertClass = 'alert-success';
+                            $alertText = 'الفاتورة مدفوعة بالكامل (المتبقي صفر أو أقل).';
+                        }
+                        break;
+                    case \App\Models\Invoice::STATUS_UNPAID:
+                    case \App\Models\Invoice::STATUS_PENDING: // Consider PENDING as UNPAID for payment purposes
+                    case \App\Models\Invoice::STATUS_FAILED: // Allow retry if failed
+                        $alertClass = ($invoice->status === \App\Models\Invoice::STATUS_FAILED) ? 'alert-danger' : 'alert-warning';
+                        $alertText = ($invoice->status === \App\Models\Invoice::STATUS_FAILED) ? 'فشلت عملية الدفع الأخيرة.' : 'الفاتورة بانتظار الدفع.';
+                        if ($remainingAmount > 0.009 && $isTamaraGenerallyEnabled) {
+                            $allowTamaraPayment = true;
+                        }
+                        break;
+                    case \App\Models\Invoice::STATUS_CANCELLED:
+                    case \App\Models\Invoice::STATUS_EXPIRED:
+                        $alertClass = 'alert-secondary';
+                        $alertText = ($invoice->status === \App\Models\Invoice::STATUS_CANCELLED) ? 'الفاتورة ملغاة.' : 'الفاتورة منتهية الصلاحية.';
+                        break;
+                    default:
+                        $alertClass = 'alert-info';
+                        $alertText = 'الحالة: ' . ($invoice->status_label ?? $invoice->status);
+                        break;
+                }
+            @endphp
+
+            @if($alertText)
+            <div class="alert {{ $alertClass }} d-flex justify-content-between align-items-center mb-4" role="alert">
+                <span>{{ $alertText }}</span>
+                
+                @if($allowTamaraPayment && $remainingAmount > 0.009)
+                    <form method="POST" action="{{ route('payment_retry_tamara', $invoice->id) }}" class="m-0">
+                        @csrf
+                        <button type="submit" class="btn btn-sm btn-tamara-pay">
+                             {{-- افتراض وجود شعار تمارا في public/images/tamara_logo_white.png --}}
+                            <img src="{{ asset('images/tamara_logo_white.png') }}" alt="Tamara">
+                            {{ $invoice->status == \App\Models\Invoice::STATUS_PARTIALLY_PAID ? 'ادفع المتبقي عبر تمارا' : 'ادفع الآن عبر تمارا' }}
+                        </button>
+                    </form>
+                @endif
+            </div>
+            @endif
+            {{-- --- MODIFICATION END --- --}}
 
 
             {{-- قسم تفاصيل الفاتورة --}}
@@ -305,48 +351,47 @@
                 <h2 class="invoice-section-title">معلومات الفاتورة</h2>
                 <div class="row">
                     <div class="col-md-6">
-                         {{-- !!! تم التعديل: إزالة التحويل لرقم الفاتورة وعرض invoice_number !!! --}}
                         <div class="info-row"> <span class="info-label">رقم الفاتورة:</span> <span class="info-value invoice-number-value">{{ $invoice->invoice_number ?? $invoice->id }}</span> </div>
                     </div>
                     <div class="col-md-6">
                         <div class="info-row">
                             <span class="info-label">الحالة:</span>
                             <span class="info-value">
-                                <span class="badge {{ $invoice->status_badge_class ?? 'bg-secondary' }}"> {{-- استخدام الـ Accessor مباشرة --}}
+                                <span class="badge {{ $invoice->status_badge_class ?? 'bg-secondary' }}">
                                     {{ $invoice->status_label ?? Str::ucfirst($invoice->status) }}
                                 </span>
                             </span>
                         </div>
                     </div>
                      <div class="col-md-6">
-                        <div class="info-row"> <span class="info-label">المبلغ الإجمالي:</span> <span class="info-value fw-bold">{{ toArabicDigits(number_format($invoice->amount, 0)) }} {{ $invoice->currency }}</span> </div>
+                        <div class="info-row"> <span class="info-label">المبلغ الإجمالي:</span> <span class="info-value fw-bold">{{ toArabicDigits(number_format($invoice->amount, 2)) }} {{ $invoice->currency }}</span> </div>
                     </div>
                     <div class="col-md-6">
-                        <div class="info-row"> <span class="info-label">المبلغ المدفوع:</span> <span class="info-value text-success fw-bold">{{ toArabicDigits(number_format($invoice->total_paid_amount, 0)) }} {{ $invoice->currency }}</span> </div>
+                        <div class="info-row"> <span class="info-label">المبلغ المدفوع:</span> <span class="info-value text-success fw-bold">{{ toArabicDigits(number_format($invoice->total_paid_amount, 2)) }} {{ $invoice->currency }}</span> </div>
                     </div>
-                    @if ($remainingAmount > 0 || $invoice->status != \App\Models\Invoice::STATUS_PAID)
+                    @if ($remainingAmount > 0.009 && $invoice->status != \App\Models\Invoice::STATUS_PAID)
                          <div class="col-md-6">
-                            <div class="info-row"> <span class="info-label">المبلغ المتبقي:</span> <span class="info-value text-danger fw-bold">{{ toArabicDigits(number_format($remainingAmount, 0)) }} {{ $invoice->currency }}</span> </div>
+                            <div class="info-row"> <span class="info-label">المبلغ المتبقي:</span> <span class="info-value text-danger fw-bold">{{ toArabicDigits(number_format($remainingAmount, 2)) }} {{ $invoice->currency }}</span> </div>
                         </div>
                      @endif
-                      <div class="col-md-6">
-                          <div class="info-row">
-                              <span class="info-label">خيار الدفع:</span>
-                              <span class="info-value">
-                                  @if($invoice->payment_option === 'down_payment') دفع عربون (٥٠%)
-                                  @elseif($invoice->payment_option === 'full') دفع كامل
-                                  @else {{ $invoice->payment_option ?? '-' }}
-                                  @endif
-                              </span>
-                          </div>
-                     </div>
                      <div class="col-md-6">
                         <div class="info-row">
-                            <span class="info-label">طريقة الدفع:</span>
+                            <span class="info-label">خيار الدفع:</span>
+                            <span class="info-value">
+                                @if($invoice->payment_option === 'down_payment') دفع عربون
+                                @elseif($invoice->payment_option === 'full') دفع كامل
+                                @else {{ $invoice->payment_option ?? '-' }}
+                                @endif
+                            </span>
+                        </div>
+                   </div>
+                    <div class="col-md-6">
+                        <div class="info-row">
+                            <span class="info-label">طريقة الدفع المسجلة:</span>
                             <span class="info-value">
                                 @if ($invoice->payment_method == 'tamara') تمارا
                                 @elseif ($invoice->payment_method == 'bank_transfer') تحويل بنكي
-                                @elseif ($invoice->payment_method == 'manual_admin') تأكيد يدوي (إدارة)
+                                @elseif ($invoice->payment_method == 'manual_by_admin') تسجيل دفعة يدوية (إدارة)
                                 @else {{ $invoice->payment_method ?? 'غير محدد' }}
                                 @endif
                             </span>
@@ -359,14 +404,14 @@
                          <div class="col-md-6">
                             <div class="info-row"> <span class="info-label">تاريخ أول دفعة:</span> <span class="info-value">{{ $invoice->paid_at ? toArabicDigits(\Carbon\Carbon::parse($invoice->paid_at)->translatedFormat('d F Y - H:i')) : '-' }}</span> </div>
                         </div>
-                    @endif
+                     @endif
                     @if ($invoice->payment_gateway_ref)
                         <div class="col-md-12">
                             <div class="info-row">
                                 <span class="info-label">مرجع الدفع:</span>
                                 <span class="info-value">
                                     {{ $invoice->payment_method == 'tamara' ? 'رقم طلب تمارا: ' : 'رقم المرجع: ' }}
-                                    {{ $invoice->payment_gateway_ref }} {{-- عدم تحويل المرجع --}}
+                                    {{ $invoice->payment_gateway_ref }}
                                 </span>
                             </div>
                         </div>
@@ -376,8 +421,7 @@
 
             <div class="invoice-divider"></div>
 
-            {{-- قسم تفاصيل الحجز المرتبط --}}
-            @if ($booking = $invoice->booking) {{-- التأكد من وجود الحجز --}}
+            @if ($booking = $invoice->booking)
                 <div class="invoice-section">
                     <h2 class="invoice-section-title">معلومات الحجز المرتبط</h2>
                     <div class="row">
@@ -393,26 +437,25 @@
                             <div class="info-row"> <span class="info-label">تاريخ ووقت الحجز:</span> <span class="info-value">{{ $booking->booking_datetime ? toArabicDigits(\Carbon\Carbon::parse($booking->booking_datetime)->translatedFormat('l، d F Y - h:i a')) : 'غير محدد' }}</span> </div>
                         </div>
                          <div class="col-md-6">
-                             <div class="info-row"> <span class="info-label">مكان الفعالية:</span> <span class="info-value">{{ $booking->event_location ?? '-' }}</span> </div>
+                            <div class="info-row"> <span class="info-label">مكان الفعالية:</span> <span class="info-value">{{ $booking->event_location ?? '-' }}</span> </div>
                          </div>
                          <div class="col-md-6">
-                             <div class="info-row">
-                                 <span class="info-label">حالة الحجز:</span>
-                                 <span class="info-value">
-                                      <span class="badge {{ $booking->status_badge_class ?? 'bg-secondary' }}"> {{-- استخدام الـ Accessor --}}
-                                         {{ $booking->status_label ?? Str::ucfirst($booking->status) }}
-                                      </span>
-                                 </span>
-                             </div>
+                            <div class="info-row">
+                                <span class="info-label">حالة الحجز:</span>
+                                <span class="info-value">
+                                    <span class="badge {{ $booking->status_badge_class ?? 'bg-secondary' }}">
+                                        {{ $booking->status_label ?? Str::ucfirst($booking->status) }}
+                                    </span>
+                                </span>
+                            </div>
                          </div>
                     </div>
                 </div>
             @endif
 
-            {{-- زر طباعة الفاتورة --}}
             <div class="invoice-actions">
                 <button onclick="window.print()" class="btn-action btn-print">
-                     طباعة الفاتورة
+                    <i class="fas fa-print"></i> طباعة الفاتورة
                 </button>
             </div>
 
@@ -422,5 +465,5 @@
 @endsection
 
 @section('scripts')
- {{-- لا حاجة لـ JavaScript هنا لتحويل الأرقام لأننا نستخدم PHP --}}
+ {{-- لا حاجة لـ JavaScript هنا إذا كانت دالة toArabicDigits() معرفة كـ helper في PHP --}}
 @endsection
