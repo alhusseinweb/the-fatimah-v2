@@ -215,22 +215,22 @@
      }
       .btn-pay:hover { background-color: #218838; color: white;}
 
-    .btn--pay { /* كلاس جديد لزر تمارا */
-        background-color: #4A4A4A; /* لون خلفية تمارا برتقالي أو حسب الشعار */
+    .btn-tamara-pay { /* كلاس جديد لزر تمارا */
+        background-color: #4A4A4A; /* لون داكن ليتناسب مع شعار تمارا الملون */
         border-color: #4A4A4A;
         color: white;
     }
-    .btn--pay:hover {
+    .btn-tamara-pay:hover {
         background-color: #3A3A3A;
         border-color: #3A3A3A;
         color: white;
     }
-    .btn--pay img {
+    .btn-tamara-pay img {
         height: 20px;
         margin-left: 8px; /* RTL: margin-left, LTR: margin-right */
-        filter: brightness(0) invert(1); /* لجعل الشعار أبيض إذا كان الأصلي داكناً */
+        /* لا حاجة للفلتر إذا كان الشعار الأصلي ملوناً ومناسباً للخلفية الداكنة */
     }
-    html[dir="ltr"] .btn--pay img { margin-left: 0; margin-right: 8px; }
+    html[dir="ltr"] .btn-tamara-pay img { margin-left: 0; margin-right: 8px; }
 
 
     /* تنسيقات التوافق مع الجوال */
@@ -273,20 +273,18 @@
         </div>
         <div class="invoice-card-body">
 
-            {{-- --- MODIFICATION START: Revised logic for payment status alert and  button --- --}}
             @php
                 $alertClass = '';
                 $alertText = '';
-                $allowPayment = false; // Flag to determine if  payment should be offered
+                $allowTamaraPayment = false; // Flag to determine if Tamara payment should be offered
                 $remainingAmount = $invoice->remaining_amount ?? 0; // Assuming remaining_amount accessor exists and is correct
-                $isGenerallyEnabled = class_exists(App\Services\Service::class); // Check if  service is available
+                $isTamaraGenerallyEnabled = class_exists(App\Services\TamaraService::class); // Check if Tamara service is available
 
-                // لتسهيل القراءة، يمكن حساب المبلغ المتبقي إذا لم يكن موجوداً كـ accessor
-                if (!isset($invoice->remaining_amount)) {
+                if (!isset($invoice->remaining_amount)) { // Fallback if remaining_amount accessor isn't there or is null
                     $totalPaidForInvoice = $invoice->payments->where('status', 'completed')->sum('amount');
                     $remainingAmount = $invoice->amount - $totalPaidForInvoice;
                 }
-
+                $remainingAmount = (float) $remainingAmount; // Ensure it's float
 
                 switch ($invoice->status) {
                     case \App\Models\Invoice::STATUS_PAID:
@@ -294,25 +292,24 @@
                         $alertText = 'الفاتورة مدفوعة بالكامل.';
                         break;
                     case \App\Models\Invoice::STATUS_PARTIALLY_PAID:
-                        $alertClass = 'alert-info'; // Changed to info for better distinction
-                        if ($remainingAmount > 0.009) { // Check with a small threshold for float precision
+                        $alertClass = 'alert-info';
+                        if ($remainingAmount > 0.009) {
                             $alertText = 'تم دفع جزء. المبلغ المتبقي: ' . toArabicDigits(number_format($remainingAmount, 2)) . ' ' . $invoice->currency;
-                            if ($isGenerallyEnabled) {
-                                $allowPayment = true;
+                            if ($isTamaraGenerallyEnabled) {
+                                $allowTamaraPayment = true;
                             }
                         } else {
-                            // Should ideally be PAID status if remaining is zero or less
                             $alertClass = 'alert-success';
                             $alertText = 'الفاتورة مدفوعة بالكامل (المتبقي صفر أو أقل).';
                         }
                         break;
                     case \App\Models\Invoice::STATUS_UNPAID:
-                    case \App\Models\Invoice::STATUS_PENDING: // Consider PENDING as UNPAID for payment purposes
-                    case \App\Models\Invoice::STATUS_FAILED: // Allow retry if failed
+                    case \App\Models\Invoice::STATUS_PENDING:
+                    case \App\Models\Invoice::STATUS_FAILED:
                         $alertClass = ($invoice->status === \App\Models\Invoice::STATUS_FAILED) ? 'alert-danger' : 'alert-warning';
                         $alertText = ($invoice->status === \App\Models\Invoice::STATUS_FAILED) ? 'فشلت عملية الدفع الأخيرة.' : 'الفاتورة بانتظار الدفع.';
-                        if ($remainingAmount > 0.009 && $isGenerallyEnabled) {
-                            $allowPayment = true;
+                        if ($remainingAmount > 0.009 && $isTamaraGenerallyEnabled) {
+                            $allowTamaraPayment = true;
                         }
                         break;
                     case \App\Models\Invoice::STATUS_CANCELLED:
@@ -331,20 +328,19 @@
             <div class="alert {{ $alertClass }} d-flex justify-content-between align-items-center mb-4" role="alert">
                 <span>{{ $alertText }}</span>
                 
-                @if($allowPayment && $remainingAmount > 0.009)
-                    <form method="POST" action="{{ route('payment_retry_', $invoice->id) }}" class="m-0">
+                @if($allowTamaraPayment && $remainingAmount > 0.009)
+                    <form method="POST" action="{{ route('payment_retry_tamara', $invoice->id) }}" class="m-0">
                         @csrf
-                        <button type="submit" class="btn btn-sm btn--pay">
-                             {{-- افتراض وجود شعار تمارا في public/images/tamara.png --}}
-                            <img src="{{ asset('images/tamara_logo_white.png') }}" alt="Tamara">
+                        <button type="submit" class="btn btn-sm btn-tamara-pay">
+                            {{-- --- MODIFICATION START: Updated Tamara logo path --- --}}
+                            <img src="{{ asset('images/tamara.png') }}" alt="Tamara">
+                            {{-- --- MODIFICATION END --- --}}
                             {{ $invoice->status == \App\Models\Invoice::STATUS_PARTIALLY_PAID ? 'ادفع المتبقي عبر تمارا' : 'ادفع الآن عبر تمارا' }}
                         </button>
                     </form>
                 @endif
             </div>
             @endif
-            {{-- --- MODIFICATION END --- --}}
-
 
             {{-- قسم تفاصيل الفاتورة --}}
             <div class="invoice-section">
