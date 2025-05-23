@@ -215,22 +215,22 @@
      }
       .btn-pay:hover { background-color: #218838; color: white;}
 
-    .btn-tamara-pay { /* كلاس جديد لزر تمارا */
+    .btn--pay { /* كلاس جديد لزر تمارا */
         background-color: #4A4A4A; /* لون خلفية تمارا برتقالي أو حسب الشعار */
         border-color: #4A4A4A;
         color: white;
     }
-    .btn-tamara-pay:hover {
+    .btn--pay:hover {
         background-color: #3A3A3A;
         border-color: #3A3A3A;
         color: white;
     }
-    .btn-tamara-pay img {
+    .btn--pay img {
         height: 20px;
         margin-left: 8px; /* RTL: margin-left, LTR: margin-right */
         filter: brightness(0) invert(1); /* لجعل الشعار أبيض إذا كان الأصلي داكناً */
     }
-    html[dir="ltr"] .btn-tamara-pay img { margin-left: 0; margin-right: 8px; }
+    html[dir="ltr"] .btn--pay img { margin-left: 0; margin-right: 8px; }
 
 
     /* تنسيقات التوافق مع الجوال */
@@ -273,13 +273,13 @@
         </div>
         <div class="invoice-card-body">
 
-            {{-- --- MODIFICATION START: Revised logic for payment status alert and Tamara button --- --}}
+            {{-- --- MODIFICATION START: Revised logic for payment status alert and  button --- --}}
             @php
                 $alertClass = '';
                 $alertText = '';
-                $allowTamaraPayment = false; // Flag to determine if Tamara payment should be offered
+                $allowPayment = false; // Flag to determine if  payment should be offered
                 $remainingAmount = $invoice->remaining_amount ?? 0; // Assuming remaining_amount accessor exists and is correct
-                $isTamaraGenerallyEnabled = class_exists(App\Services\TamaraService::class); // Check if Tamara service is available
+                $isGenerallyEnabled = class_exists(App\Services\Service::class); // Check if  service is available
 
                 // لتسهيل القراءة، يمكن حساب المبلغ المتبقي إذا لم يكن موجوداً كـ accessor
                 if (!isset($invoice->remaining_amount)) {
@@ -297,8 +297,8 @@
                         $alertClass = 'alert-info'; // Changed to info for better distinction
                         if ($remainingAmount > 0.009) { // Check with a small threshold for float precision
                             $alertText = 'تم دفع جزء. المبلغ المتبقي: ' . toArabicDigits(number_format($remainingAmount, 2)) . ' ' . $invoice->currency;
-                            if ($isTamaraGenerallyEnabled) {
-                                $allowTamaraPayment = true;
+                            if ($isGenerallyEnabled) {
+                                $allowPayment = true;
                             }
                         } else {
                             // Should ideally be PAID status if remaining is zero or less
@@ -311,8 +311,8 @@
                     case \App\Models\Invoice::STATUS_FAILED: // Allow retry if failed
                         $alertClass = ($invoice->status === \App\Models\Invoice::STATUS_FAILED) ? 'alert-danger' : 'alert-warning';
                         $alertText = ($invoice->status === \App\Models\Invoice::STATUS_FAILED) ? 'فشلت عملية الدفع الأخيرة.' : 'الفاتورة بانتظار الدفع.';
-                        if ($remainingAmount > 0.009 && $isTamaraGenerallyEnabled) {
-                            $allowTamaraPayment = true;
+                        if ($remainingAmount > 0.009 && $isGenerallyEnabled) {
+                            $allowPayment = true;
                         }
                         break;
                     case \App\Models\Invoice::STATUS_CANCELLED:
@@ -331,11 +331,11 @@
             <div class="alert {{ $alertClass }} d-flex justify-content-between align-items-center mb-4" role="alert">
                 <span>{{ $alertText }}</span>
                 
-                @if($allowTamaraPayment && $remainingAmount > 0.009)
-                    <form method="POST" action="{{ route('payment_retry_tamara', $invoice->id) }}" class="m-0">
+                @if($allowPayment && $remainingAmount > 0.009)
+                    <form method="POST" action="{{ route('payment_retry_', $invoice->id) }}" class="m-0">
                         @csrf
-                        <button type="submit" class="btn btn-sm btn-tamara-pay">
-                             {{-- افتراض وجود شعار تمارا في public/images/tamara_logo_white.png --}}
+                        <button type="submit" class="btn btn-sm btn--pay">
+                             {{-- افتراض وجود شعار تمارا في public/images/tamara.png --}}
                             <img src="{{ asset('images/tamara_logo_white.png') }}" alt="Tamara">
                             {{ $invoice->status == \App\Models\Invoice::STATUS_PARTIALLY_PAID ? 'ادفع المتبقي عبر تمارا' : 'ادفع الآن عبر تمارا' }}
                         </button>
