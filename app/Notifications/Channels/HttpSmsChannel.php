@@ -11,7 +11,7 @@ use App\Models\SentSmsLog;
 use App\Models\User;
 use App\Notifications\SmsLimitReachedNotification; // تأكد من المسار الصحيح
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Cache; // استيراد Cache
+use Illuminate\Support\Facades\Cache;
 
 class HttpSmsChannel
 {
@@ -33,13 +33,14 @@ class HttpSmsChannel
             'X-API-Key' => $this->apiKey,
             'Accept' => 'application/json',
             'Content-Type' => 'application/json; charset=UTF-8',
-        ])->timeout(15);
+        ])->timeout(config('services.httpsms.timeout', 15)); // استخدام قيمة من الإعدادات أو قيمة افتراضية
     }
 
     public function send($notifiable, Notification $notification)
     {
         if (empty($this->apiKey) || empty($this->senderPhone)) {
             Log::error('HttpSmsChannel: Cannot send SMS. API Key or Sender Phone is not configured.');
+            // لا نسجل محاولة هنا لأن الإعدادات الأساسية مفقودة
             return null;
         }
 
@@ -48,59 +49,64 @@ class HttpSmsChannel
             return null;
         }
 
-        // --- التحقق من حد الرسائل ---
-        $smsMonthlyLimit = (int) (Setting::where('key', 'sms_monthly_limit')->value('value') ?? 0); // تعديل بسيط لجلب القيمة
-        $stopSendingOnLimit = filter_var(Setting::where('key', 'sms_stop_sending_on_limit')->value('value') ?? false, FILTER_VALIDATE_BOOLEAN); // تعديل بسيط
+        $message = $notification->toHttpSms($notifiable);
+
+        // التحقق من وجود رقم المستلم ومحتوى الرسالة
+        // $recipientNumberForLog و $contentStringForLog يستخدمان في جميع الحالات للتسجيل
+        $recipientNumberForLog = $message['to'] ?? null;
+        if ($notifiable instanceof \Illuminate\Notifications\AnonymousNotifiable && isset($notifiable->routes[HttpSmsChannel::class])) {
+            $recipientNumberForLog = $notifiable->routes[HttpSmsChannel::class];
+        } elseif ($notifiable instanceof User) {
+            $recipientNumberForLog = $notifiable->mobile_number; // أو دالة مخصصة لجلب رقم الهاتف للإشعارات
+        }
         
-        $currentMonthSmsCount = SentSmsLog::whereYear('sent_at', Carbon::now()->year)
-                                         ->whereMonth('sent_at', Carbon::now()->month)
-                                         ->where('status', 'sent')
-                                         ->count();
+        $contentStringForLog = is_string($message['content']) ? $message['content'] : '';
 
-        $messageDataForLog = $notification->toHttpSms($notifiable); // الحصول على بيانات الرسالة مبكراً للتسجيل
-        $recipientNumberForLog = $messageDataForLog['to'] ?? ($notifiable instanceof User ? $notifiable->mobile_number : ($notifiable->routes[HttpSmsChannel::class] ?? null));
-        $contentStringForLog = is_string($messageDataForLog['content']) ? $messageDataForLog['content'] : '';
+        if (empty($recipientNumberForLog) || !isset($message['content'])) {
+            Log::warning('HttpSmsChannel: Recipient number (to) or message content is missing.', ['notification' => get_class($notification), 'message_data' => $message]);
+            $this->logSmsAttempt($notifiable, $notification, 'failed_missing_data', null, $recipientNumberForLog, $contentStringForLog);
+            return null;
+        }
 
 
-        if ($smsMonthlyLimit > 0 && $currentMonthSmsCount >= $smsMonthlyLimit) {
-            Log::warning("SMS monthly limit reached.", [
-                'limit' => $smsMonthlyLimit,
-                'sent_this_month' => $currentMonthSmsCount,
-                'notification' => get_class($notification)
-            ]);
+        // --- التحقق من حد الرسائل ---
+        $smsMonthlyLimit = (int) (Setting::where('key', 'sms_monthly_limit')->value('value') ?? 0);
+        $stopSendingOnLimit = filter_var(Setting::where('key', 'sms_stop_sending_on_limit')->value('value') ?? false, FILTER_VALIDATE_BOOLEAN);
+        
+        if ($smsMonthlyLimit > 0) { // فقط إذا كان هناك حد معين
+            $currentMonthSmsCount = SentSmsLog::whereYear('sent_at', Carbon::now()->year)
+                                             ->whereMonth('sent_at', Carbon::now()->month)
+                                             ->where('status', 'sent') // عد فقط الرسائل المرسلة بنجاح
+                                             ->count();
 
-            $this->notifyAdminsOfLimitReached($smsMonthlyLimit, $currentMonthSmsCount);
+            if ($currentMonthSmsCount >= $smsMonthlyLimit) {
+                Log::warning("SMS monthly limit reached.", [
+                    'limit' => $smsMonthlyLimit,
+                    'sent_this_month' => $currentMonthSmsCount,
+                    'notification' => get_class($notification)
+                ]);
 
-            if ($stopSendingOnLimit) {
-                Log::info("SMS sending stopped as 'sms_stop_sending_on_limit' is enabled.");
-                $this->logSmsAttempt($notifiable, $notification, 'failed_limit_reached', null, $recipientNumberForLog, $contentStringForLog);
-                return null;
+                $this->notifyAdminsOfLimitReached($smsMonthlyLimit, $currentMonthSmsCount);
+
+                if ($stopSendingOnLimit) {
+                    Log::info("SMS sending stopped as 'sms_stop_sending_on_limit' is enabled.");
+                    $this->logSmsAttempt($notifiable, $notification, 'failed_limit_reached', null, $recipientNumberForLog, $contentStringForLog);
+                    return null; // إيقاف الإرسال
+                }
             }
         }
         // --- نهاية التحقق من حد الرسائل ---
 
-        // $message = $notification->toHttpSms($notifiable); // تم استدعاؤها بالفعل أعلاه
-        $message = $messageDataForLog;
-
-
-        if (empty($message['to']) || !isset($message['content'])) {
-            Log::warning('HttpSmsChannel: Recipient number (to) or message content is missing.', ['notification' => get_class($notification)]);
-            return null;
-        }
-        
-        $contentString = is_string($message['content']) ? $message['content'] : ''; // تم تعريفها كـ $contentStringForLog
-        $recipientNumber = $message['to']; // تم تعريفها كـ $recipientNumberForLog
-
         $payload = [
-            'to' => $recipientNumber,
-            'content' => $contentString,
+            'to' => $recipientNumberForLog, // استخدام الرقم الذي تم التحقق منه
+            'content' => $contentStringForLog, // استخدام المحتوى الذي تم التحقق منه
             'from' => $this->senderPhone,
         ];
 
-        Log::info('HttpSmsChannel: Attempting to send SMS.', ['notification' => get_class($notification), 'to' => $recipientNumber]);
+        Log::info('HttpSmsChannel: Attempting to send SMS.', ['notification' => get_class($notification), 'to' => $recipientNumberForLog]);
 
         $response = null;
-        $status = 'failed_submission';
+        $status = 'failed_submission'; // حالة افتراضية
         $serviceMessageId = null;
 
         try {
@@ -108,48 +114,50 @@ class HttpSmsChannel
 
             if ($response->successful()) {
                 $responseData = $response->json();
-                $status = 'sent';
-                $serviceMessageId = $responseData['data']['id'] ?? ($responseData['message_id'] ?? null);
-                Log::info('HttpSmsChannel: SMS submitted successfully.', ['to' => $recipientNumber, 'response_id' => $serviceMessageId]);
+                $status = 'sent'; 
+                $serviceMessageId = $responseData['data']['id'] ?? ($responseData['message_id'] ?? Str::uuid()->toString()); // استخدام UUID كاحتياطي إذا لم يوجد ID
+                Log::info('HttpSmsChannel: SMS submitted successfully.', ['to' => $recipientNumberForLog, 'response_id' => $serviceMessageId, 'response_data' => $responseData]);
             } else {
                 $status = 'failed_api_error';
-                Log::error('HttpSmsChannel: Failed to send SMS via API.', ['to' => $recipientNumber, 'status_code' => $response->status(), 'response_body' => $response->body()]);
+                Log::error('HttpSmsChannel: Failed to send SMS via API.', ['to' => $recipientNumberForLog, 'status_code' => $response->status(), 'response_body' => $response->body()]);
             }
         } catch (\Throwable $e) {
             $status = 'failed_exception';
-            Log::critical('HttpSmsChannel: Exception while sending SMS.', ['to' => $recipientNumber, 'exception' => $e->getMessage()]);
+            Log::critical('HttpSmsChannel: Exception while sending SMS.', ['to' => $recipientNumberForLog, 'exception' => $e->getMessage(), 'trace' => Str::limit($e->getTraceAsString(), 500)]);
         }
 
-        $this->logSmsAttempt($notifiable, $notification, $status, $serviceMessageId, $recipientNumber, $contentString);
+        $this->logSmsAttempt($notifiable, $notification, $status, $serviceMessageId, $recipientNumberForLog, $contentStringForLog);
 
-        return $response;
+        return $response; // أو يمكنك إرجاع true/false بناءً على النجاح
     }
 
     protected function logSmsAttempt($notifiable, Notification $notification, string $status, ?string $serviceMessageId, ?string $toNumber, string $content): void
     {
         try {
             $userId = null;
-            $recipientType = null;
+            $recipientType = 'unknown'; // قيمة افتراضية
 
             if ($notifiable instanceof User) {
                 $userId = $notifiable->id;
-                $recipientType = $notifiable->is_admin ? 'admin' : 'admin'; // Note: was 'admin' : 'customer'
+                $recipientType = $notifiable->is_admin ? 'admin' : 'customer';
             } 
-            // Check if $notifiable is a string (could be a phone number from Notification::route())
-            // And if the notification object has a specific mobileNumber property (like our SendOtpNotification)
-            else if (property_exists($notification, 'mobileNumber') && is_string($notification->mobileNumber)) {
-                 // Attempt to find user by this mobile number if needed for logging association, otherwise log as generic
-                $user = User::where('mobile_number', $notification->mobileNumber)->first();
+            // إذا كان notifiable هو AnonymousNotifiable (يستخدم مع Notification::route())
+            // وكان يحتوي على رقم الهاتف في مسار هذا الـ channel
+            elseif ($notifiable instanceof \Illuminate\Notifications\AnonymousNotifiable && isset($notifiable->routes[__CLASS__])) {
+                $phoneNumberFromNotifiable = $notifiable->routes[__CLASS__];
+                // نحاول البحث عن مستخدم بهذا الرقم لتسجيل user_id إذا وجد
+                $user = User::where('mobile_number', $phoneNumberFromNotifiable)->first();
                 if ($user) {
                     $userId = $user->id;
                     $recipientType = $user->is_admin ? 'admin' : 'customer';
                 } else {
-                    $recipientType = 'customer_prospect'; // Or 'unregistered_user' for OTPs
+                    // إذا لم يتم العثور على مستخدم، قد يكون OTP لعملية تسجيل جديدة
+                    $recipientType = 'customer_prospect'; // أو 'unregistered_user'
                 }
             }
-            // Fallback for $notifiable from Notification::route('channel', $route)
-            else if (is_string($notifiable)) {
-                $user = User::where('mobile_number', $notifiable)->first();
+            // إذا كان الإشعار نفسه يحمل خاصية mobileNumber (مثل SendOtpNotification)
+            elseif (property_exists($notification, 'mobileNumber') && is_string($notification->mobileNumber)) {
+                $user = User::where('mobile_number', $notification->mobileNumber)->first();
                  if ($user) {
                     $userId = $user->id;
                     $recipientType = $user->is_admin ? 'admin' : 'customer';
@@ -158,15 +166,12 @@ class HttpSmsChannel
                 }
             }
 
-
             SentSmsLog::create([
-                // --- MODIFIED LOGIC FOR USER ID ---
                 'user_id' => $userId,
-                // --- END MODIFIED LOGIC ---
                 'recipient_type' => $recipientType,
                 'notification_type' => get_class($notification),
-                'to_number' => $toNumber, // هذا هو الرقم الفعلي الذي تم الإرسال إليه
-                'content' => Str::limit($content, 450),
+                'to_number' => $toNumber,
+                'content' => Str::limit($content, 450), 
                 'status' => $status,
                 'service_message_id' => $serviceMessageId,
                 'sent_at' => Carbon::now(),
@@ -189,9 +194,8 @@ class HttpSmsChannel
 
         $admins = User::where('is_admin', true)->get();
         if ($admins->isNotEmpty()) {
-            // تأكد من أن كلاس الإشعار SmsLimitReachedNotification يستخدم قناة البريد فقط
             \Illuminate\Support\Facades\Notification::send($admins, new SmsLimitReachedNotification($limit, $count));
-            Cache::put($cacheKey, true, Carbon::now()->endOfDay());
+            Cache::put($cacheKey, true, Carbon::now()->endOfDay()); 
             Log::info("SmsLimitReachedNotification sent to admins.");
         }
     }
