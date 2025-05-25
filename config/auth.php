@@ -112,4 +112,17 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    |--------------------------------------------------------------------------
+    | OTP (One-Time Password) System Settings
+    |--------------------------------------------------------------------------
+    |
+    | 'otp_validity_minutes' defines how long an OTP is valid after generation
+    | for custom OTP login and registration.
+    |
+    */
+
+    'otp_validity_minutes' => (int) env('OTP_VALIDITY_MINUTES', 5), // القيمة الافتراضية 5 دقائق
+
 ];
+// تم إزالة القوس المعقوف الزائد '}' من نهاية الملف الأصلي
