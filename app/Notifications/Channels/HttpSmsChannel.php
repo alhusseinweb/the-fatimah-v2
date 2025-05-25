@@ -33,14 +33,13 @@ class HttpSmsChannel
             'X-API-Key' => $this->apiKey,
             'Accept' => 'application/json',
             'Content-Type' => 'application/json; charset=UTF-8',
-        ])->timeout(config('services.httpsms.timeout', 15)); // استخدام قيمة من الإعدادات أو قيمة افتراضية
+        ])->timeout(config('services.httpsms.timeout', 15));
     }
 
     public function send($notifiable, Notification $notification)
     {
         if (empty($this->apiKey) || empty($this->senderPhone)) {
             Log::error('HttpSmsChannel: Cannot send SMS. API Key or Sender Phone is not configured.');
-            // لا نسجل محاولة هنا لأن الإعدادات الأساسية مفقودة
             return null;
         }
 
@@ -50,63 +49,83 @@ class HttpSmsChannel
         }
 
         $message = $notification->toHttpSms($notifiable);
-
-        // التحقق من وجود رقم المستلم ومحتوى الرسالة
-        // $recipientNumberForLog و $contentStringForLog يستخدمان في جميع الحالات للتسجيل
-        $recipientNumberForLog = $message['to'] ?? null;
-        if ($notifiable instanceof \Illuminate\Notifications\AnonymousNotifiable && isset($notifiable->routes[HttpSmsChannel::class])) {
-            $recipientNumberForLog = $notifiable->routes[HttpSmsChannel::class];
-        } elseif ($notifiable instanceof User) {
-            $recipientNumberForLog = $notifiable->mobile_number; // أو دالة مخصصة لجلب رقم الهاتف للإشعارات
+        
+        $rawRecipientNumber = $message['to'] ?? null;
+        if ($notifiable instanceof \Illuminate\Notifications\AnonymousNotifiable && isset($notifiable->routes[__CLASS__])) {
+            $rawRecipientNumber = $notifiable->routes[__CLASS__];
+        } elseif ($notifiable instanceof User && property_exists($notifiable, 'mobile_number')) {
+             $rawRecipientNumber = $notifiable->mobile_number;
+        } elseif (property_exists($notification, 'mobileNumber') && is_string($notification->mobileNumber)) {
+            // حالة خاصة إذا كان الإشعار نفسه يحمل رقم الجوال بشكل مباشر
+            $rawRecipientNumber = $notification->mobileNumber;
         }
         
-        $contentStringForLog = is_string($message['content']) ? $message['content'] : '';
+        $contentString = is_string($message['content']) ? $message['content'] : '';
 
-        if (empty($recipientNumberForLog) || !isset($message['content'])) {
-            Log::warning('HttpSmsChannel: Recipient number (to) or message content is missing.', ['notification' => get_class($notification), 'message_data' => $message]);
-            $this->logSmsAttempt($notifiable, $notification, 'failed_missing_data', null, $recipientNumberForLog, $contentStringForLog);
+        if (empty($rawRecipientNumber) || empty($contentString)) {
+            Log::warning('HttpSmsChannel: Recipient number (to) or message content is missing or empty.', [
+                'notification' => get_class($notification), 
+                'raw_recipient' => $rawRecipientNumber,
+                'content_empty' => empty($contentString)
+            ]);
+            $this->logSmsAttempt($notifiable, $notification, 'failed_missing_data', null, $rawRecipientNumber, $contentString);
             return null;
         }
+
+        // --- MODIFICATION START: Format recipient number to E.164 for Saudi Arabia ---
+        $formattedRecipientNumber = $rawRecipientNumber; // القيمة الافتراضية
+        if (Str::startsWith($rawRecipientNumber, '05') && strlen($rawRecipientNumber) == 10) {
+            $formattedRecipientNumber = '+966' . substr($rawRecipientNumber, 1);
+        } elseif (Str::startsWith($rawRecipientNumber, '5') && strlen($rawRecipientNumber) == 9) {
+            // إذا كان الرقم مثل 5xxxxxxxx (بدون الصفر البادئ)
+            $formattedRecipientNumber = '+966' . $rawRecipientNumber;
+        } elseif (Str::startsWith($rawRecipientNumber, '966') && strlen($rawRecipientNumber) == 12 && !Str::startsWith($rawRecipientNumber, '+')) {
+             // إذا كان الرقم 9665xxxxxxxx (بدون +)
+            $formattedRecipientNumber = '+' . $rawRecipientNumber;
+        }
+        // يمكنك إضافة المزيد من قواعد التنسيق هنا إذا كنت تتعامل مع أرقام من دول أخرى
+        // أو استخدام مكتبة متخصصة مثل libphonenumber-for-php لتنسيق أكثر قوة
+        if ($rawRecipientNumber !== $formattedRecipientNumber) {
+            Log::debug("HttpSmsChannel: Formatting recipient number. Original: [{$rawRecipientNumber}], Formatted: [{$formattedRecipientNumber}]");
+        }
+        // --- MODIFICATION END ---
 
 
         // --- التحقق من حد الرسائل ---
         $smsMonthlyLimit = (int) (Setting::where('key', 'sms_monthly_limit')->value('value') ?? 0);
         $stopSendingOnLimit = filter_var(Setting::where('key', 'sms_stop_sending_on_limit')->value('value') ?? false, FILTER_VALIDATE_BOOLEAN);
         
-        if ($smsMonthlyLimit > 0) { // فقط إذا كان هناك حد معين
+        if ($smsMonthlyLimit > 0) {
             $currentMonthSmsCount = SentSmsLog::whereYear('sent_at', Carbon::now()->year)
                                              ->whereMonth('sent_at', Carbon::now()->month)
-                                             ->where('status', 'sent') // عد فقط الرسائل المرسلة بنجاح
+                                             ->where('status', 'sent')
                                              ->count();
 
             if ($currentMonthSmsCount >= $smsMonthlyLimit) {
                 Log::warning("SMS monthly limit reached.", [
-                    'limit' => $smsMonthlyLimit,
-                    'sent_this_month' => $currentMonthSmsCount,
+                    'limit' => $smsMonthlyLimit, 'sent_this_month' => $currentMonthSmsCount,
                     'notification' => get_class($notification)
                 ]);
-
                 $this->notifyAdminsOfLimitReached($smsMonthlyLimit, $currentMonthSmsCount);
-
                 if ($stopSendingOnLimit) {
                     Log::info("SMS sending stopped as 'sms_stop_sending_on_limit' is enabled.");
-                    $this->logSmsAttempt($notifiable, $notification, 'failed_limit_reached', null, $recipientNumberForLog, $contentStringForLog);
-                    return null; // إيقاف الإرسال
+                    $this->logSmsAttempt($notifiable, $notification, 'failed_limit_reached', null, $formattedRecipientNumber, $contentString);
+                    return null;
                 }
             }
         }
         // --- نهاية التحقق من حد الرسائل ---
 
         $payload = [
-            'to' => $recipientNumberForLog, // استخدام الرقم الذي تم التحقق منه
-            'content' => $contentStringForLog, // استخدام المحتوى الذي تم التحقق منه
+            'to' => $formattedRecipientNumber, // استخدام الرقم المنسق
+            'content' => $contentString,
             'from' => $this->senderPhone,
         ];
 
-        Log::info('HttpSmsChannel: Attempting to send SMS.', ['notification' => get_class($notification), 'to' => $recipientNumberForLog]);
+        Log::info('HttpSmsChannel: Attempting to send SMS.', ['notification' => get_class($notification), 'to' => $formattedRecipientNumber, 'payload_content_sample' => Str::limit($contentString, 50)]);
 
         $response = null;
-        $status = 'failed_submission'; // حالة افتراضية
+        $status = 'failed_submission';
         $serviceMessageId = null;
 
         try {
@@ -115,47 +134,46 @@ class HttpSmsChannel
             if ($response->successful()) {
                 $responseData = $response->json();
                 $status = 'sent'; 
-                $serviceMessageId = $responseData['data']['id'] ?? ($responseData['message_id'] ?? Str::uuid()->toString()); // استخدام UUID كاحتياطي إذا لم يوجد ID
-                Log::info('HttpSmsChannel: SMS submitted successfully.', ['to' => $recipientNumberForLog, 'response_id' => $serviceMessageId, 'response_data' => $responseData]);
+                $serviceMessageId = $responseData['data']['id'] ?? ($responseData['message_id'] ?? Str::uuid()->toString());
+                Log::info('HttpSmsChannel: SMS submitted successfully.', ['to' => $formattedRecipientNumber, 'response_id' => $serviceMessageId, 'response_data' => $responseData]);
             } else {
                 $status = 'failed_api_error';
-                Log::error('HttpSmsChannel: Failed to send SMS via API.', ['to' => $recipientNumberForLog, 'status_code' => $response->status(), 'response_body' => $response->body()]);
+                Log::error('HttpSmsChannel: Failed to send SMS via API.', ['to' => $formattedRecipientNumber, 'status_code' => $response->status(), 'response_body' => $response->body()]);
             }
         } catch (\Throwable $e) {
             $status = 'failed_exception';
-            Log::critical('HttpSmsChannel: Exception while sending SMS.', ['to' => $recipientNumberForLog, 'exception' => $e->getMessage(), 'trace' => Str::limit($e->getTraceAsString(), 500)]);
+            Log::critical('HttpSmsChannel: Exception while sending SMS.', ['to' => $formattedRecipientNumber, 'exception' => $e->getMessage(), 'trace' => Str::limit($e->getTraceAsString(), 500)]);
         }
 
-        $this->logSmsAttempt($notifiable, $notification, $status, $serviceMessageId, $recipientNumberForLog, $contentStringForLog);
+        // استخدام الرقم المنسق عند تسجيل المحاولة
+        $this->logSmsAttempt($notifiable, $notification, $status, $serviceMessageId, $formattedRecipientNumber, $contentString);
 
-        return $response; // أو يمكنك إرجاع true/false بناءً على النجاح
+        return $response;
     }
 
     protected function logSmsAttempt($notifiable, Notification $notification, string $status, ?string $serviceMessageId, ?string $toNumber, string $content): void
     {
         try {
             $userId = null;
-            $recipientType = 'unknown'; // قيمة افتراضية
+            $recipientType = 'unknown';
 
             if ($notifiable instanceof User) {
                 $userId = $notifiable->id;
                 $recipientType = $notifiable->is_admin ? 'admin' : 'customer';
             } 
-            // إذا كان notifiable هو AnonymousNotifiable (يستخدم مع Notification::route())
-            // وكان يحتوي على رقم الهاتف في مسار هذا الـ channel
             elseif ($notifiable instanceof \Illuminate\Notifications\AnonymousNotifiable && isset($notifiable->routes[__CLASS__])) {
                 $phoneNumberFromNotifiable = $notifiable->routes[__CLASS__];
-                // نحاول البحث عن مستخدم بهذا الرقم لتسجيل user_id إذا وجد
-                $user = User::where('mobile_number', $phoneNumberFromNotifiable)->first();
+                 // رقم الهاتف هنا قد يكون منسقاً أو غير منسق، لكن $toNumber الذي مررناه للدالة هو المنسق
+                $user = User::where('mobile_number', $toNumber) // استخدم $toNumber (المنسق) للبحث إذا أردت
+                            ->orWhere('mobile_number', $phoneNumberFromNotifiable) // أو الرقم الأصلي قبل التنسيق
+                            ->first();
                 if ($user) {
                     $userId = $user->id;
                     $recipientType = $user->is_admin ? 'admin' : 'customer';
                 } else {
-                    // إذا لم يتم العثور على مستخدم، قد يكون OTP لعملية تسجيل جديدة
-                    $recipientType = 'customer_prospect'; // أو 'unregistered_user'
+                    $recipientType = 'customer_prospect';
                 }
             }
-            // إذا كان الإشعار نفسه يحمل خاصية mobileNumber (مثل SendOtpNotification)
             elseif (property_exists($notification, 'mobileNumber') && is_string($notification->mobileNumber)) {
                 $user = User::where('mobile_number', $notification->mobileNumber)->first();
                  if ($user) {
@@ -170,7 +188,7 @@ class HttpSmsChannel
                 'user_id' => $userId,
                 'recipient_type' => $recipientType,
                 'notification_type' => get_class($notification),
-                'to_number' => $toNumber,
+                'to_number' => $toNumber, // الرقم الذي تم الإرسال إليه (يفضل أن يكون المنسق)
                 'content' => Str::limit($content, 450), 
                 'status' => $status,
                 'service_message_id' => $serviceMessageId,
