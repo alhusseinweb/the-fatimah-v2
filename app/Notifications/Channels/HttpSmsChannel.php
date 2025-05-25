@@ -51,12 +51,12 @@ class HttpSmsChannel
         $message = $notification->toHttpSms($notifiable);
         
         $rawRecipientNumber = $message['to'] ?? null;
+        // محاولة استخلاص رقم الجوال بشكل أفضل
         if ($notifiable instanceof \Illuminate\Notifications\AnonymousNotifiable && isset($notifiable->routes[__CLASS__])) {
             $rawRecipientNumber = $notifiable->routes[__CLASS__];
         } elseif ($notifiable instanceof User && property_exists($notifiable, 'mobile_number')) {
              $rawRecipientNumber = $notifiable->mobile_number;
         } elseif (property_exists($notification, 'mobileNumber') && is_string($notification->mobileNumber)) {
-            // حالة خاصة إذا كان الإشعار نفسه يحمل رقم الجوال بشكل مباشر
             $rawRecipientNumber = $notification->mobileNumber;
         }
         
@@ -72,26 +72,26 @@ class HttpSmsChannel
             return null;
         }
 
-        // --- MODIFICATION START: Format recipient number to E.164 for Saudi Arabia ---
-        $formattedRecipientNumber = $rawRecipientNumber; // القيمة الافتراضية
+        // --- START: Format recipient number to E.164 for Saudi Arabia ---
+        $formattedRecipientNumber = $rawRecipientNumber; 
         if (Str::startsWith($rawRecipientNumber, '05') && strlen($rawRecipientNumber) == 10) {
             $formattedRecipientNumber = '+966' . substr($rawRecipientNumber, 1);
         } elseif (Str::startsWith($rawRecipientNumber, '5') && strlen($rawRecipientNumber) == 9) {
-            // إذا كان الرقم مثل 5xxxxxxxx (بدون الصفر البادئ)
             $formattedRecipientNumber = '+966' . $rawRecipientNumber;
         } elseif (Str::startsWith($rawRecipientNumber, '966') && strlen($rawRecipientNumber) == 12 && !Str::startsWith($rawRecipientNumber, '+')) {
-             // إذا كان الرقم 9665xxxxxxxx (بدون +)
             $formattedRecipientNumber = '+' . $rawRecipientNumber;
         }
-        // يمكنك إضافة المزيد من قواعد التنسيق هنا إذا كنت تتعامل مع أرقام من دول أخرى
-        // أو استخدام مكتبة متخصصة مثل libphonenumber-for-php لتنسيق أكثر قوة
+        
+        // هذا السجل مهم جداً للتأكد من أن التنسيق يعمل
         if ($rawRecipientNumber !== $formattedRecipientNumber) {
             Log::debug("HttpSmsChannel: Formatting recipient number. Original: [{$rawRecipientNumber}], Formatted: [{$formattedRecipientNumber}]");
+        } else {
+            Log::debug("HttpSmsChannel: Recipient number not reformatted, using as is: [{$rawRecipientNumber}]");
         }
-        // --- MODIFICATION END ---
-
+        // --- END: Format recipient number ---
 
         // --- التحقق من حد الرسائل ---
+        // (الكود الخاص بحد الرسائل يبقى كما هو)
         $smsMonthlyLimit = (int) (Setting::where('key', 'sms_monthly_limit')->value('value') ?? 0);
         $stopSendingOnLimit = filter_var(Setting::where('key', 'sms_stop_sending_on_limit')->value('value') ?? false, FILTER_VALIDATE_BOOLEAN);
         
@@ -145,12 +145,12 @@ class HttpSmsChannel
             Log::critical('HttpSmsChannel: Exception while sending SMS.', ['to' => $formattedRecipientNumber, 'exception' => $e->getMessage(), 'trace' => Str::limit($e->getTraceAsString(), 500)]);
         }
 
-        // استخدام الرقم المنسق عند تسجيل المحاولة
         $this->logSmsAttempt($notifiable, $notification, $status, $serviceMessageId, $formattedRecipientNumber, $contentString);
 
         return $response;
     }
 
+    // دالة logSmsAttempt تبقى كما هي من الرد السابق (مع التحسينات المقترحة سابقاً)
     protected function logSmsAttempt($notifiable, Notification $notification, string $status, ?string $serviceMessageId, ?string $toNumber, string $content): void
     {
         try {
@@ -163,9 +163,8 @@ class HttpSmsChannel
             } 
             elseif ($notifiable instanceof \Illuminate\Notifications\AnonymousNotifiable && isset($notifiable->routes[__CLASS__])) {
                 $phoneNumberFromNotifiable = $notifiable->routes[__CLASS__];
-                 // رقم الهاتف هنا قد يكون منسقاً أو غير منسق، لكن $toNumber الذي مررناه للدالة هو المنسق
-                $user = User::where('mobile_number', $toNumber) // استخدم $toNumber (المنسق) للبحث إذا أردت
-                            ->orWhere('mobile_number', $phoneNumberFromNotifiable) // أو الرقم الأصلي قبل التنسيق
+                $user = User::where('mobile_number', $toNumber) 
+                            ->orWhere('mobile_number', $phoneNumberFromNotifiable) 
                             ->first();
                 if ($user) {
                     $userId = $user->id;
@@ -175,7 +174,10 @@ class HttpSmsChannel
                 }
             }
             elseif (property_exists($notification, 'mobileNumber') && is_string($notification->mobileNumber)) {
-                $user = User::where('mobile_number', $notification->mobileNumber)->first();
+                // هذا $toNumber هو الرقم الفعلي المستخدم للإرسال (يفترض أنه منسق)
+                $user = User::where('mobile_number', $toNumber) 
+                            ->orWhere('mobile_number', $notification->mobileNumber) // تحقق من الرقم الأصلي أيضاً
+                            ->first();
                  if ($user) {
                     $userId = $user->id;
                     $recipientType = $user->is_admin ? 'admin' : 'customer';
@@ -188,7 +190,7 @@ class HttpSmsChannel
                 'user_id' => $userId,
                 'recipient_type' => $recipientType,
                 'notification_type' => get_class($notification),
-                'to_number' => $toNumber, // الرقم الذي تم الإرسال إليه (يفضل أن يكون المنسق)
+                'to_number' => $toNumber, 
                 'content' => Str::limit($content, 450), 
                 'status' => $status,
                 'service_message_id' => $serviceMessageId,
@@ -203,6 +205,7 @@ class HttpSmsChannel
         }
     }
 
+    // دالة notifyAdminsOfLimitReached تبقى كما هي
     protected function notifyAdminsOfLimitReached(int $limit, int $count): void
     {
         $cacheKey = 'sms_limit_reached_notification_sent_today';
