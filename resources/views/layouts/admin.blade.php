@@ -82,13 +82,11 @@
                              <i class="fas fa-fw fa-calendar-check"></i> <span>الحجوزات</span>
                          </a>
                      </li>
-                     {{-- --- MODIFICATION START: Add Manual Booking Link --- --}}
                      <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('admin.manual-booking.*') ? 'active' : '' }}" href="{{ route('admin.manual-booking.create') }}">
                             <i class="fas fa-fw fa-plus-square"></i> <span>إنشاء حجز يدوي</span>
                         </a>
                      </li>
-                     {{-- --- MODIFICATION END --- --}}
                      <li class="nav-item">
                          <a class="nav-link {{ request()->routeIs('admin.invoices.*') ? 'active' : '' }}" href="{{ route('admin.invoices.index') }}">
                              <i class="fas fa-fw fa-file-invoice-dollar"></i> <span>الفواتير</span>
@@ -118,6 +116,13 @@
                              <span>قوالب الرسائل النصية</span>
                          </a>
                      </li>
+                     {{-- --- MODIFICATION START: Add SMS Settings Link --- --}}
+                     <li class="nav-item">
+                        <a class="nav-link {{ request()->routeIs('admin.settings.sms.edit') ? 'active' : '' }}" href="{{ route('admin.settings.sms.edit') }}">
+                            <i class="fas fa-fw fa-comment-dots"></i> <span>إعدادات رسائل SMS</span>
+                        </a>
+                     </li>
+                     {{-- --- MODIFICATION END --- --}}
                      <li class="nav-item">
                          <a class="nav-link {{ request()->routeIs('admin.settings.edit') ? 'active' : '' }}" href="{{ route('admin.settings.edit') }}">
                              <i class="fas fa-fw fa-cogs"></i> <span>الإعدادات العامة</span>
@@ -225,16 +230,15 @@
                 toggleSidebarClass(); // Initial check
             }
 
-             if(sidebarToggler && adminWrapper) { // Ensure toggler and wrapper exist
+             if(sidebarToggler && adminWrapper) { 
                  sidebarToggler.addEventListener('click', function() {
-                     // Use a slight delay to allow bootstrap's collapse to update class
                      setTimeout(() => {
                          if (sidebarElement.classList.contains('show')) {
                              adminWrapper.classList.add('sidebar-open');
                          } else {
                              adminWrapper.classList.remove('sidebar-open');
                          }
-                     }, 50); // 50ms delay, adjust if needed
+                     }, 50); 
                  });
              }
         });
