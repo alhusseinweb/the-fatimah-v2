@@ -8,72 +8,12 @@ use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Str;
-use App\Notifications\SendOtpNotification; // استيراد إشعار OTP الجديد
-use App\Notifications\Channels\HttpSmsChannel; // استيراد القناة
-use Illuminate\Support\Facades\Notification as LaravelNotification; // اسم مستعار لـ Notification Facade
 use Illuminate\Support\Facades\Session;
-
+use App\Http\Traits\ManagesOtp; // <-- *** إضافة الـ Trait ***
 
 class OtpLoginController extends Controller
 {
-    // مدة صلاحية OTP بالدقائق (يمكنك وضعها في ملف config/auth.php)
-    protected const OTP_VALIDITY_MINUTES = 5;
-
-    /**
-     * توليد وإرسال رمز OTP.
-     */
-    protected function generateAndSendOtp(string $mobileNumber, string $purpose = 'login'): string
-    {
-        $otpCode = (string) random_int(1000, 9999); // توليد 4 أرقام
-        $validityMinutes = config('auth.otp_validity_minutes', self::OTP_VALIDITY_MINUTES);
-
-        // تطبيع رقم الجوال (إزالة المسافات أو الـ + إذا كان نظام الرسائل لا يتطلبها أو يتعامل معها)
-        // $normalizedMobile = preg_replace('/[^0-9]/', '', $mobileNumber);
-        // حالياً سنفترض أن رقم الجوال بالصيغة الصحيحة المطلوبة من httpsms
-
-        $cacheKey = 'otp_for_' . Str::slug($purpose) . '_' . $mobileNumber;
-        Cache::put($cacheKey, $otpCode, now()->addMinutes($validityMinutes));
-
-        Log::info("Generated OTP {$otpCode} for {$mobileNumber} (purpose: {$purpose}). Stored in cache [{$cacheKey}] for {$validityMinutes} minutes.");
-
-        try {
-            // إرسال الإشعار باستخدام Notification facade و route() لتحديد المستلم والقناة
-            LaravelNotification::route(HttpSmsChannel::class, $mobileNumber)
-                             ->notify(new SendOtpNotification($otpCode, $mobileNumber));
-            Log::info("SendOtpNotification dispatched for {$mobileNumber} (purpose: {$purpose}).");
-        } catch (\Exception $e) {
-            Log::error("Failed to send OTP SMS to {$mobileNumber} (purpose: {$purpose}).", ['error' => $e->getMessage()]);
-            // يمكنك معالجة فشل الإرسال هنا إذا أردت، مثل إرجاع خطأ للمستخدم مباشرة
-        }
-        
-        return $otpCode; // يُعاد للاختبار أو إذا احتاج الأمر، لكن الاعتماد الأساسي على الكاش
-    }
-
-    /**
-     * التحقق من رمز OTP المدخل.
-     */
-    protected function verifyOtpForMobile(string $mobileNumber, string $otpCode, string $purpose = 'login'): bool
-    {
-        $cacheKey = 'otp_for_' . Str::slug($purpose) . '_' . $mobileNumber;
-        $storedOtp = Cache::get($cacheKey);
-
-        if (!$storedOtp) {
-            Log::warning("OTP verification failed: No OTP found in cache or expired for {$mobileNumber} (purpose: {$purpose}). Cache key: {$cacheKey}");
-            return false;
-        }
-
-        if ($storedOtp === $otpCode) {
-            Cache::forget($cacheKey); // تم استخدام الرمز، احذفه من الكاش
-            Log::info("OTP verification successful for {$mobileNumber} (purpose: {$purpose}). OTP removed from cache.");
-            return true;
-        }
-
-        Log::warning("OTP verification failed: Submitted OTP '{$otpCode}' does not match stored OTP '{$storedOtp}' for {$mobileNumber} (purpose: {$purpose}).");
-        return false;
-    }
-
+    use ManagesOtp; // <-- *** استخدام الـ Trait ***
 
     public function showLoginForm()
     {
@@ -95,7 +35,7 @@ class OtpLoginController extends Controller
     public function requestOtp(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'mobile_number' => ['required', 'string', 'regex:/^05\d{8}$/'], // نمط الجوال السعودي
+            'mobile_number' => ['required', 'string', 'regex:/^05\d{8}$/'],
         ],[
             'mobile_number.required' => 'رقم الجوال مطلوب.',
             'mobile_number.regex' => 'صيغة رقم الجوال غير صحيحة (مثال: 05xxxxxxxx).',
@@ -115,19 +55,24 @@ class OtpLoginController extends Controller
                 'mobile_number' => $mobileNumber
             ], 404);
         }
-        
-        // (اختياري) التحقق إذا كان المستخدم نشطاً
-        // if (!$user->is_active) { return response()->json(['message' => 'هذا الحساب غير نشط.'], 403); }
 
-        $this->generateAndSendOtp($mobileNumber, 'login');
+        $otpSent = $this->generateAndSendOtp($mobileNumber, 'login');
+
+        if ($otpSent === null && (Setting::where('key', 'sms_otp_provider')->value('value') ?? 'none') !== 'none') {
+             // فشل إرسال الـ OTP ولم يكن معطلاً
+             return response()->json([
+                 'success' => false,
+                 'message' => 'فشل في إرسال رمز التحقق. يرجى المحاولة لاحقاً أو التواصل مع الدعم.'
+             ], 500); // خطأ في الخادم
+        }
+
 
         Session::put('mobile_for_verification', $mobileNumber);
         Log::info("Login OTP requested for {$mobileNumber}. User will be prompted for OTP.");
-        
+
         return response()->json([
             'success' => true,
             'message' => 'تم إرسال رمز التحقق إلى جوالك.'
-            // لا حاجة لإعادة توجيه من هنا، الواجهة الأمامية تتعامل مع هذا
         ]);
     }
 
@@ -146,7 +91,7 @@ class OtpLoginController extends Controller
             return redirect()->route('login.otp.verify.form')
                 ->withErrors($validator)
                 ->withInput($request->only('mobile_number_hidden'))
-                ->with('mobile_number', $request->input('mobile_number_hidden')); // تمرير رقم الجوال مرة أخرى
+                ->with('mobile_number', $request->input('mobile_number_hidden'));
         }
 
         $mobileNumber = $request->input('mobile_number_hidden');
