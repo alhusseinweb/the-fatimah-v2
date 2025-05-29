@@ -141,6 +141,9 @@ Route::middleware(['auth', EnsureUserIsAdmin::class])
         Route::get('sms-templates/{smsTemplate}/edit', [SmsTemplateController::class, 'edit'])->name('sms-templates.edit');
         Route::put('sms-templates/{smsTemplate}', [SmsTemplateController::class, 'update'])->name('sms-templates.update');
 
+        Route::get('settings/sms', [SmsSettingController::class, 'edit'])->name('settings.sms.edit');
+        Route::patch('settings/sms', [SmsSettingController::class, 'update'])->name('settings.sms.update');
+
         // --- MODIFICATION START: Routes for Manual Booking by Admin ---
         Route::get('manual-booking/create', [AdminManualBookingController::class, 'create'])->name('manual-booking.create');
         Route::post('manual-booking', [AdminManualBookingController::class, 'store'])->name('manual-booking.store');
