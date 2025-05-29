@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use App\Http\Traits\ManagesOtp; // <-- *** إضافة الـ Trait ***
+use App\Http\Traits\ManagesOtp; // <-- *** استخدام الـ Trait ***
 use App\Models\Setting; // <-- استيراد Setting
 
 class RegisterController extends Controller
@@ -26,10 +26,10 @@ class RegisterController extends Controller
 
     public function register(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
-            'mobile_number' => ['required', 'string', 'regex:/^05\d{8}$/', 'unique:users,mobile_number'],
+        $validator = Validator::make(<span class="math-inline">request\-\>all\(\), \[
+'name' \=\> \['required', 'string', 'max\:255'\],
+'email' \=\> \['required', 'string', 'email', 'max\:255', 'unique\:users,email'\],
+'mobile\_number' \=\> \['required', 'string', 'regex\:/^05\\d\{8\}</span>/', 'unique:users,mobile_number'],
         ], [
             'mobile_number.regex' => 'رقم الجوال يجب أن يبدأ بـ 05 ويتكون من 10 أرقام.',
             'mobile_number.unique' => 'رقم الجوال هذا مسجل بالفعل.',
@@ -45,7 +45,7 @@ class RegisterController extends Controller
                 ->withErrors($validator)
                 ->withInput();
         }
-
+        
         $mobileNumber = $request->input('mobile_number');
 
         Session::put('registration_data', [
@@ -53,24 +53,26 @@ class RegisterController extends Controller
             'email' => $request->email,
             'mobile_number' => $mobileNumber,
         ]);
+        Session::put('otp_mobile_for_verification', $mobileNumber); // لتمريرها لصفحة التحقق
 
         try {
             Log::info('Starting registration OTP process for: ' . $mobileNumber);
-            $otpSent = $this->generateAndSendOtp($mobileNumber, 'registration');
+            $otpSentSuccessfully = $this->generateAndSendOtp($mobileNumber, 'registration');
 
-             if ($otpSent === null && (Setting::where('key', 'sms_otp_provider')->value('value') ?? 'none') !== 'none') {
-                 Session::forget('registration_data'); // مسح بيانات التسجيل المؤقتة إذا فشل الإرسال
-                 return redirect()->route('register')
-                     ->withInput()
-                     ->with('error', 'فشل في إرسال رمز التحقق. يرجى المحاولة لاحقاً أو التواصل مع الدعم.');
-             }
+            if (!$otpSentSuccessfully && (Setting::where('key', 'sms_otp_provider')->value('value') ?? 'none') !== 'none') {
+                Session::forget('registration_data');
+                Session::forget('otp_mobile_for_verification');
+                return redirect()->route('register')
+                    ->withInput()
+                    ->with('error', 'فشل في إرسال رمز التحقق. يرجى المحاولة لاحقاً أو التواصل مع الدعم.');
+            }
+            
+            return redirect()->route('register.verify.form')->with('mobile_number', $mobileNumber);
 
-
-            return redirect()->route('register.verify.form')
-                             ->with('mobile_number', $mobileNumber);
-        } catch (\Exception $e) { // هذا الـ catch قد لا يتم الوصول إليه إذا كانت generateAndSendOtp تعالج الاستثناءات
+        } catch (\Exception $e) { // قد لا يتم الوصول لهذا إذا عالجت generateAndSendOtp كل الأخطاء
             Log::error('Failed to send OTP during registration: ' . $e->getMessage());
             Session::forget('registration_data');
+            Session::forget('otp_mobile_for_verification');
             return redirect()->route('register')
                 ->withInput()
                 ->with('error', 'فشل في إرسال رمز التحقق. يرجى المحاولة مرة أخرى.');
@@ -79,9 +81,10 @@ class RegisterController extends Controller
 
     public function showVerifyForm(Request $request)
     {
-        $mobileNumber = $request->query('mobile_number', Session::get('registration_data.mobile_number'));
+        $mobileNumber = $request->query('mobile_number', Session::get('otp_mobile_for_verification'));
+        $registrationData = Session::get('registration_data');
 
-        if (!Session::has('registration_data') || !$mobileNumber) {
+        if (!Session::has('registration_data') || !$mobileNumber || $registrationData['mobile_number'] !== $mobileNumber) {
             return redirect()->route('register')
                 ->with('error', 'يرجى إدخال بياناتك أولاً أو انتهت صلاحية الجلسة.');
         }
@@ -90,8 +93,8 @@ class RegisterController extends Controller
 
     public function verifyOtp(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'mobile_number' => ['required', 'string', 'regex:/^05\d{8}$/'],
+        $validator = Validator::make(<span class="math-inline">request\-\>all\(\), \[
+'mobile\_number' \=\> \['required', 'string', 'regex\:/^05\\d\{8\}</span>/'],
             'otp' => ['required', 'string', 'digits:4'],
         ],[
             'otp.required' => 'رمز التحقق مطلوب.',
@@ -101,19 +104,19 @@ class RegisterController extends Controller
         $mobileNumberFromInput = $request->input('mobile_number');
         $registrationData = Session::get('registration_data');
 
-        if (!$registrationData || $registrationData['mobile_number'] !== $mobileNumberFromInput) {
+        if (!$registrationData || !isset($registrationData['mobile_number']) || $registrationData['mobile_number'] !== $mobileNumberFromInput) {
             return redirect()->route('register.verify.form')
                 ->with('mobile_number', $mobileNumberFromInput)
-                ->with('error', 'بيانات الجلسة غير متطابقة. حاول مرة أخرى.');
+                ->with('error', 'بيانات الجلسة غير متطابقة أو مفقودة. حاول مرة أخرى.');
         }
-
+        
         if ($validator->fails()) {
             return redirect()->route('register.verify.form')
                 ->withErrors($validator)
                 ->withInput()
                 ->with('mobile_number', $mobileNumberFromInput);
         }
-
+        
         $otpCode = $request->input('otp');
 
         Log::info("Attempting to verify OTP '{$otpCode}' for mobile '{$mobileNumberFromInput}' (registration).");
@@ -135,6 +138,8 @@ class RegisterController extends Controller
         ]);
 
         Session::forget('registration_data');
+        Session::forget('otp_mobile_for_verification');
+        Session::forget('twilio_otp_e164_mobile_for_verification'); // تنظيف إذا استخدم Twilio
         Log::info("User {$user->id} ({$user->email}) created and verified successfully via OTP registration.");
 
         Auth::login($user);
@@ -144,11 +149,11 @@ class RegisterController extends Controller
         return redirect()->intended($redirectPath)
             ->with('success', 'تم تسجيل حسابك بنجاح!');
     }
-
+    
     public function resendOtp(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'mobile_number' => ['required', 'string', 'regex:/^05\d{8}$/'],
+        $validator = Validator::make(<span class="math-inline">request\-\>all\(\), \[
+'mobile\_number' \=\> \['required', 'string', 'regex\:/^05\\d\{8\}</span>/'],
         ]);
 
         if ($validator->fails()) {
@@ -161,7 +166,7 @@ class RegisterController extends Controller
         $mobileNumber = $request->input('mobile_number');
         $registrationData = Session::get('registration_data');
 
-        if (!$registrationData || $registrationData['mobile_number'] !== $mobileNumber) {
+        if (!$registrationData || !isset($registrationData['mobile_number']) || $registrationData['mobile_number'] !== $mobileNumber) {
             Log::warning("Resend OTP attempt for non-matching or missing registration session for {$mobileNumber}.");
             return response()->json([
                 'success' => false,
@@ -170,25 +175,26 @@ class RegisterController extends Controller
         }
 
         try {
-            $otpSent = $this->generateAndSendOtp($mobileNumber, 'registration_resend');
-             if ($otpSent === null && (Setting::where('key', 'sms_otp_provider')->value('value') ?? 'none') !== 'none') {
+            $otpSentSuccessfully = $this->generateAndSendOtp($mobileNumber, 'registration_resend');
+            
+            if (!$otpSentSuccessfully && (Setting::where('key', 'sms_otp_provider')->value('value') ?? 'none') !== 'none') {
                  return response()->json([
-                     'success' => false,
-                     'message' => 'فشل في إرسال رمز التحقق. يرجى المحاولة لاحقاً.'
-                 ], 500);
-             } elseif ($otpSent !== null) { // يشمل حالة 'none' حيث يتم إرجاع الرمز ولكن لا يرسل
-                  Log::info("Resent OTP for registration to {$mobileNumber}.");
+                    'success' => false,
+                    'message' => 'فشل في إرسال رمز التحقق. يرجى المحاولة لاحقاً.'
+                ], 500);
+            } elseif ($otpSentSuccessfully) {
+                Log::info("Resent OTP for registration to {$mobileNumber}.");
+                return response()->json([
+                    'success' => true,
+                    'message' => 'تم إعادة إرسال رمز تحقق جديد بنجاح.'
+                ]);
+            } else { // $otpSentSuccessfully is false and provider is 'none'
+                 Log::info("OTP Resend skipped as provider is 'none' for {$mobileNumber}.");
                  return response()->json([
-                     'success' => true,
-                     'message' => 'تم إعادة إرسال رمز تحقق جديد بنجاح.'
-                 ]);
-             } else { // $otpSent is null and provider is 'none'
-                  Log::info("OTP Resend skipped as provider is 'none' for {$mobileNumber}.");
-                  return response()->json([
-                     'success' => false, // أو true مع رسالة توضيحية
-                     'message' => 'خدمة إرسال الرموز معطلة حالياً.'
-                 ], 200); // أو 503 Service Unavailable
-             }
+                    'success' => false, // أو true مع رسالة توضيحية أن الإرسال معطل
+                    'message' => 'خدمة إرسال الرموز معطلة حالياً.'
+                ], 200); // أو 503
+            }
 
         } catch (\Exception $e) {
             Log::error('Failed to resend OTP: ' . $e->getMessage());
