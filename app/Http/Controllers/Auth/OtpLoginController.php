@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
-use App\Http\Traits\ManagesOtp; // <-- *** إضافة الـ Trait ***
+use App\Http\Traits\ManagesOtp; // <-- *** استخدام الـ Trait ***
 
 class OtpLoginController extends Controller
 {
@@ -23,19 +23,19 @@ class OtpLoginController extends Controller
         return view('auth.otp-login');
     }
 
-    public function showOtpForm()
+    public function showOtpForm() // لا تحتاج Request هنا إذا كنت تعتمد على الجلسة أو query param
     {
-        if (!Session::has('mobile_for_verification')) {
+        $mobileNumber = Session::get('otp_mobile_for_verification') ?? request()->query('mobile_number');
+        if (!$mobileNumber) {
             return redirect()->route('login.otp.form')->with('error', 'يرجى إدخال رقم الجوال أولاً.');
         }
-        $mobileNumber = Session::get('mobile_for_verification');
         return view('auth.otp-verify', compact('mobileNumber'));
     }
 
     public function requestOtp(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'mobile_number' => ['required', 'string', 'regex:/^05\d{8}$/'],
+        $validator = Validator::make(<span class="math-inline">request\-\>all\(\), \[
+'mobile\_number' \=\> \['required', 'string', 'regex\:/^05\\d\{8\}</span>/'],
         ],[
             'mobile_number.required' => 'رقم الجوال مطلوب.',
             'mobile_number.regex' => 'صيغة رقم الجوال غير صحيحة (مثال: 05xxxxxxxx).',
@@ -55,21 +55,19 @@ class OtpLoginController extends Controller
                 'mobile_number' => $mobileNumber
             ], 404);
         }
+        
+        $otpSentSuccessfully = $this->generateAndSendOtp($mobileNumber, 'login');
 
-        $otpSent = $this->generateAndSendOtp($mobileNumber, 'login');
-
-        if ($otpSent === null && (Setting::where('key', 'sms_otp_provider')->value('value') ?? 'none') !== 'none') {
-             // فشل إرسال الـ OTP ولم يكن معطلاً
-             return response()->json([
-                 'success' => false,
-                 'message' => 'فشل في إرسال رمز التحقق. يرجى المحاولة لاحقاً أو التواصل مع الدعم.'
-             ], 500); // خطأ في الخادم
+        if (!$otpSentSuccessfully && (Setting::where('key', 'sms_otp_provider')->value('value') ?? 'none') !== 'none') {
+            return response()->json([
+                'success' => false,
+                'message' => 'فشل في إرسال رمز التحقق. يرجى المحاولة لاحقاً أو التواصل مع الدعم.'
+            ], 500);
         }
 
-
-        Session::put('mobile_for_verification', $mobileNumber);
+        Session::put('otp_mobile_for_verification', $mobileNumber);
         Log::info("Login OTP requested for {$mobileNumber}. User will be prompted for OTP.");
-
+        
         return response()->json([
             'success' => true,
             'message' => 'تم إرسال رمز التحقق إلى جوالك.'
@@ -78,23 +76,24 @@ class OtpLoginController extends Controller
 
     public function verifyOtp(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'mobile_number_hidden' => ['required', 'regex:/^05\d{8}$/'],
+        $validator = Validator::make(<span class="math-inline">request\-\>all\(\), \[
+'mobile\_number\_hidden' \=\> \['required', 'regex\:/^05\\d\{8\}</span>/'],
             'otp_code' => ['required', 'string', 'digits:4'],
         ],[
-            'mobile_number_hidden.required' => 'رقم الجوال مطلوب للتحقق.',
+            'mobile_number_hidden.required' => 'رقم الجوال مطلوب للتحقق.', // أو تأكد من وجوده في الجلسة
             'otp_code.required' => 'رمز التحقق مطلوب.',
             'otp_code.digits' => 'رمز التحقق يجب أن يتكون من 4 أرقام.',
         ]);
 
-        if ($validator->fails()) {
+        $mobileNumber = $request->input('mobile_number_hidden') ?? Session::get('otp_mobile_for_verification');
+
+        if ($validator->fails() || !$mobileNumber) {
             return redirect()->route('login.otp.verify.form')
                 ->withErrors($validator)
                 ->withInput($request->only('mobile_number_hidden'))
-                ->with('mobile_number', $request->input('mobile_number_hidden'));
+                ->with('mobile_number', $mobileNumber);
         }
-
-        $mobileNumber = $request->input('mobile_number_hidden');
+        
         $otpCode = $request->input('otp_code');
 
         Log::info("Attempting to verify OTP '{$otpCode}' for mobile '{$mobileNumber}' (login).");
@@ -104,7 +103,8 @@ class OtpLoginController extends Controller
             if ($user) {
                 Auth::login($user);
                 $request->session()->regenerate();
-                Session::forget('mobile_for_verification');
+                Session::forget('otp_mobile_for_verification');
+                Session::forget('twilio_otp_e164_mobile_for_verification'); // تنظيف إذا استخدم Twilio
                 Log::info("User {$user->id} ({$user->email}) logged in successfully via OTP.");
                 return $this->redirectBasedOnRole($user);
             }
