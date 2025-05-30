@@ -5,64 +5,45 @@
 namespace App\Services;
 
 use App\Models\Invoice;
-// --- MODIFICATION START: Import Setting model ---
-use App\Models\Setting;
-// --- MODIFICATION END ---
-use Illuminate\Support\Facades\Config; // سيبقى مؤقتاً كمرجع للقيم الافتراضية إذا لم توجد في DB
+use App\Models\Setting; // لاستخدام الإعدادات من قاعدة البيانات
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-// use Illuminate\Http\Request; // غير مستخدم مباشرة هنا
+// use Illuminate\Http\Request; // غير مستخدم حالياً
 
 class TamaraService
 {
     protected string $apiUrl;
     protected string $apiKey;
-    protected bool $isConfigured = false; // لمعرفة إذا تم تحميل الإعدادات بنجاح
+    protected bool $isConfigured = false;
 
-    /**
-     * Constructor لتحضير بيانات الربط.
-     */
     public function __construct()
     {
-        // --- MODIFICATION START: Load settings from database ---
         $this->apiUrl = Setting::where('key', 'tamara_api_url')->value('value');
         $this->apiKey = Setting::where('key', 'tamara_api_token')->value('value');
 
-        // استخدام قيم افتراضية إذا لم يتم العثور على الإعدادات في قاعدة البيانات
-        // أو إذا كانت فارغة، مع تسجيل تحذير.
         if (empty($this->apiUrl)) {
-            $this->apiUrl = config('services.tamara.url', 'https://api-sandbox.tamara.co'); // قيمة افتراضية لـ sandbox
-            Log::warning("TamaraService: 'tamara_api_url' not found in database settings. Using default or config fallback: " . $this->apiUrl);
+            $this->apiUrl = config('services.tamara.url', 'https://api-sandbox.tamara.co');
+            Log::warning("TamaraService: 'tamara_api_url' not found in DB settings. Using fallback: " . $this->apiUrl);
         }
 
         if (empty($this->apiKey)) {
-            // لا يوجد قيمة افتراضية آمنة لـ API Key، يجب أن يكون معيناً
-            Log::error('TamaraService Error: API Key (tamara_api_token) is missing from database settings AND config/services.php! Tamara integration will likely fail.');
+            Log::error('TamaraService Error: API Key (tamara_api_token) is missing from database settings. Tamara integration will fail.');
             $this->isConfigured = false;
         } else {
             $this->isConfigured = true;
-            Log::info('TamaraService instantiated. API URL: ' . $this->apiUrl . ', API Key Loaded: ' . (empty($this->apiKey) ? 'NO' : 'YES'));
+            Log::info('TamaraService instantiated. API URL: ' . $this->apiUrl . '. API Key Loaded: YES');
         }
-        // --- MODIFICATION END ---
     }
 
-    /**
-     * يبدأ عملية الدفع مع تمارا للمبلغ المحدد ويُرجع بيانات الاستجابة أو null عند الفشل.
-     *
-     * @param Invoice $invoice الفاتورة المرتبطة.
-     * @param float $amountToPay المبلغ الفعلي المطلوب دفعه في هذه العملية (كامل أو عربون).
-     * @param string $paymentOption نوع الدفعة ('full' أو 'down_payment') لتحديث الوصف.
-     * @return array|null مصفوفة ['checkout_url' => string, 'order_id' => string] أو null.
-     */
     public function initiateCheckout(Invoice $invoice, float $amountToPay, string $paymentOption = 'full'): ?array
     {
-        if (!$this->isConfigured || empty($this->apiKey) || empty($this->apiUrl)) {
+        if (!$this->isConfigured) {
              Log::error("Tamara initiateCheckout Error: Service is not configured (API URL or Key missing) for Invoice ID: {$invoice->id}");
              return null;
         }
 
-        if ($amountToPay <= 0.009) { // استخدام حد صغير بدلاً من 0
+        if ($amountToPay <= 0.009) {
              Log::error("Tamara initiateCheckout Error: Amount to pay must be positive. Received: {$amountToPay} for Invoice ID: {$invoice->id}");
              return null;
         }
@@ -74,58 +55,57 @@ class TamaraService
             $service = $booking?->service;
 
             if (!$booking || !$user || !$service) {
-                 Log::error("Tamara initiateCheckout Error: Missing related data (booking, user, or service) for Invoice ID: {$invoice->id}");
+                 Log::error("Tamara initiateCheckout Error: Missing related data for Invoice ID: {$invoice->id}");
                  return null;
             }
 
             $successUrl = route('tamara.success', ['invoice' => $invoice->id]);
             $failureUrl = route('tamara.failure', ['invoice' => $invoice->id]);
-            
-            // قراءة رابط الـ Webhook من الإعدادات أو استخدام قيمة ثابتة إذا لم يتغير
-            $notificationUrlSetting = Setting::where('key', 'tamara_webhook_url')->value('value'); // افترض أن هذا مفتاح جديد إذا أردت جعله ديناميكياً
-            $notificationUrl = !empty($notificationUrlSetting) ? $notificationUrlSetting : url('/api/tamara/Webhook'); // استخدام helper url() لضمان الرابط الصحيح
+            $notificationUrlSetting = Setting::where('key', 'tamara_webhook_url')->value('value');
+            $notificationUrl = !empty($notificationUrlSetting) ? $notificationUrlSetting : url('/api/tamara/Webhook');
 
-            Log::info("Tamara URLs for Invoice ID {$invoice->id}", [
-                 'success_url' => $successUrl,
-                 'failure_url' => $failureUrl,
-                 'notification_url' => $notificationUrl
-            ]);
+            Log::info("Tamara URLs for Invoice ID {$invoice->id}", compact('successUrl', 'failureUrl', 'notificationUrl'));
 
-            $userName = $user->name ?: 'Unknown Customer';
-            $firstName = Str::before($userName, ' ') ?: $userName;
-            $lastName = Str::after($userName, ' ') ?: ($firstName !== $userName ? $userName : 'Customer'); // تحسين بسيط لاسم العائلة
-            if (empty(trim($lastName)) || $lastName === $firstName) { $lastName = 'Customer'; }
+            // --- MODIFICATION START: Clean consumer names ---
+            $rawUserName = $user->name ?: 'Customer Unknown';
+            $nameParts = explode(' ', trim($rawUserName), 2);
+            $firstName = trim(str_replace(',', '', $nameParts[0]));
+            $lastName = trim(str_replace(',', '', $nameParts[1] ?? 'Customer'));
+
+            if (empty($firstName)) $firstName = 'FName'; // Fallback if cleaning results in empty
+            if (empty($lastName)) $lastName = 'LName'; // Fallback
+            // --- MODIFICATION END ---
 
             $phone = $user->mobile_number;
             if ($phone && !str_starts_with($phone, '+')) {
                 $phone = preg_replace('/[\s-]+/', '', $phone);
                 if (str_starts_with($phone, '05') && strlen($phone) == 10) { $phone = '+966' . substr($phone, 1); }
                 elseif (strlen($phone) == 9 && str_starts_with($phone, '5')) { $phone = '+966' . $phone; }
-                // أضف المزيد من قواعد التنسيق إذا لزم الأمر أو استخدم مكتبة
             }
             if(empty($phone) || !preg_match('/^\+966\d{9}$/', $phone)){
-                Log::error("Tamara Payload Error: Phone number is missing or invalid ('{$phone}') for user {$user->id} / Invoice {$invoice->id}. Cannot proceed.");
+                Log::error("Tamara Payload Error: Phone number invalid ('{$phone}') for user {$user->id} / Invoice {$invoice->id}.");
                 return null;
             }
 
             $email = $user->email;
             if(empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)){
-                Log::error("Tamara Payload Error: Email is missing or invalid ('{$email}') for user {$user->id} / Invoice {$invoice->id}. Cannot proceed.");
+                Log::error("Tamara Payload Error: Email invalid ('{$email}') for user {$user->id} / Invoice {$invoice->id}.");
                 return null;
             }
 
             $amountForTamara = round($amountToPay, 2);
             $currency = $invoice->currency ?: 'SAR';
             $orderReferenceId = (string) $invoice->invoice_number;
-            $orderNumber = $invoice->invoice_number ?: 'BOOK-' . $booking->id . '-' . time(); // إضافة time لجعله فريداً أكثر
+            $orderNumber = $invoice->invoice_number ?: 'BOOK-' . $booking->id . '-' . time();
             $serviceName = $service->{'name_' . app()->getLocale()} ?? $service->name_ar;
 
             $shippingAddress = [
                 'first_name' => $firstName, 'last_name' => $lastName,
                 'line1' => $booking->event_location ?: 'N/A', 'line2' => null,
-                'region' => 'Riyadh Region', 'city' => 'Riyadh', // جعلها ديناميكية من إعدادات الموقع أو بيانات العميل إذا أمكن
+                'region' => 'Riyadh', 'city' => 'Riyadh', // تمارا قد تطلب أسماء مناطق ومدن محددة ومعروفة لديها
                 'country_code' => 'SA', 'phone_number' => $phone
             ];
+            $billingAddress = $shippingAddress; // Usually the same
 
             $descriptionPrefix = ($paymentOption === 'down_payment') ? 'دفعة أولى لحجز خدمة: ' : 'دفع قيمة خدمة: ';
             $description = $descriptionPrefix . $serviceName . ' (فاتورة #' . $orderReferenceId . ')';
@@ -134,17 +114,19 @@ class TamaraService
                 'order_reference_id' => $orderReferenceId,
                 'order_number'=> $orderNumber,
                 'total_amount' => ['amount' => $amountForTamara, 'currency' => $currency],
-                'description' => $description,
+                'description' => Str::limit($description, 255), // تمارا قد يكون لديها حد على طول الوصف
                 'country_code' => 'SA',
-                'payment_type' => 'PAY_BY_INSTALMENTS', // أو PAY_LATER حسب ما تدعمه تمارا وما تفضله
-                'instalments' => 3, // إذا كان PAY_BY_INSTALMENTS، هذا الحقل مطلوب عادةً
+                'payment_type' => 'PAY_BY_INSTALMENTS', // أو 'PAY_LATER'
+                'instalments' => 3, // تأكد أن هذا متوافق مع نوع الدفع والمبلغ
                 'items' => [[
                     'reference_id' => (string) $service->id,
-                    'type' => 'Digital', 'name' => $serviceName,
-                    'sku' => (string) $service->id, 'quantity' => 1,
+                    'type' => 'Digital', // أو "Physical" أو نوع الخدمة المناسب
+                    'name' => Str::limit($serviceName, 128), // تمارا لديها حد على طول اسم المنتج
+                    'sku' => (string) $service->id,
+                    'quantity' => 1,
                     'unit_price' => ['amount' => $amountForTamara, 'currency' => $currency],
-                    'discount_amount' => ['amount' => 0.00, 'currency' => $currency], // الخصم يجب أن يكون مطبقاً على $amountForTamara بالفعل
-                    'tax_amount' => ['amount' => 0.00, 'currency' => $currency],
+                    'discount_amount' => ['amount' => 0.00, 'currency' => $currency], // الخصم مطبق بالفعل على المبلغ الكلي
+                    'tax_amount' => ['amount' => 0.00, 'currency' => $currency],    // الضريبة صفر حالياً
                     'total_amount' => ['amount' => $amountForTamara, 'currency' => $currency],
                 ]],
                 'consumer' => [
@@ -152,27 +134,24 @@ class TamaraService
                     'phone_number' => $phone, 'email' => $email,
                 ],
                 'shipping_address' => $shippingAddress,
-                'billing_address' => $shippingAddress, // استخدام نفس العنوان للفواتير مبدئياً
+                'billing_address' => $billingAddress,
                 'merchant_url' => [
                     'success' => $successUrl, 'failure' => $failureUrl,
                     'cancel' => $failureUrl, 'notification' => $notificationUrl
                 ],
                 'platform' => 'FatimaAliBookingSystem-' . config('app.env'),
                 'locale' => app()->getLocale() == 'ar' ? 'ar_SA' : 'en_SA',
-                 // يمكن إضافة حقول إضافية مثل risk_assessment إذا كانت تمارا تطلبها
+                // --- MODIFICATION START: إضافة حقول الشحن والضريبة على مستوى الطلب ---
+                'shipping_amount' => ['amount' => 0.00, 'currency' => $currency],
+                'tax_amount' => ['amount' => 0.00, 'currency' => $currency],
+                // --- MODIFICATION END ---
+                // لا يتم إرسال discount على مستوى الطلب لأننا أرسلنا المبلغ الصافي
             ];
-            
-            // إزالة الحقول التي قيمتها null إذا كان الـ API لا يقبلها
-            // $payload['shipping_address'] = array_filter($payload['shipping_address']);
-            // $payload['billing_address'] = array_filter($payload['billing_address']);
-            // $payload['consumer'] = array_filter($payload['consumer']);
-
 
             Log::info("Tamara Payload for Invoice ID {$invoice->id} (Amount: {$amountForTamara}): ", $payload);
 
             $checkoutEndpoint = rtrim($this->apiUrl, '/') . '/checkout';
             $requestTimeout = (int) Setting::where('key', 'tamara_request_timeout')->value('value') ?? config('services.tamara.request_timeout', 30);
-
 
             $response = Http::withToken($this->apiKey)
                              ->timeout($requestTimeout)
@@ -187,7 +166,7 @@ class TamaraService
                          'order_id' => $responseData['order_id']
                      ];
                  } else {
-                     Log::error("Tamara initiateCheckout Error: Checkout URL or Order ID not found in successful response for Invoice ID: {$invoice->id}. Response: " . $response->body());
+                     Log::error("Tamara initiateCheckout Error: Checkout URL or Order ID not found in successful response for Invoice ID: {$invoice->id}. Response: " . $response->body(), ['response_data' => $responseData]);
                      return null;
                  }
             } else {
@@ -197,55 +176,25 @@ class TamaraService
                     'status' => $response->status(),
                     'response_body' => $errorBody,
                     'decoded_errors' => $decodedError['errors'] ?? ($decodedError['message'] ?? null),
-                    'sent_payload_summary' => [ // لتجنب تسجيل بيانات حساسة كثيرة
+                    'sent_payload_summary' => [
                         'order_reference_id' => $payload['order_reference_id'],
                         'total_amount' => $payload['total_amount'],
-                        'consumer_email' => $payload['consumer']['email'] ?? null
+                        'consumer_email' => $payload['consumer']['email'] ?? null,
+                        'consumer_name_sent' => $firstName . ' ' . $lastName
                     ]
                  ]);
                  return null;
             }
-
         } catch (\Exception $e) {
              Log::error("Tamara initiateCheckout Exception for Invoice ID: {$invoice->id}. Message: " . $e->getMessage(), ['exception_class' => get_class($e), 'trace' => Str::limit($e->getTraceAsString(), 500)]);
              return null;
         }
     }
 
-
-    /**
-     * دالة التحقق من الـ Webhook (غير مستخدمة حالياً للتحقق الفعلي، يتم في PaymentController)
-     * يمكن استخدامها كمرجع إذا أردت نقل منطق التحقق إلى هنا لاحقاً.
-     */
+    // دالة verifyWebhookSignature تبقى كما هي، لأن التحقق الفعلي يتم في PaymentController
     public function verifyWebhookSignature(Request $request): bool
     {
         Log::warning('TamaraService::verifyWebhookSignature is informational only. Actual verification should occur in the webhook handler (PaymentController) using Tamara SDK Authenticator if not bypassed.');
-        
-        // المنطق الفعلي للتحقق باستخدام Tamara SDK Authenticator يجب أن يكون في PaymentController
-        // أو يتم استدعاؤه من هناك.
-        // هذا مجرد هيكل توضيحي:
-        /*
-        $notificationToken = Setting::where('key', 'tamara_notification_token')->value('value');
-        if (empty($notificationToken)) {
-            Log::error('Tamara Webhook Verification: Notification Token is not set in DB settings.');
-            return false; // لا يمكن التحقق بدون توكن
-        }
-        try {
-            $authenticator = new \Tamara\Notification\Authenticator($notificationToken);
-            // $request->getContent() للحصول على الجسم الخام للطلب
-            // $request->header('TAMARA-SIGNATURE') للحصول على التوقيع من الهيدر
-            $authenticator->authenticate($request->getContent(), $request->header('TAMARA-SIGNATURE'));
-            Log::info('Tamara Webhook: Signature verified successfully.');
-            return true;
-        } catch (\Tamara\Exception\InvalidSignatureException $e) {
-            Log::error('Tamara Webhook: Invalid signature.', ['message' => $e->getMessage()]);
-            return false;
-        } catch (\Exception $e) {
-            Log::error('Tamara Webhook: Error during signature verification.', ['message' => $e->getMessage()]);
-            return false;
-        }
-        */
-        return true; // إذا كان التجاوز مفعلاً، دائماً أرجع true هنا
+        return true; // أو false، هذا لا يؤثر على المنطق الفعلي حالياً
     }
-
 }
