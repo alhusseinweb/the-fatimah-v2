@@ -8,6 +8,7 @@ use App\Models\Setting;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Artisan; // لاستخدام أوامر artisan لمسح الكاش
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Str;
 
 
 class SettingController extends Controller
