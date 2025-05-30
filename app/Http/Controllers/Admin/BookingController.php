@@ -1,373 +1,359 @@
 <?php
 
-// المسار: app/Http/Controllers/Frontend/BookingController.php
-
-namespace App\Http\Controllers\Frontend;
+namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\BankAccount;
 use App\Models\Booking;
-use App\Models\DiscountCode;
 use App\Models\Invoice;
-use App\Models\Service;
-use App\Models\Setting; // <-- *** تم التأكد من استيراده ***
-use App\Services\AvailabilityService;
-use Carbon\Carbon;
-use Illuminate\Http\RedirectResponse;
+use App\Models\Payment;
+use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use App\Notifications\BookingConfirmedNotification;
+use App\Notifications\BookingStatusChangedNotification;
+use App\Notifications\PaymentSuccessNotification;
+use App\Notifications\BookingCancelledNotification;
+use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\View\View;
-use Illuminate\Validation\Rule;
-use App\Services\TamaraService;
-use App\Notifications\BookingRequestReceived; // <-- تم التأكد من استيراده
-use App\Models\User; // <-- تم التأكد من استيراده
+use Illuminate\Support\Str;
 
 class BookingController extends Controller
 {
-    protected AvailabilityService $availabilityService;
-    protected TamaraService $tamaraService;
+    /**
+     * Display a listing of the bookings.
+     */
+    public function index(Request $request) // <<--- هذه الدالة يجب أن تكون موجودة
+    {
+        $statuses = Booking::getStatusesWithOptions();
+        $query = Booking::with(['user:id,name,mobile_number,email', 'service:id,name_ar'])->latest();
 
-    public function __construct(
-        AvailabilityService $availabilityService,
-        TamaraService $tamaraService
-    ) {
-        $this->availabilityService = $availabilityService;
-        $this->tamaraService = $tamaraService;
+        if ($request->filled('status') && array_key_exists($request->status, $statuses)) {
+            $query->where('status', $request->status);
+        }
+
+        $bookings = $query->paginate(15)->withQueryString();
+        return view('admin.bookings.index', compact('bookings', 'statuses'));
     }
 
     /**
-     * عرض تقويم الحجز للخدمة المحددة.
+     * Display the specified booking details.
      */
-    public function showCalendar(Service $service) : View
+    public function show(Booking $booking) // <<--- هذه الدالة يجب أن تكون موجودة
     {
-        if (!$service->is_active) {
-            abort(404, 'Service not available.');
-        }
-        $photographerWhatsApp = Setting::where('key', 'contact_whatsapp')->value('value');
-
-        return view('frontend.booking.calendar', compact('service', 'photographerWhatsApp'));
+        $booking->load(['user', 'service', 'discountCode', 'invoice.payments']);
+        $statuses = Booking::getStatusesWithOptions();
+        $invoiceStatuses = Invoice::statuses(); // افترض أن Invoice model لديه دالة statuses()
+        $paymentConfirmationOptions = [
+            'deposit' => 'تأكيد استلام العربون فقط',
+            'full' => 'تأكيد استلام المبلغ الكامل/المتبقي',
+        ];
+        return view('admin.bookings.show', compact('booking', 'statuses', 'invoiceStatuses', 'paymentConfirmationOptions'));
     }
 
-
     /**
-     * عرض نموذج تأكيد الحجز.
+     * Update the status of the specified booking.
+     * (الكود المعدل لهذه الدالة كما في الردود السابقة)
      */
-     public function showBookingForm(Request $request): View|RedirectResponse
-     {
-         $validator = Validator::make($request->all(), [
-             'service_id' => 'required|integer|exists:services,id',
-             'date' => 'required|date_format:Y-m-d',
-             'time' => 'required|date_format:H:i',
-         ]);
-
-         if ($validator->fails()) {
-             return redirect()->route('services.index')
-                             ->with('error', 'رابط الحجز غير صحيح أو منتهي الصلاحية.');
-         }
-
-         $service = Service::find($request->query('service_id'));
-         if (!$service || !$service->is_active) {
-              return redirect()->route('services.index')
-                              ->with('error', 'الخدمة المطلوبة غير متاحة.');
-         }
-
-         $selectedDate = $request->query('date');
-         $selectedTime = $request->query('time');
-         try {
-             $bookingDateTime = Carbon::createFromFormat('Y-m-d H:i', $selectedDate . ' ' . $selectedTime);
-         } catch (\Exception $e) {
-              return redirect()->route('booking.calendar', $service->id)
-                              ->with('error', 'الوقت المحدد غير صحيح.');
-         }
-
-         // السماح بفترة سماح صغيرة جداً لتقديم النموذج إذا كان الوقت قد مر للتو
-         if ($bookingDateTime < Carbon::now()->subMinutes(config('app.booking_past_time_grace_period_minutes', 2))) {
-              return redirect()->route('booking.calendar', $service->id)
-                              ->with('error', 'لا يمكن اختيار وقت في الماضي.');
-         }
-
-         // --- MODIFICATION START: Fetch payment method enabled status ---
-         $bankTransferEnabledSetting = Setting::where('key', 'enable_bank_transfer')->first();
-         $isBankTransferEnabled = $bankTransferEnabledSetting ? filter_var($bankTransferEnabledSetting->value, FILTER_VALIDATE_BOOLEAN) : false;
-
-         $tamaraEnabledSetting = Setting::where('key', 'tamara_enabled')->first();
-         $isTamaraEnabled = $tamaraEnabledSetting ? filter_var($tamaraEnabledSetting->value, FILTER_VALIDATE_BOOLEAN) : false;
-         // --- MODIFICATION END ---
-
-         $bookingPolicyAr = Setting::where('key', 'policy_ar')->value('value');
-         $bookingPolicyEn = Setting::where('key', 'policy_en')->value('value');
-         // جلب الحسابات البنكية فقط إذا كان التحويل مفعلاً
-         $bankAccounts = $isBankTransferEnabled ? BankAccount::where('is_active', true)->orderBy('id','desc')->get() : collect();
-
-
-         return view('frontend.booking.form', [
-             'service' => $service,
-             'selectedDate' => $selectedDate,
-             'selectedTime' => $selectedTime,
-             'bookingDateTime' => $bookingDateTime,
-             'bookingPolicyAr' => $bookingPolicyAr ?? '',
-             'bookingPolicyEn' => $bookingPolicyEn ?? '',
-             'bankAccounts' => $bankAccounts,
-             // --- MODIFICATION START: Pass flags to view ---
-             'isBankTransferEnabled' => $isBankTransferEnabled,
-             'isTamaraEnabled' => $isTamaraEnabled,
-             // --- MODIFICATION END ---
-         ]);
-     }
-
-
-    /**
-     * استقبال بيانات نموذج الحجز، التحقق منها، وإنشاء الحجز والفاتورة.
-     */
-    public function submitBooking(Request $request): RedirectResponse
+    public function updateStatus(Request $request, Booking $booking)
     {
-        // --- MODIFICATION START: Fetch payment enabled status for validation ---
-        $isBankTransferEnabled = filter_var(Setting::where('key', 'enable_bank_transfer')->value('value'), FILTER_VALIDATE_BOOLEAN);
-        $isTamaraEnabled = filter_var(Setting::where('key', 'tamara_enabled')->value('value'), FILTER_VALIDATE_BOOLEAN);
-        
-        $availablePaymentMethods = [];
-        if ($isTamaraEnabled) $availablePaymentMethods[] = 'tamara';
-        if ($isBankTransferEnabled) $availablePaymentMethods[] = 'bank_transfer';
+        $definedBookingStatuses = Booking::getStatusesWithOptions();
+        $confirmedStatusValue = Booking::STATUS_CONFIRMED;
+        $cancellationStatuses = Booking::getCancellationStatusesRequiringReason();
+        $allCancellationStatusValues = [
+            Booking::STATUS_CANCELLED_BY_ADMIN,
+            Booking::STATUS_CANCELLED_BY_USER,
+        ];
 
-        // إذا لم تكن هناك أي طرق دفع مفعلة، ولكن المستخدم أرسل شيئاً ما (مثل manual_confirmation_due_to_no_gateway)
-        // يجب التعامل مع هذا بشكل خاص، أو السماح بالمرور إذا كان هذا هو السلوك المتوقع.
-        // حالياً، إذا كانت $availablePaymentMethods فارغة، سيفشل التحقق من 'payment_method.in'.
-        if (empty($availablePaymentMethods) && $request->input('payment_method') === 'manual_confirmation_due_to_no_gateway') {
-            // حالة خاصة: لا توجد بوابات دفع متاحة، والنموذج أرسل قيمة للإشارة إلى ذلك
-            // يمكننا إضافة هذه القيمة إلى $availablePaymentMethods مؤقتًا للتحقق
-            $availablePaymentMethods[] = 'manual_confirmation_due_to_no_gateway';
-        } elseif (empty($availablePaymentMethods)) {
-            // إذا لم تكن هناك طرق دفع متاحة ولم يتم إرسال القيمة الخاصة
-            // من الأفضل إرجاع خطأ هنا مباشرة أو في قواعد التحقق
-            Log::warning('Booking Submit: No payment methods enabled, but form submitted without special flag.');
-            // التحقق أدناه سيفشل مع رسالة 'payment_method.in'
+        $rules = [
+            'status' => ['required', Rule::in(array_keys($definedBookingStatuses))],
+            'payment_confirmation_type' => [
+                Rule::requiredIf(fn () => $request->input('status') === $confirmedStatusValue),
+                'nullable',
+                Rule::in(['full', 'deposit'])
+            ],
+            'deposit_amount' => [
+                Rule::requiredIf(function () use ($request, $confirmedStatusValue) {
+                    return $request->input('status') === $confirmedStatusValue &&
+                           $request->input('payment_confirmation_type') === 'deposit';
+                }),
+                'nullable',
+                'numeric',
+                'min:0.01'
+            ],
+        ];
+        $newStatusFromRequest = $request->input('status');
+        if (in_array($newStatusFromRequest, $cancellationStatuses)) {
+            $rules['cancellation_reason'] = 'required|string|min:5|max:1000';
+        } else {
+            $rules['cancellation_reason'] = 'nullable|string|max:1000';
         }
-        // --- MODIFICATION END ---
+        $messages = [
+            'payment_confirmation_type.required' => 'عند تأكيد الحجز، يرجى تحديد كيفية استلام الدفعة.',
+            'deposit_amount.required' => 'عند اختيار تأكيد استلام العربون، يجب إدخال مبلغ العربون.',
+            'status.required' => 'الرجاء اختيار الحالة الجديدة.',
+            'status.in' => 'الحالة الجديدة المحددة غير صالحة.',
+            'cancellation_reason.required' => 'سبب الإلغاء مطلوب عند اختيار هذه الحالة.',
+            'cancellation_reason.min' => 'سبب الإلغاء يجب أن يكون ٥ أحرف على الأقل.',
+        ];
 
-        $validatedData = $request->validate([
-            'service_id' => 'required|integer|exists:services,id',
-            'date' => 'required|date_format:Y-m-d|after_or_equal:today', // الحجوزات الجديدة يجب أن تكون لليوم أو المستقبل
-            'time' => 'required|date_format:H:i',
-            'event_location' => 'nullable|string|max:255',
-            'groom_name_en' => 'nullable|string|max:255',
-            'bride_name_en' => 'nullable|string|max:255',
-            'customer_notes' => 'nullable|string|max:1000',
-            'discount_code' => ['nullable', 'string', Rule::exists('discount_codes', 'code')->where(function ($query) {
-                 $query->where('is_active', true)
-                       ->whereDate('start_date', '<=', Carbon::today())
-                       ->where(function ($q) { $q->whereNull('end_date')->orWhereDate('end_date', '>=', Carbon::today()); });
-             })],
-            'agreed_to_policy' => 'required|accepted',
-            'payment_option' => ['required', Rule::in(['full', 'down_payment'])],
-            'payment_method' => ['required', Rule::in($availablePaymentMethods)], // استخدام الطرق المتاحة فقط
-        ], [
-             'agreed_to_policy.accepted' => 'يجب الموافقة على سياسة الحجز للمتابعة.',
-             'discount_code.exists' => 'كود الخصم المدخل غير صالح أو منتهي الصلاحية.',
-             'payment_option.required' => 'الرجاء اختيار خيار الدفع (كامل أو عربون).',
-             'payment_method.required' => 'الرجاء اختيار طريقة الدفع.',
-             'payment_method.in' => 'طريقة الدفع المختارة غير متاحة حالياً. يرجى تحديث الصفحة والمحاولة مرة أخرى.',
-        ]);
+        $validator = Validator::make($request->all(), $rules, $messages);
 
-        Log::debug('Booking Submit - After Validation:', $validatedData);
-
-        $service = Service::findOrFail($validatedData['service_id']);
-        try {
-            $bookingDateTime = Carbon::createFromFormat('Y-m-d H:i', $validatedData['date'] . ' ' . $validatedData['time']);
-             if ($bookingDateTime < Carbon::now()->subMinutes(config('app.booking_past_time_grace_period_minutes', 2))) {
-                 return back()->withInput()->with('error', 'الوقت المختار أصبح في الماضي. يرجى اختيار وقت آخر.');
-             }
-        } catch (\Exception $e) {
-             return back()->withInput()->with('error', 'التاريخ أو الوقت المحدد غير صحيح.');
+        if ($validator->fails()) {
+            return redirect()->route('admin.bookings.show', $booking->id)
+                            ->withErrors($validator, 'updateStatus')
+                            ->withInput();
         }
 
-        $discountCode = null; $discountAmount = 0;
-        $totalAmount = $service->price_sar; $finalTotalAmount = $totalAmount;
-        // $discountValueRaw, $discountType غير مستخدمة خارج هذا النطاق، يمكن إزالتها إذا لم تكن هناك حاجة لها لاحقًا
-
-        if (!empty($validatedData['discount_code'])) {
-             $discountCode = DiscountCode::where('code', $validatedData['discount_code'])
-                                         ->where('is_active', true)
-                                         ->whereDate('start_date', '<=', Carbon::today())
-                                         ->where(function ($q) { $q->whereNull('end_date')->orWhereDate('end_date', '>=', Carbon::today()); })
-                                         ->first();
-             if ($discountCode) {
-                   if (!is_null($discountCode->max_uses) && $discountCode->current_uses >= $discountCode->max_uses) {
-                       return back()->withInput()->withErrors(['discount_code' => 'لقد تم استخدام كود الخصم بالحد الأقصى.']);
-                   }
-                   if ($discountCode->type === DiscountCode::TYPE_PERCENTAGE) {
-                        $discountAmount = ($totalAmount * $discountCode->value) / 100;
-                   } elseif ($discountCode->type === DiscountCode::TYPE_FIXED) {
-                        $discountAmount = $discountCode->value;
-                   }
-                   $discountAmount = min($discountAmount, $totalAmount);
-                   $finalTotalAmount = $totalAmount - $discountAmount;
-             } else { // هذا الشرط قد لا يتم الوصول إليه بسبب Rule::exists
-                   return back()->withInput()->withErrors(['discount_code' => 'كود الخصم المدخل غير صالح أو منتهي الصلاحية.']);
-             }
-        }
-        $finalTotalAmount = round($finalTotalAmount, 2);
-
-        $paymentOption = $validatedData['payment_option'];
-        $amountDueNow = ($paymentOption === 'down_payment') ? round($finalTotalAmount / 2, 2) : $finalTotalAmount; // استخدام منزلتين عشريتين
-
-        Log::debug('Booking Submit - Before Transaction:', [
-            'service_price_before_discount' => $totalAmount,
-            'discount_amount_calculated' => $discountAmount,
-            'final_total_amount_after_discount' => $finalTotalAmount,
-            'payment_option_selected' => $paymentOption,
-            'amount_due_now_calculated' => $amountDueNow,
-            'discount_code_applied' => $discountCode ? $discountCode->code : 'None'
-        ]);
-
-        $booking = null; $invoice = null; $user = Auth::user();
-        if (!$user) {
-             return redirect()->route('login')->with('error', 'يرجى تسجيل الدخول أولاً.');
-        }
+        $validated = $validator->validated();
+        $newStatus = $validated['status'];
+        $oldStatus = $booking->status;
+        $paymentConfirmationType = $validated['payment_confirmation_type'] ?? null;
+        $depositAmountFromRequest = isset($validated['deposit_amount']) ? (float) $validated['deposit_amount'] : null;
+        $cancellationReason = $validated['cancellation_reason'] ?? null;
+        $successMessage = 'لم يتم تغيير حالة الحجز (الحالة المحددة هي نفسها الحالية).';
+        $notificationsSentSummary = [];
 
         try {
-            // تمرير $amountDueNow إلى الدالة المجهولة
-            DB::transaction(function () use ($validatedData, $bookingDateTime, $service, $discountCode, $finalTotalAmount, $paymentOption, $user, &$booking, &$invoice, $amountDueNow) {
-                $booking = Booking::create([
-                    'user_id' => $user->id,
-                    'service_id' => $service->id,
-                    'booking_datetime' => $bookingDateTime,
-                    'status' => Booking::STATUS_PENDING,
-                    'event_location' => $validatedData['event_location'],
-                    'groom_name_en' => $validatedData['groom_name_en'],
-                    'bride_name_en' => $validatedData['bride_name_en'],
-                    'customer_notes' => $validatedData['customer_notes'],
-                    'agreed_to_policy' => true,
-                    'discount_code_id' => $discountCode?->id,
-                    'down_payment_amount' => ($paymentOption === 'down_payment') ? $amountDueNow : null, // حفظ مبلغ العربون
-                ]);
-                Log::debug('Booking Submit - Inside Transaction - Booking Created:', [
-                    'booking_id' => $booking->id,
-                    'stored_down_payment_amount' => $booking->down_payment_amount
-                ]);
+            DB::beginTransaction();
 
-                $invoice = Invoice::create([
-                    'booking_id' => $booking->id,
-                    'invoice_number' => 'INV-' . $booking->id . '-' . time(),
-                    'amount' => $finalTotalAmount,
-                    'currency' => 'SAR',
-                    'status' => Invoice::STATUS_UNPAID,
-                    'payment_method' => ($validatedData['payment_method'] === 'manual_confirmation_due_to_no_gateway') ? null : $validatedData['payment_method'], // تخزين null إذا لا يوجد بوابة
-                    'payment_option' => $paymentOption,
-                    'due_date' => $bookingDateTime->copy()->startOfDay(), // أو Carbon::today()
-                ]);
-                 Log::debug('Booking Submit - Inside Transaction - Invoice Created:', [
-                    'invoice_id' => $invoice->id,
-                    'invoice_total_amount' => $invoice->amount,
-                    'saved_payment_option_on_invoice' => $invoice->payment_option,
-                    'saved_payment_method_on_invoice' => $invoice->payment_method
-                ]);
-                
-                $booking->invoice_id = $invoice->id; // ربط الفاتورة بالحجز
+            $bookingStatusActuallyChanged = false;
+            $invoice = $booking->loadMissing('invoice')->invoice;
+            $paymentRecordedInThisAction = false;
+            $createdPayment = null;
+
+            if ($newStatus !== $oldStatus || ($cancellationReason && $booking->cancellation_reason !== $cancellationReason) || (in_array($newStatus, $cancellationStatuses) && $cancellationReason !== $booking->cancellation_reason ) ) {
+                $booking->status = $newStatus;
+                if (in_array($newStatus, $cancellationStatuses) && $cancellationReason) {
+                    $booking->cancellation_reason = $cancellationReason;
+                } elseif (!in_array($newStatus, $cancellationStatuses)) {
+                    $booking->cancellation_reason = null;
+                }
                 $booking->save();
-
-                if ($discountCode) {
-                     $discountCode->increment('current_uses');
-                     Log::info("Discount code usage incremented.", ['code' => $discountCode->code]);
+                $bookingStatusActuallyChanged = true;
+                $successMessage = 'تم تحديث حالة الحجز بنجاح.';
+            }
+            
+            if ($invoice && in_array($newStatus, $allCancellationStatusValues)) {
+                if (!in_array($invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED])) {
+                    $invoice->status = Invoice::STATUS_CANCELLED;
+                    $invoice->save();
+                    Log::info("Invoice ID {$invoice->id} status updated to CANCELLED due to booking cancellation.", ['booking_id' => $booking->id]);
+                    $successMessage .= ($successMessage === 'لم يتم تغيير حالة الحجز (الحالة المحددة هي نفسها الحالية).' ? 'تم' : ' و') . ' تحديث حالة الفاتورة المرتبطة إلى ملغاة.';
                 }
-                Log::info("Booking and Invoice created successfully in transaction.", ['booking_id' => $booking->id, 'invoice_id' => $invoice->id]);
-            });
+            }
 
+            if ($newStatus === $confirmedStatusValue && $paymentConfirmationType && $invoice) {
+                if (!in_array($newStatus, $allCancellationStatusValues)) { 
+                    $newInvoiceStatus = $invoice->status;
+                    $paymentGateway = 'manual_admin';
+                    $amountPaidThisTransaction = 0.0;
+                    $currencyOfThisTransaction = $invoice->currency ?: 'SAR';
+
+                    if ($paymentConfirmationType === 'deposit' && $depositAmountFromRequest !== null && $depositAmountFromRequest > 0) {
+                        $maxAllowedDeposit = $invoice->remaining_amount > 0 ? $invoice->remaining_amount : $invoice->amount;
+                        if ($depositAmountFromRequest >= $maxAllowedDeposit && $maxAllowedDeposit > 0.009) {
+                            DB::rollBack();
+                            $validator->errors()->add('deposit_amount', "مبلغ العربون (${depositAmountFromRequest}) لا يمكن أن يتجاوز أو يساوي المبلغ المتبقي (${maxAllowedDeposit}). اختر 'تأكيد استلام المبلغ الكامل' بدلاً من ذلك.");
+                            return redirect()->route('admin.bookings.show', $booking->id)->withErrors($validator, 'updateStatus')->withInput();
+                        }
+                        $amountPaidThisTransaction = $depositAmountFromRequest;
+                        $newInvoiceStatus = Invoice::STATUS_PARTIALLY_PAID;
+                        $paymentGateway = 'manual_admin_deposit';
+                        if ($successMessage === 'لم يتم تغيير حالة الحجز (الحالة المحددة هي نفسها الحالية).' || $successMessage === 'تم تحديث حالة الحجز بنجاح.') {
+                            $successMessage = $paymentConfirmationType === 'deposit' ? 'تم تسجيل دفعة العربون بنجاح.' : 'تم تسجيل المبلغ الكامل/المتبقي بنجاح.';
+                            if($bookingStatusActuallyChanged) $successMessage = 'تم تحديث حالة الحجز و' . lcfirst($successMessage);
+                        } else {
+                             $successMessage .= ($paymentConfirmationType === 'deposit' ? ' وتم تسجيل دفعة العربون.' : ' وتم تسجيل المبلغ الكامل/المتبقي.');
+                        }
+
+                    } elseif ($paymentConfirmationType === 'full') {
+                        $amountPaidThisTransaction = $invoice->remaining_amount > 0 ? $invoice->remaining_amount : $invoice->amount;
+                        if (!($invoice->status === Invoice::STATUS_PAID && $amountPaidThisTransaction <=0)) {
+                             $newInvoiceStatus = Invoice::STATUS_PAID;
+                             if ($successMessage === 'لم يتم تغيير حالة الحجز (الحالة المحددة هي نفسها الحالية).' || $successMessage === 'تم تحديث حالة الحجز بنجاح.') {
+                                $successMessage = $paymentConfirmationType === 'deposit' ? 'تم تسجيل دفعة العربون بنجاح.' : 'تم تسجيل المبلغ الكامل/المتبقي بنجاح.';
+                                if($bookingStatusActuallyChanged) $successMessage = 'تم تحديث حالة الحجز و' . lcfirst($successMessage);
+                            } else {
+                                 $successMessage .= ($paymentConfirmationType === 'deposit' ? ' وتم تسجيل دفعة العربون.' : ' وتم تسجيل المبلغ الكامل/المتبقي.');
+                            }
+                        }
+                    }
+
+                    if ($amountPaidThisTransaction > 0.009 || ($newInvoiceStatus === Invoice::STATUS_PAID && $invoice->status !== Invoice::STATUS_PAID)) {
+                        if (!($invoice->status === Invoice::STATUS_PAID && $amountPaidThisTransaction == 0)) {
+                            $createdPayment = $invoice->payments()->create([
+                                'amount' => $amountPaidThisTransaction,
+                                'currency' => $currencyOfThisTransaction,
+                                'status' => Payment::STATUS_COMPLETED,
+                                'payment_gateway' => $paymentGateway,
+                                'payment_details' => json_encode(['confirmed_by_admin_id' => Auth::id(), 'admin_name' => Auth::user()?->name])
+                            ]);
+                            Log::info("Admin manual payment recorded.", ['invoice_id' => $invoice->id, 'payment_id' => $createdPayment->id, 'amount' => $amountPaidThisTransaction]);
+                            $paymentRecordedInThisAction = true; 
+                        }
+
+                        if ($invoice->status !== Invoice::STATUS_PAID || $newInvoiceStatus === Invoice::STATUS_PAID) {
+                            $invoice->status = $newInvoiceStatus;
+                            if ($invoice->paid_at === null || $newInvoiceStatus === Invoice::STATUS_PAID) {
+                                $invoice->paid_at = Carbon::now();
+                            }
+                            $invoice->save();
+                            Log::info("Invoice status updated to {$newInvoiceStatus} after admin manual payment.", ['invoice_id' => $invoice->id]);
+                        }
+                        
+                        if ($paymentRecordedInThisAction && isset($createdPayment) && $createdPayment->amount > 0.009) {
+                            $customerForPayment = $booking->user;
+                            if ($customerForPayment) {
+                                Log::info("AdminBookingController: Attempting to queue PaymentSuccessNotification for CUSTOMER {$customerForPayment->id}");
+                                try {
+                                    $customerForPayment->notify(new PaymentSuccessNotification(
+                                        $invoice, (float)$createdPayment->amount, $createdPayment->currency
+                                    ));
+                                    Log::info("PaymentSuccessNotification queued for CUSTOMER {$customerForPayment->id} for invoice {$invoice->id}");
+                                    $notificationsSentSummary[] = "نجاح الدفع للعميل";
+                                } catch (\Exception $e) {
+                                    Log::error("AdminBookingController: Failed to queue PaymentSuccessNotification to CUSTOMER - Invoice ID: {$invoice->id}", ['error' => $e->getMessage()]);
+                                }
+                            }
+
+                            $adminUsersForPayment = User::where('is_admin', true)->where('id', '!=', Auth::id())->get();
+                            Log::info("AdminBookingController: Found " . $adminUsersForPayment->count() . " other admins for PaymentSuccessNotification.");
+                            foreach ($adminUsersForPayment as $adminUser) {
+                                Log::info("AdminBookingController: Attempting to queue PaymentSuccessNotification for ADMIN {$adminUser->id}");
+                                try {
+                                    $adminUser->notify(new PaymentSuccessNotification(
+                                        $invoice, (float)$createdPayment->amount, $createdPayment->currency
+                                    ));
+                                    Log::info("PaymentSuccessNotification queued for ADMIN {$adminUser->id} for invoice {$invoice->id}");
+                                    $notificationsSentSummary[] = "نجاح الدفع للمدير {$adminUser->email}";
+                                } catch (\Exception $e) {
+                                    Log::error("AdminBookingController: Failed to queue PaymentSuccessNotification to ADMIN: {$adminUser->email} - Invoice ID: {$invoice->id}", ['error' => $e->getMessage()]);
+                                }
+                            }
+                        }
+                    } elseif ($invoice->status === Invoice::STATUS_PAID && !$bookingStatusActuallyChanged && $oldStatus === $newStatus) {
+                        Log::info("Invoice {$invoice->id} was already paid. No new payment recorded. Booking status unchanged.", ['invoice_id' => $invoice->id]);
+                        if (str_starts_with($successMessage, 'لم يتم تغيير حالة الحجز')) {
+                           $successMessage = 'لم يتم إجراء تغيير (الفاتورة مدفوعة والحالة لم تتغير).';
+                        }
+                    }
+                }
+            } elseif ($newStatus === $confirmedStatusValue && !$invoice) {
+                Log::warning("Booking ID {$booking->id} confirmed but no invoice found to record payment.");
+                if($bookingStatusActuallyChanged || $oldStatus !== $newStatus) $successMessage .= ' (تنبيه: لا توجد فاتورة لتسجيل الدفعة).';
+                else if (str_starts_with($successMessage, 'لم يتم تغيير حالة الحجز')) $successMessage = 'لم يتم إجراء تغيير (الحالة مؤكدة ولا توجد فاتورة).';
+            }
+
+            if ($bookingStatusActuallyChanged) {
+                $customer = $booking->user;
+                $actor = Auth::user();
+
+                $shouldSendBookingConfirmed = ($newStatus === Booking::STATUS_CONFIRMED);
+                // لإرسال تأكيد الحجز دائماً عند تأكيد الحجز، بغض النظر عن الدفع في هذا الإجراء، علّق السطرين التاليين أو احذفهما
+                // if ($paymentRecordedInThisAction) {
+                //     $shouldSendBookingConfirmed = false; 
+                //     Log::info("BookingConfirmedNotification will be SKIPPED for booking ID {$booking->id} because a payment was recorded in this action.");
+                // }
+
+                if ($customer) {
+                    Log::info("AdminBookingController: Processing other status update notifications for CUSTOMER Booking ID: {$booking->id} (NewStatus:{$newStatus})");
+                    try {
+                        if ($shouldSendBookingConfirmed) {
+                            Log::info("AdminBookingController: Attempting to queue BookingConfirmedNotification for CUSTOMER {$customer->id}");
+                            $customer->notify(new BookingConfirmedNotification($booking));
+                            $notificationsSentSummary[] = "تأكيد الحجز للعميل";
+                        } elseif (in_array($newStatus, $allCancellationStatusValues)) {
+                            Log::info("AdminBookingController: Attempting to queue BookingCancelledNotification for CUSTOMER {$customer->id}");
+                            $customer->notify(new BookingCancelledNotification($booking, $actor, $booking->cancellation_reason));
+                            $notificationsSentSummary[] = "إلغاء الحجز للعميل";
+                        } elseif ($newStatus !== Booking::STATUS_CONFIRMED) {
+                            Log::info("AdminBookingController: Attempting to queue BookingStatusChangedNotification for CUSTOMER {$customer->id}");
+                            $customer->notify(new BookingStatusChangedNotification($booking, $oldStatus, $newStatus));
+                            $notificationsSentSummary[] = "تغيير حالة الحجز للعميل";
+                        }
+                    } catch (\Exception $e) {
+                        Log::error("AdminBookingController: Failed to queue status update to CUSTOMER - Booking ID: {$booking->id}", ['error' => $e->getMessage()]);
+                    }
+                }
+
+                $allAdminUsers = User::where('is_admin', true)->where('id', '!=', Auth::id())->get();
+                Log::info("AdminBookingController: Found " . $allAdminUsers->count() . " other admins for general status update notifications.");
+                foreach ($allAdminUsers as $admin) {
+                    Log::info("AdminBookingController: Processing other status update notifications for ADMIN: {$admin->email} Booking ID: {$booking->id} (NewStatus:{$newStatus})");
+                    try {
+                        if ($shouldSendBookingConfirmed) {
+                             Log::info("AdminBookingController: Attempting to queue BookingConfirmedNotification for ADMIN {$admin->id}");
+                            $admin->notify(new BookingConfirmedNotification($booking));
+                             $notificationsSentSummary[] = "تأكيد الحجز للمدير {$admin->email}";
+                        } elseif (in_array($newStatus, $allCancellationStatusValues)) {
+                             Log::info("AdminBookingController: Attempting to queue BookingCancelledNotification for ADMIN {$admin->id}");
+                            $admin->notify(new BookingCancelledNotification($booking, $actor, $booking->cancellation_reason));
+                            $notificationsSentSummary[] = "إلغاء الحجز للمدير {$admin->email}";
+                        } elseif ($newStatus !== Booking::STATUS_CONFIRMED) {
+                             Log::info("AdminBookingController: Attempting to queue BookingStatusChangedNotification for ADMIN {$admin->id}");
+                            $admin->notify(new BookingStatusChangedNotification($booking, $oldStatus, $newStatus));
+                            $notificationsSentSummary[] = "تغيير حالة الحجز للمدير {$admin->email}";
+                        }
+                    } catch (\Exception $e) {
+                        Log::error("AdminBookingController: Failed to queue status update to ADMIN: {$admin->email} - Booking ID: {$booking->id}", ['error' => $e->getMessage()]);
+                    }
+                }
+            }
+
+            DB::commit();
+        } catch (ValidationException $e) {
+            DB::rollBack();
+            return redirect()->route('admin.bookings.show', $booking->id)->withErrors($e->validator, 'updateStatus')->withInput();
         } catch (\Exception $e) {
-             Log::error('Booking Creation Transaction Failed: ' . $e->getMessage(), ['exception_class' => get_class($e), 'trace' => Str::limit($e->getTraceAsString(),1000)]);
-             return back()->withInput()->with('error', 'حدث خطأ غير متوقع أثناء إنشاء الحجز. يرجى المحاولة مرة أخرى أو التواصل معنا.');
+            DB::rollBack();
+            Log::error("AdminBookingController: Failed to update booking status or record payment.", [
+                'booking_id' => $booking->id, 'error' => $e->getMessage(), 'trace' => Str::limit($e->getTraceAsString(), 1500)
+            ]);
+            return redirect()->route('admin.bookings.show', $booking->id)->with('error', 'حدث خطأ غير متوقع. يرجى مراجعة السجلات.');
         }
-
-        if ($booking && $user) {
-            try {
-                $paymentMethodForNotification = $validatedData['payment_method'];
-                Log::info("Attempting to send BookingRequestReceived notification for Booking ID: {$booking->id}");
-                $user->notify(new BookingRequestReceived($booking, $paymentMethodForNotification));
-                Log::info("BookingRequestReceived notification queued for CUSTOMER for Booking ID: {$booking->id}");
-                $admins = User::where('is_admin', true)->get();
-                foreach ($admins as $admin) {
-                    $admin->notify(new BookingRequestReceived($booking, $paymentMethodForNotification));
-                    Log::info("BookingRequestReceived notification queued for ADMIN {$admin->email} for Booking ID: {$booking->id}");
-                }
-            } catch (\Exception $e) {
-                 Log::error("Failed to queue BookingRequestReceived notifications for Booking ID: {$booking->id}", ['error' => $e->getMessage()]);
+        
+        if (!empty($notificationsSentSummary)) {
+            if (str_starts_with($successMessage, 'لم يتم تغيير حالة الحجز') && !$bookingStatusActuallyChanged && !$paymentRecordedInThisAction ) {
+                // No actual change to booking or payment, but notifications might have been attempted (unlikely with current logic)
+                // If $successMessage is still the default "no change" message, and we did try to send notifications
+                // it's better to append to a more neutral message or just show the notification summary.
+                 $successMessage = "ملخص الإشعارات (محاولة إرسال): " . implode('، ', $notificationsSentSummary) . ".";
+            } elseif(str_starts_with($successMessage, 'لم يتم تغيير حالة الحجز')) {
+                 // This means no change to booking status, but payment might have been recorded
+                 // The successMessage for payment recording should take precedence.
+                 $successMessage .= " ملخص الإشعارات (محاولة إرسال): " . implode('، ', $notificationsSentSummary) . ".";
+            } else {
+                 $successMessage .= " ملخص الإشعارات (محاولة إرسال): " . implode('، ', $notificationsSentSummary) . ".";
             }
         }
 
-        // التعامل مع توجيه المستخدم بناءً على طريقة الدفع
-        if ($validatedData['payment_method'] === 'bank_transfer' || $validatedData['payment_method'] === 'manual_confirmation_due_to_no_gateway') {
-             Log::info("Redirecting to pending page for booking.", ['booking_id' => $booking->id, 'payment_method' => $validatedData['payment_method']]);
-             return redirect()->route('booking.pending', $booking->id);
+        if ($successMessage === 'لم يتم تغيير حالة الحجز (الحالة المحددة هي نفسها الحالية).' && empty($notificationsSentSummary)) {
+            return redirect()->route('admin.bookings.show', $booking->id);
         }
-        elseif ($validatedData['payment_method'] === 'tamara') {
-             if (!$invoice || $amountDueNow <= 0.009) {
-                Log::error("Tamara initiation skipped due to missing invoice or zero/negative amountDueNow.", [
-                    'booking_id' => $booking?->id, 'invoice_id' => $invoice?->id, 'amount_due_now' => $amountDueNow ?? 'Not set'
-                ]);
-                return redirect()->route('booking.pending', $booking->id) // توجيه لصفحة الانتظار مع خطأ
-                                 ->with('error', 'حدث خطأ في تجهيز معلومات الدفع لتمارا. يرجى المحاولة لاحقاً.');
-             }
-             Log::info("Initiating Tamara checkout.", ['booking_id' => $booking->id, 'invoice_id' => $invoice->id, 'amount_due_to_send_tamara' => $amountDueNow, 'payment_option_for_tamara' => $paymentOption]);
-             $checkoutResponse = $this->tamaraService->initiateCheckout($invoice, $amountDueNow, $paymentOption);
-             if ($checkoutResponse && isset($checkoutResponse['checkout_url']) && isset($checkoutResponse['order_id'])) {
-                  $invoice->payment_gateway_ref = $checkoutResponse['order_id'];
-                  $invoice->save();
-                  Log::info("Tamara checkout URL obtained. Redirecting user.", ['invoice_id' => $invoice->id, 'tamara_order_id' => $checkoutResponse['order_id']]);
-                  return redirect()->away($checkoutResponse['checkout_url']);
-             } else {
-                  Log::error("Tamara initiateCheckout failed in BookingController.", ['invoice_id' => $invoice->id, 'response_from_tamara_service' => $checkoutResponse]);
-                  return redirect()->route('booking.pending', $booking->id)
-                                 ->with('error', 'لم نتمكن من بدء الدفع مع تمارا حالياً. يمكنك محاولة الدفع من صفحة الحجز المعلق أو اختيار طريقة دفع أخرى إذا كانت متاحة.');
-             }
-        }
-
-        // حالة افتراضية إذا لم تكن طريقة الدفع معروفة (يجب ألا تحدث بسبب التحقق)
-        Log::error('Unknown payment method after validation in submitBooking, redirecting to pending page.', ['method' => $validatedData['payment_method'], 'booking_id' => $booking->id]);
-        return redirect()->route('booking.pending', $booking->id)
-                        ->with('error', 'حدث خطأ غير متوقع في طريقة الدفع المختارة. يرجى مراجعة طلبك.');
+        return redirect()->route('admin.bookings.show', $booking->id)->with('success', $successMessage);
     }
-
-     public function showPendingPage(Booking $booking) : View|RedirectResponse
-     {
-          if(Auth::id() !== $booking->user_id && !(Auth::user() && Auth::user()->is_admin)) {
-            Log::warning("Unauthorized attempt to view pending page.", ['booking_id' => $booking->id, 'user_id' => Auth::id()]);
-            return redirect()->route('home')->with('error', 'غير مصرح لك بعرض هذا الحجز.');
-          }
-
-          $booking->load(['service', 'invoice.payments']);
-          $invoice = $booking->invoice;
-          
-          $amountDueNowOnPending = 0.0;
-          $paymentOptionOnPending = $invoice?->payment_option ?? 'full';
-
-          if ($invoice) {
-            if ($invoice->status == Invoice::STATUS_UNPAID || $invoice->status == Invoice::STATUS_PENDING) { // تم إضافة PENDING هنا
-                $amountDueNowOnPending = ($paymentOptionOnPending === 'down_payment' && $booking->down_payment_amount > 0.009) // التأكد أن المبلغ أكبر من صفر
-                                        ? $booking->down_payment_amount
-                                        : $invoice->amount;
-            } elseif ($invoice->status == Invoice::STATUS_PARTIALLY_PAID) {
-                $amountDueNowOnPending = $invoice->remaining_amount > 0.009 ? $invoice->remaining_amount : 0.0;
-            } elseif ($invoice->status == Invoice::STATUS_PAID) {
-                $amountDueNowOnPending = 0.0;
+    
+    public function destroy(Booking $booking)
+    {
+        try {
+            $bookingId = $booking->id;
+            if ($booking->invoice && !in_array($booking->invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED])) {
+                 $booking->invoice->status = Invoice::STATUS_CANCELLED;
+                 $booking->invoice->save();
+                 Log::info("Invoice ID {$booking->invoice->id} cancelled due to booking deletion.", ['booking_id' => $bookingId]);
             }
-            $amountDueNowOnPending = round($amountDueNowOnPending, 2);
-          }
-
-          // جلب إعدادات تفعيل طرق الدفع لعرضها بشكل شرطي في صفحة pending
-          $isBankTransferEnabled = filter_var(Setting::where('key', 'enable_bank_transfer')->value('value'), FILTER_VALIDATE_BOOLEAN);
-          $isTamaraEnabled = filter_var(Setting::where('key', 'tamara_enabled')->value('value'), FILTER_VALIDATE_BOOLEAN);
-          $bankAccounts = $isBankTransferEnabled ? BankAccount::where('is_active', true)->orderBy('id','desc')->get() : collect();
-
-
-          return view('frontend.booking.pending', compact(
-              'booking', 
-              'bankAccounts', 
-              'amountDueNowOnPending', 
-              'paymentOptionOnPending',
-              'isBankTransferEnabled',
-              'isTamaraEnabled'
-            ));
-     }
+            $booking->delete();
+            Log::info("Booking ID {$bookingId} deleted by admin ID: " . Auth::id());
+            return redirect()->route('admin.bookings.index')
+                              ->with('success', 'تم حذف الحجز بنجاح (وتم إلغاء الفاتورة المرتبطة إذا لم تكن مدفوعة).');
+        } catch (\Exception $e) {
+            Log::error("Error deleting booking: {$booking->id} - {$e->getMessage()}");
+            return redirect()->route('admin.bookings.index')
+                              ->with('error', 'حدث خطأ أثناء محاولة حذف الحجز.');
+        }
+    }
 }
