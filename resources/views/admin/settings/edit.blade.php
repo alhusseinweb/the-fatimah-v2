@@ -60,6 +60,14 @@
         right: auto;
         left: -5px;
     }
+    .flash-highlight {
+        animation: flash-animation 1s 2; /* وميض مرتين خلال ثانية واحدة */
+    }
+    @keyframes flash-animation {
+        0% { background-color: transparent; }
+        50% { background-color: rgba(255, 255, 0, 0.3); } /* لون وميض أصفر فاتح */
+        100% { background-color: transparent; }
+    }
 </style>
 @endpush
 
@@ -118,7 +126,11 @@
                     <i class="fas fa-credit-card me-1"></i>إعدادات الدفع
                 </button>
             </li>
-            {{-- يمكنك إضافة تبويبات أخرى هنا مثل SEO, Social Media, etc. --}}
+             <li class="nav-item" role="presentation">
+                <button class="nav-link" id="data-management-tab" data-bs-toggle="tab" data-bs-target="#data-management" type="button" role="tab" aria-controls="data-management" aria-selected="false">
+                    <i class="fas fa-database me-1"></i>إدارة البيانات
+                </button>
+            </li>
         </ul>
 
         <div class="tab-content" id="settingsTabsContent">
@@ -129,28 +141,19 @@
                         <h5><i class="fas fa-info-circle"></i> معلومات الموقع الأساسية</h5>
                     </div>
                     <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="site_name_ar" class="form-label">اسم الموقع (عربي)</label>
-                                <input type="text" class="form-control @error('site_name_ar') is-invalid @enderror" id="site_name_ar" name="site_name_ar" value="{{ old('site_name_ar', $settings['site_name_ar'] ?? config('app.name', 'Fatimah Booking')) }}">
-                                @error('site_name_ar') <div class="invalid-feedback">{{ $message }}</div> @enderror
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="site_name_en" class="form-label">اسم الموقع (إنجليزي)</label>
-                                <input type="text" class="form-control @error('site_name_en') is-invalid @enderror" id="site_name_en" name="site_name_en" value="{{ old('site_name_en', $settings['site_name_en'] ?? '') }}">
-                                @error('site_name_en') <div class="invalid-feedback">{{ $message }}</div> @enderror
-                            </div>
-                        </div>
+                        {{-- Site Name AR --}}
                         <div class="mb-3">
-                            <label for="site_description_ar" class="form-label">وصف الموقع (عربي)</label>
-                            <textarea class="form-control @error('site_description_ar') is-invalid @enderror" id="site_description_ar" name="site_description_ar" rows="3">{{ old('site_description_ar', $settings['site_description_ar'] ?? '') }}</textarea>
-                            @error('site_description_ar') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                            <label for="site_name_ar" class="form-label">اسم الموقع (عربي)</label>
+                            <input type="text" class="form-control @error('site_name_ar') is-invalid @enderror" id="site_name_ar" name="site_name_ar" value="{{ old('site_name_ar', $settings['site_name_ar'] ?? config('app.name', 'Fatimah Booking')) }}">
+                            @error('site_name_ar') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
+                        {{-- Site Name EN --}}
                         <div class="mb-3">
-                            <label for="site_description_en" class="form-label">وصف الموقع (إنجليزي)</label>
-                            <textarea class="form-control @error('site_description_en') is-invalid @enderror" id="site_description_en" name="site_description_en" rows="3">{{ old('site_description_en', $settings['site_description_en'] ?? '') }}</textarea>
-                            @error('site_description_en') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                            <label for="site_name_en" class="form-label">اسم الموقع (إنجليزي)</label>
+                            <input type="text" class="form-control @error('site_name_en') is-invalid @enderror" id="site_name_en" name="site_name_en" value="{{ old('site_name_en', $settings['site_name_en'] ?? '') }}">
+                            @error('site_name_en') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
+                        {{-- Logos and Favicon --}}
                         <div class="row">
                             <div class="col-md-4 mb-3">
                                 <label for="logo_light_file" class="form-label">الشعار (النسخة الفاتحة/الرئيسية)</label>
@@ -171,6 +174,7 @@
                                 @error('favicon_file') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             </div>
                         </div>
+                        {{-- Slider Images --}}
                          <div class="mb-3">
                             <label for="slider_images" class="form-label">صور السلايدر في الصفحة الرئيسية</label>
                             <input type="file" class="form-control @error('slider_images.*') is-invalid @enderror" id="slider_images" name="slider_images[]" multiple>
@@ -188,10 +192,11 @@
                                         @endif
                                     @endforeach
                                 </div>
-                                <input type="hidden" name="deleted_slider_images[]" id="deleted_slider_images_input">
+                                {{-- هذا الحقل سيتم تحديثه عبر JavaScript ليحتوي على قائمة الصور المراد حذفها --}}
+                                <input type="hidden" name="deleted_slider_images_json" id="deleted_slider_images_input" value="[]">
                             @endif
                         </div>
-
+                        {{-- Maintenance Mode --}}
                         <div class="mb-3">
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" role="switch" id="maintenance_mode" name="maintenance_mode" value="1" {{ old('maintenance_mode', $settings['maintenance_mode'] ?? '0') == '1' ? 'checked' : '' }}>
@@ -199,7 +204,6 @@
                             </div>
                             @error('maintenance_mode') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
                         </div>
-                        {{-- يمكنك إضافة حقول لرسائل الصيانة هنا --}}
                     </div>
                 </div>
             </div>
@@ -211,7 +215,7 @@
                         <h5><i class="fas fa-phone-alt"></i> معلومات التواصل</h5>
                     </div>
                     <div class="card-body">
-                        <div class="row">
+                         <div class="row">
                             <div class="col-md-4 mb-3">
                                 <label for="contact_email" class="form-label">البريد الإلكتروني للتواصل</label>
                                 <input type="email" class="form-control @error('contact_email') is-invalid @enderror" id="contact_email" name="contact_email" value="{{ old('contact_email', $settings['contact_email'] ?? '') }}">
@@ -228,7 +232,6 @@
                                 @error('contact_whatsapp') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             </div>
                         </div>
-                        {{-- يمكنك إضافة حقول لوسائل التواصل الاجتماعي هنا --}}
                     </div>
                 </div>
             </div>
@@ -256,29 +259,6 @@
                             <label for="policy_ar" class="form-label">سياسة الحجز (عربي)</label>
                             <textarea class="form-control @error('policy_ar') is-invalid @enderror" id="policy_ar" name="policy_ar" rows="5">{{ old('policy_ar', $settings['policy_ar'] ?? '') }}</textarea>
                             @error('policy_ar') <div class="invalid-feedback">{{ $message }}</div> @enderror
-                        </div>
-                         {{-- يمكنك إضافة حقول أخرى مثل سياسة الإلغاء، الشروط والأحكام الخ --}}
-                    </div>
-                </div>
-                 <div class="card shadow-sm mb-4" id="sms_settings_card"> {{-- Card for SMS limits --}}
-                    <div class="card-header">
-                        <h5><i class="fas fa-sms"></i> إعدادات حدود رسائل SMS</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="sms_monthly_limit" class="form-label">الحد الأقصى لعدد رسائل SMS الشهرية</label>
-                                <input type="number" class="form-control @error('sms_monthly_limit') is-invalid @enderror" id="sms_monthly_limit" name="sms_monthly_limit" value="{{ old('sms_monthly_limit', $settings['sms_monthly_limit'] ?? '0') }}" min="0">
-                                <small class="form-text text-muted">ضع 0 لعدم وجود حد.</small>
-                                @error('sms_monthly_limit') <div class="invalid-feedback">{{ $message }}</div> @enderror
-                            </div>
-                            <div class="col-md-6 mb-3 align-self-center">
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" role="switch" id="sms_stop_sending_on_limit" name="sms_stop_sending_on_limit" value="1" {{ old('sms_stop_sending_on_limit', $settings['sms_stop_sending_on_limit'] ?? '0') == '1' ? 'checked' : '' }}>
-                                    <label class="form-check-label" for="sms_stop_sending_on_limit">إيقاف إرسال الرسائل عند تجاوز الحد</label>
-                                </div>
-                                @error('sms_stop_sending_on_limit') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -324,20 +304,17 @@
                             @error('tamara_api_url') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             <small class="form-text text-muted">عادة ما يكون للبيئة التجريبية (sandbox) والبيئة الحية (production).</small>
                         </div>
-
                         <div class="mb-3">
                             <label for="tamara_api_token" class="form-label">توكن API الخاص بتمارا (Tamara API Token)</label>
                             <input type="text" class="form-control @error('tamara_api_token') is-invalid @enderror" id="tamara_api_token" name="tamara_api_token" value="{{ old('tamara_api_token', $settings['tamara_api_token'] ?? '') }}">
                             @error('tamara_api_token') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
-
                         <div class="mb-3">
                             <label for="tamara_notification_token" class="form-label">توكن إشعارات الويب هوك (Tamara Notification Token)</label>
                             <input type="text" class="form-control @error('tamara_notification_token') is-invalid @enderror" id="tamara_notification_token" name="tamara_notification_token" value="{{ old('tamara_notification_token', $settings['tamara_notification_token'] ?? '') }}">
                             @error('tamara_notification_token') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             <small class="form-text text-muted">يستخدم للتحقق من صحة طلبات الويب هوك الواردة من تمارا.</small>
                         </div>
-                        
                         <div class="mb-3">
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" role="switch" id="tamara_webhook_verification_bypass" name="tamara_webhook_verification_bypass" value="1" {{ old('tamara_webhook_verification_bypass', $settings['tamara_webhook_verification_bypass'] ?? '0') == '1' ? 'checked' : '' }}>
@@ -350,7 +327,27 @@
                 </div>
             </div>
 
-            {{-- يمكنك إضافة تبويبات أخرى هنا --}}
+            {{-- Data Management Tab (Danger Zone) --}}
+            <div class="tab-pane fade" id="data-management" role="tabpanel" aria-labelledby="data-management-tab">
+                <div class="card shadow-sm mb-4 border-danger">
+                    <div class="card-header bg-danger text-white">
+                        <h5 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>منطقة الخطر</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-danger">
+                            <strong>تحذير شديد:</strong> الإجراءات في هذا القسم خطيرة جداً وقد تؤدي إلى فقدان دائم للبيانات. يرجى توخي الحذر الشديد والمتابعة فقط إذا كنت متأكداً تماماً مما تفعله. **يوصى بشدة بأخذ نسخة احتياطية كاملة من قاعدة البيانات قبل تنفيذ أي من هذه الإجراءات.**
+                        </p>
+                        <hr>
+                        <div>
+                            <h6>حذف جميع الحجوزات والفواتير والمدفوعات</h6>
+                            <p>سيقوم هذا الإجراء بحذف **جميع** سجلات الحجوزات، و**جميع** الفواتير المرتبطة بها، و**جميع** المدفوعات المسجلة بشكل نهائي من قاعدة البيانات. <strong>لا يمكن التراجع عن هذا الإجراء بأي شكل من الأشكال.</strong></p>
+                            <button type="button" class="btn btn-danger" id="deleteAllDataBtn">
+                                <i class="fas fa-trash-alt me-1"></i> حذف جميع الحجوزات والفواتير والمدفوعات الآن
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
 
@@ -360,83 +357,111 @@
             </button>
         </div>
     </form>
+    {{-- نموذج مخفي لإرسال طلب الحذف --}}
+    <form id="deleteAllDataForm" action="{{ route('admin.data.delete_all_bookings') }}" method="POST" style="display: none;">
+        @csrf
+    </form>
 </div>
 @endsection
 
 @push('scripts')
 <script>
     // Script for deleting slider images
-    let deletedImagesArray = [];
-    const deletedImagesInput = document.getElementById('deleted_slider_images_input');
+    let deletedSliderImagesArray = []; // تم تغيير الاسم ليكون أوضح
+    const deletedSliderImagesInput = document.getElementById('deleted_slider_images_input');
 
     function deleteSliderImage(imagePath, elementId) {
         if (confirm('هل أنت متأكد من حذف هذه الصورة من السلايدر؟')) {
             const itemToRemove = document.getElementById(elementId);
             if (itemToRemove) {
-                itemToRemove.style.display = 'none';
+                itemToRemove.style.display = 'none'; // إخفاء العنصر من العرض
             }
             // إضافة المسار إلى مصفوفة المحذوفات إذا لم يكن موجوداً بالفعل
-            if (!deletedImagesArray.includes(imagePath)) {
-                deletedImagesArray.push(imagePath);
+            if (!deletedSliderImagesArray.includes(imagePath)) {
+                deletedSliderImagesArray.push(imagePath);
             }
-            if(deletedImagesInput) {
-                // تحديث الحقل المخفي بجميع الصور المراد حذفها
-                //  نرسل كمصفوفة لـ PHP ليتمكن من التعامل معها بسهولة
-                // deleted_slider_images[] في HTML
-                // إذا كنت ستستخدم حقل واحد، فستحتاج إلى JSON.stringify ثم json_decode في Controller
-                // حالياً، مع اسم الحقل كـ deleted_slider_images[]، يمكننا إنشاء عدة حقول hidden
-                // أو الأفضل هو تجميعها في JavaScript ثم إرسالها (هذا الجزء قد يحتاج تعديل طريقة الإرسال إذا كان هناك مشاكل)
-                // الطريقة الأبسط الآن هي إنشاء حقل hidden لكل صورة محذوفة أو تجميعها في حقل واحد كسلسلة مفصولة.
-                // للتسهيل الآن، لن نقوم بتحديث الحقل المخفي هنا بشكل تفصيلي ونفترض أن الـ Controller
-                // يمكنه التعامل مع deleted_slider_images كمدخل إذا احتجنا لإعادة تصميم هذه الجزئية.
-                // الحل الأفضل هو استخدام AJAX أو إضافة حقول hidden ديناميكياً.
-                // حالياً، السكربت يخفي الصورة فقط. الحذف الفعلي للملفات والقيم من DB يتم في Controller.
-                // يمكنك إرسال deletedImagesArray عبر AJAX أو تجميعها في حقل hidden واحد
-                // هنا مثال بسيط لتحديث حقل واحد بـ JSON string:
-                if (deletedImagesInput) { // تأكد من وجود الحقل
-                     // حذف المسار من المصفوفة إذا تم "حذفه" ثم "إلغاء الحذف" (غير مدعوم حالياً)
-                    // لتبسيط الأمر، إذا تم الضغط على حذف، يتم إضافته للقائمة
-                    const currentDeleted = JSON.parse(deletedImagesInput.value || "[]");
-                    if (!currentDeleted.includes(imagePath)) {
-                        currentDeleted.push(imagePath);
-                    }
-                    deletedImagesInput.value = JSON.stringify(currentDeleted);
-                }
+            if(deletedSliderImagesInput) {
+                // تحديث الحقل المخفي بقائمة الصور المراد حذفها كـ JSON string
+                // في المتحكم، ستحتاج إلى json_decode لهذا الحقل
+                // تم تغيير اسم الحقل إلى deleted_slider_images_json ليعكس أنه يحتوي على JSON
+                deletedSliderImagesInput.name = 'deleted_slider_images_json'; // تأكد من اسم الحقل
+                deletedSliderImagesInput.value = JSON.stringify(deletedSliderImagesArray);
             }
         }
     }
-     document.addEventListener('DOMContentLoaded', function () {
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // Activate tab if there's a hash in URL
         var hash = window.location.hash;
         if (hash) {
-            // محاولة تفعيل التبويب أولاً
             var triggerElTab = document.querySelector('.nav-tabs button[data-bs-target="' + hash + '"]');
+            if (!triggerElTab) { 
+                var cardElement = document.getElementById(hash.substring(1));
+                if (cardElement) {
+                    var tabPane = cardElement.closest('.tab-pane');
+                    if (tabPane) {
+                        triggerElTab = document.querySelector('.nav-tabs button[data-bs-target="#' + tabPane.id + '"]');
+                    }
+                }
+            }
             if (triggerElTab) {
                 var tab = new bootstrap.Tab(triggerElTab);
                 tab.show();
+                setTimeout(function() {
+                    var elementToScroll = document.getElementById(hash.substring(1));
+                    if (elementToScroll) {
+                        elementToScroll.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        elementToScroll.classList.add('flash-highlight');
+                        setTimeout(() => elementToScroll.classList.remove('flash-highlight'), 2000);
+                    }
+                }, 200);
             }
-            
-            // محاولة الانتقال إلى العنصر داخل التبويب
-            // تأخير بسيط لإعطاء الوقت للتبويب للتفعيل قبل محاولة الانتقال
-            setTimeout(function() {
-                var elementToScroll = document.getElementById(hash.substring(1)); // إزالة #
-                if (elementToScroll) {
-                    elementToScroll.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                     // إضافة وميض خفيف للعنصر
-                    elementToScroll.classList.add('flash-highlight');
-                    setTimeout(() => elementToScroll.classList.remove('flash-highlight'), 2000);
+        }
+
+        // JavaScript for Delete All Data confirmation
+        const deleteAllDataBtn = document.getElementById('deleteAllDataBtn');
+        const deleteAllDataForm = document.getElementById('deleteAllDataForm');
+
+        if (deleteAllDataBtn && deleteAllDataForm) {
+            deleteAllDataBtn.addEventListener('click', function(event) {
+                event.preventDefault(); 
+                const firstConfirm = confirm(
+                    "تحذير!\n\n" +
+                    "هل أنت متأكد أنك تريد حذف جميع الحجوزات، وجميع الفواتير المرتبطة بها، وجميع المدفوعات المسجلة؟\n\n" +
+                    "*** هذه العملية لا يمكن التراجع عنها! ***"
+                );
+                
+                if (firstConfirm) {
+                    const secondConfirmText = "تأكيد أخير (للمرة الثانية):\n\n" +
+                                            "أنت على وشك حذف كل بيانات الحجوزات والفواتير والمدفوعات بشكل نهائي.\n" +
+                                            "لن تتمكن من استرجاع هذه البيانات بعد الحذف.\n\n" +
+                                            "اكتب كلمة 'تأكيد الحذف' في المربع أدناه للمتابعة:";
+                    const userInput = prompt(secondConfirmText);
+
+                    if (userInput !== null && userInput.trim().toLowerCase() === 'تأكيد الحذف'.toLowerCase()) {
+                        const thirdConfirm = confirm(
+                            "تأكيد نهائي (للمرة الثالثة والأخيرة):\n\n" +
+                            "بضغطك على 'OK'، سيتم حذف جميع البيانات المحددة نهائياً.\n" +
+                            "هل أنت متأكد بشكل لا رجعة فيه؟"
+                        );
+
+                        if (thirdConfirm) {
+                            deleteAllDataBtn.disabled = true;
+                            deleteAllDataBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> جاري الحذف...';
+                            deleteAllDataForm.submit();
+                        } else {
+                            alert('تم إلغاء عملية الحذف.');
+                        }
+                    } else if (userInput !== null) { 
+                        alert('النص المدخل غير مطابق لـ "تأكيد الحذف". تم إلغاء العملية.');
+                    } else { 
+                        alert('تم إلغاء عملية الحذف.');
+                    }
+                } else {
+                    alert('تم إلغاء عملية الحذف.');
                 }
-            }, 200);
+            });
         }
     });
 </script>
-<style>
-    .flash-highlight {
-        animation: flash-animation 1s 2; /* وميض مرتين خلال ثانية واحدة */
-    }
-    @keyframes flash-animation {
-        0% { background-color: transparent; }
-        50% { background-color: rgba(255, 255, 0, 0.3); } /* لون وميض أصفر فاتح */
-        100% { background-color: transparent; }
-    }
-</style>
 @endpush
