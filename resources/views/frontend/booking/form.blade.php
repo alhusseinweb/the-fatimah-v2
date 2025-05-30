@@ -266,7 +266,7 @@
                         @if($isBankTransferEnabled)
                              <div class="payment-method-item {{ $defaultPaymentMethod == 'bank_transfer' ? 'selected' : '' }}" data-value="bank_transfer">
                                  <input class="form-check-input" type="radio" name="payment_method" id="pay_bank" value="bank_transfer" {{ $defaultPaymentMethod == 'bank_transfer' ? 'checked' : '' }} required
-                                 <label for="pay_bank" style="cursor:pointer;" class="ms-1">تحويل بنكي</label>
+                                 <label for="pay_bank" style="cursor:pointer;" class="ms-1"> تحويل بنكي </label>
                             </div>
                         @endif
                     </div>
