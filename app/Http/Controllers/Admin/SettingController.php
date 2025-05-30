@@ -6,15 +6,12 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Setting;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Artisan; // لاستخدام أوامر artisan لمسح الكاش
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Validation\Rule;
-use Illuminate\Support\Str;
-
+use Illuminate\Support\Str; // تأكد من وجود هذا الاستيراد
 
 class SettingController extends Controller
 {
-    // قائمة بمفاتيح الإعدادات التي يديرها هذا المتحكم
-    // أضفنا مفاتيح تمارا الجديدة
     private array $settingKeys = [
         'site_name_ar', 'site_name_en', 'site_description_ar', 'site_description_en',
         'logo_path_light', 'logo_path_dark', 'favicon_path',
@@ -26,61 +23,49 @@ class SettingController extends Controller
         'policy_ar', 'policy_en', 'terms_ar', 'terms_en',
         'seo_meta_title_ar', 'seo_meta_title_en', 'seo_meta_description_ar', 'seo_meta_description_en', 'seo_meta_keywords_ar', 'seo_meta_keywords_en',
         'google_analytics_id', 'facebook_pixel_id',
-        'enable_bank_transfer', 'enable_tamara_payment', // مفتاح عام لتفعيل تمارا
-        'homepage_slider_images', // لن يتم تعديله مباشرة هنا، ولكن جيد أن يكون معروفاً
+        'enable_bank_transfer', 'tamara_enabled', // تم تغيير enable_tamara_payment إلى tamara_enabled
+        'homepage_slider_images',
 
-        // مفاتيح إعدادات حدود رسائل SMS التي تمت إضافتها سابقاً
         'sms_monthly_limit', 'sms_stop_sending_on_limit',
 
-        // --- MODIFICATION START: Tamara Setting Keys ---
-        'tamara_enabled', // للتحكم العام في تفعيل/تعطيل تمارا
         'tamara_api_url',
         'tamara_api_token',
-        'tamara_notification_token', // يستخدم للتحقق من صحة الويب هوك
-        'tamara_webhook_verification_bypass', // لتجاوز التحقق من الويب هوك (لأغراض التطوير)
-        // --- MODIFICATION END ---
+        'tamara_notification_token',
+        'tamara_webhook_verification_bypass',
     ];
-
 
     public function edit()
     {
         $settingsCollection = Setting::whereIn('key', $this->settingKeys)->get();
         $settings = [];
         foreach ($settingsCollection as $setting) {
-            // التحقق إذا كانت القيمة JSON لـ homepage_slider_images
             if ($setting->key === 'homepage_slider_images') {
                 $decodedValue = json_decode($setting->value, true);
-                // إذا فشل التحويل أو لم يكن مصفوفة، استخدم مصفوفة فارغة
                 $settings[$setting->key] = (is_array($decodedValue)) ? $decodedValue : [];
             } else {
                 $settings[$setting->key] = $setting->value;
             }
         }
 
-        // تعيين قيم افتراضية إذا لم تكن موجودة
         foreach ($this->settingKeys as $key) {
             if (!array_key_exists($key, $settings)) {
                 if ($key === 'homepage_slider_images') {
                     $settings[$key] = [];
-                } elseif (in_array($key, ['maintenance_mode', 'enable_bank_transfer', 'enable_tamara_payment', 'tamara_enabled', 'tamara_webhook_verification_bypass', 'sms_stop_sending_on_limit'])) {
-                    $settings[$key] = '0'; // الافتراضي للـ booleans هو '0' (false)
+                } elseif (in_array($key, ['maintenance_mode', 'enable_bank_transfer', 'tamara_enabled', 'tamara_webhook_verification_bypass', 'sms_stop_sending_on_limit'])) {
+                    $settings[$key] = '0';
                 } else {
                     $settings[$key] = '';
                 }
             }
         }
-        // التأكد من أن homepage_slider_images هي مصفوفة دائماً
         if (!is_array($settings['homepage_slider_images'])) {
             $settings['homepage_slider_images'] = [];
         }
-
-
         return view('admin.settings.edit', compact('settings'));
     }
 
     public function update(Request $request)
     {
-        // ملاحظة: قواعد التحقق قد تحتاج إلى تعديل بناءً على متطلبات كل حقل
         $rules = [
             'site_name_ar' => 'nullable|string|max:100',
             'site_name_en' => 'nullable|string|max:100',
@@ -88,39 +73,36 @@ class SettingController extends Controller
             'contact_phone' => 'nullable|string|max:20',
             'contact_whatsapp' => 'nullable|string|max:20',
             'booking_availability_months' => 'nullable|integer|min:1|max:24',
-            'booking_buffer_time' => 'nullable|integer|min:0|max:360', // بالدقائق
+            'booking_buffer_time' => 'nullable|integer|min:0|max:360',
             'maintenance_mode' => 'nullable|boolean',
             'enable_bank_transfer' => 'nullable|boolean',
-            // 'enable_tamara_payment' => 'nullable|boolean', // تم استبداله بـ tamara_enabled
 
             'logo_light_file' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
             'logo_dark_file' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
             'favicon_file' => 'nullable|image|mimes:ico,png|max:512',
-            'slider_images.*' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:4096', // لكل صورة في السلايدر
+            'slider_images.*' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:4096',
 
-            // قواعد التحقق لإعدادات حدود الرسائل النصية
             'sms_monthly_limit' => 'nullable|integer|min:0',
             'sms_stop_sending_on_limit' => 'nullable|boolean',
 
-            // --- MODIFICATION START: Tamara Settings Validation ---
+            // --- MODIFICATION START: Increase max length for Tamara tokens ---
             'tamara_enabled' => 'nullable|boolean',
             'tamara_api_url' => 'nullable|string|url|max:255',
-            'tamara_api_token' => 'nullable|string|max:255', // عادة ما يكون طويلاً
-            'tamara_notification_token' => 'nullable|string|max:255', // عادة ما يكون طويلاً
+            'tamara_api_token' => 'nullable|string|max:1000', // زيادة الحد الأقصى
+            'tamara_notification_token' => 'nullable|string|max:1000', // زيادة الحد الأقصى
             'tamara_webhook_verification_bypass' => 'nullable|boolean',
             // --- MODIFICATION END ---
         ];
 
-        // إضافة باقي المفاتيح كـ nullable|string مبدئياً إذا لم يكن لها قواعد خاصة
         foreach ($this->settingKeys as $key) {
             if (!isset($rules[$key])) {
                  if (in_array($key, ['maintenance_mode', 'enable_bank_transfer', 'tamara_enabled', 'tamara_webhook_verification_bypass', 'sms_stop_sending_on_limit'])) {
-                    // هذه تم التعامل معها بالفعل
+                    // تم التعامل معها
                 } else if ($key === 'homepage_slider_images' || Str::endsWith($key, '_file') ) {
-                    // هذه يتم التعامل معها بشكل خاص (ملفات)
+                    // يتم التعامل معها بشكل خاص (ملفات)
                 }
                 else {
-                    $rules[$key] = 'nullable|string|max:65535'; // استخدام TEXT قد يتطلب max كبير
+                    $rules[$key] = 'nullable|string|max:65535';
                 }
             }
         }
@@ -133,19 +115,17 @@ class SettingController extends Controller
 
         try {
             foreach ($validatedData as $key => $value) {
-                // التعامل مع قيم checkbox (booleans)
                 if (in_array($key, ['maintenance_mode', 'enable_bank_transfer', 'tamara_enabled', 'tamara_webhook_verification_bypass', 'sms_stop_sending_on_limit'])) {
                     $valueToStore = $request->has($key) ? '1' : '0';
                 } else {
                     $valueToStore = $value;
                 }
                 
-                if (in_array($key, $this->settingKeys)) { // تأكد من أن المفتاح من ضمن المفاتيح المدارة
+                if (in_array($key, $this->settingKeys)) {
                      Setting::updateOrCreate(['key' => $key], ['value' => $valueToStore]);
                 }
             }
 
-            // التعامل مع رفع الملفات (الشعارات، الفافيكون)
             if ($request->hasFile('logo_light_file')) {
                 $path = $request->file('logo_light_file')->store('logos', 'public');
                 Setting::updateOrCreate(['key' => 'logo_path_light'], ['value' => 'storage/' . $path]);
@@ -159,13 +139,21 @@ class SettingController extends Controller
                 Setting::updateOrCreate(['key' => 'favicon_path'], ['value' => 'storage/' . $path]);
             }
 
-            // التعامل مع صور السلايدر
             $sliderImagesPaths = json_decode(Setting::where('key', 'homepage_slider_images')->value('value') ?? '[]', true);
+            if(!is_array($sliderImagesPaths)) $sliderImagesPaths = []; // تأكد أنها مصفوفة
+            
             if ($request->has('deleted_slider_images')) {
-                foreach ($request->input('deleted_slider_images') as $deletedImage) {
-                    // حذف الملف الفعلي (اختياري، لكن جيد)
-                    // Storage::disk('public')->delete(str_replace('storage/', '', $deletedImage));
-                    $sliderImagesPaths = array_diff($sliderImagesPaths, [$deletedImage]);
+                $deletedImagesRequest = $request->input('deleted_slider_images');
+                // قد يكون deleted_slider_images عبارة عن سلسلة JSON إذا تم إرسالها من حقل hidden واحد
+                if (is_string($deletedImagesRequest)) {
+                    $deletedImagesRequest = json_decode($deletedImagesRequest, true);
+                }
+
+                if (is_array($deletedImagesRequest)) {
+                    foreach ($deletedImagesRequest as $deletedImage) {
+                        // Storage::disk('public')->delete(str_replace('storage/', '', $deletedImage)); // اختياري: حذف الملف الفعلي
+                        $sliderImagesPaths = array_diff($sliderImagesPaths, [$deletedImage]);
+                    }
                 }
             }
             if ($request->hasFile('slider_images')) {
@@ -176,14 +164,13 @@ class SettingController extends Controller
             }
             Setting::updateOrCreate(['key' => 'homepage_slider_images'], ['value' => json_encode(array_values($sliderImagesPaths))]);
 
-
             Log::info('General settings updated by admin ID: ' . auth()->id());
             
-            // مسح الكاش بعد تحديث الإعدادات لضمان تطبيقها
             Artisan::call('config:clear');
             Artisan::call('cache:clear');
+            // إذا كنت تستخدم opcache في الإنتاج، يمكنك مسحه أيضاً:
+            // if (function_exists('opcache_reset')) { opcache_reset(); }
             Log::info('Configuration and application cache cleared after settings update.');
-
 
             return redirect()->route('admin.settings.edit')->with('success', 'تم تحديث الإعدادات العامة بنجاح.');
 
