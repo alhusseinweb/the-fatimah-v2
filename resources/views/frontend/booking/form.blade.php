@@ -259,7 +259,7 @@
                             <div class="payment-method-item {{ $defaultPaymentMethod == 'tamara' ? 'selected' : '' }}" data-value="tamara">
                                  <input class="form-check-input" type="radio" name="payment_method" id="pay_tamara" value="tamara" {{ $defaultPaymentMethod == 'tamara' ? 'checked' : '' }} required>
                                  <img src="{{ asset('images/tamara.png') }}" height="28" alt="Tamara" style="margin-right: 8px; max-width: 100px; vertical-align: middle;">
-                                 <label for="pay_tamara" style="cursor:pointer;" class="ms-2">الدفع لاحقاً أو على أقساط مع تمارا</label>
+                                 <label for="pay_tamara" style="cursor:pointer;" class="ms-2"> الدفع لاحقاً أو على أقساط مع تمارا </label>
                             </div>
                         @endif
 
