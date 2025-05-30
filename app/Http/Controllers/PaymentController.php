@@ -6,7 +6,7 @@ use App\Models\Booking;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\User;
-use App\Models\Setting; // <-- تم التأكد من استيراده
+use App\Models\Setting;
 use App\Notifications\BookingConfirmedNotification;
 use App\Notifications\PaymentSuccessNotification;
 use App\Notifications\PaymentFailedNotification;
@@ -23,10 +23,9 @@ use Tamara\Client as TamaraClient;
 use Tamara\Configuration as TamaraConfiguration;
 use Tamara\Notification\Authenticator as TamaraAuthenticator;
 use Tamara\Request\Order\AuthoriseOrderRequest as TamaraAuthoriseOrderRequest;
-use Tamara\Exception\InvalidSignatureException; 
+use Tamara\Exception\InvalidSignatureException;
 
 use App\Services\TamaraService;
-
 
 class PaymentController extends Controller
 {
@@ -43,7 +42,6 @@ class PaymentController extends Controller
         $this->tamaraService = $tamaraService;
     }
 
-    // ... دوال handleTamaraSuccess, handleTamaraFailure, handleTamaraCancel تبقى كما هي ...
     public function handleTamaraSuccess(Request $request, Invoice $invoice): RedirectResponse
     {
         Log::info("Tamara success redirect received for Invoice ID: {$invoice->id}");
@@ -109,6 +107,7 @@ class PaymentController extends Controller
 
     public function handleTamaraFailure(Request $request, Invoice $invoice): RedirectResponse
     {
+        // ... (الكود كما هو) ...
         Log::error("Tamara failure/cancel redirect received for Invoice ID: {$invoice->id}");
         if (auth()->check() && $invoice->booking?->user_id !== auth()->id()) {
             Log::warning("Unauthorized access attempt on Tamara failure URL.", ['invoice_id' => $invoice->id, 'auth_user_id' => auth()->id()]);
@@ -149,17 +148,17 @@ class PaymentController extends Controller
 
     public function handleTamaraCancel(Request $request, Invoice $invoice): RedirectResponse
     {
+        // ... (الكود كما هو) ...
         Log::warning("Tamara cancel redirect received for Invoice ID: {$invoice->id}");
         return $this->handleTamaraFailure($request, $invoice);
     }
 
-
     public function handleTamaraWebhook(Request $request)
     {
-        $rawContent = $request->getContent(); // الحصول على المحتوى الخام مرة واحدة
+        $rawContent = $request->getContent();
         Log::channel('daily')->info('Tamara Webhook Received - Full Request Details:', [
             'headers' => $request->headers->all(),
-            'raw_content_sample' => Str::limit($rawContent, 1000), // زيادة حجم العينة المسجلة
+            'raw_content_sample' => Str::limit($rawContent, 1000),
             'server_time' => date('Y-m-d H:i:s')
         ]);
 
@@ -176,21 +175,42 @@ class PaymentController extends Controller
             }
             try {
                 $authenticator = new TamaraAuthenticator($notificationToken);
-                // --- MODIFICATION START: Use correct parameters for Tamara SDK's authenticate method ---
-                // بناءً على توثيق Tamara PHP SDK، دالة authenticate تتوقع (string $requestBody, string $signature)
-                // رسالة الخطأ السابقة كانت مضللة نوعاً ما.
-                $signature = $request->header('Tamara-Signature'); // أو اسم الهيدر الصحيح الذي ترسله تمارا
-                if (empty($signature)) {
-                    Log::error('Tamara Webhook Error: Missing Tamara-Signature header.');
-                    return response()->json(['status' => 'error', 'message' => 'Missing signature header'], 400); // Bad Request
+                
+                // --- MODIFICATION START: Extract JWT from Authorization header or tamaraToken query param ---
+                $signatureToVerify = null;
+                $authHeader = $request->header('Authorization');
+                
+                if ($authHeader && Str::startsWith(strtolower($authHeader), 'bearer ')) {
+                    $signatureToVerify = Str::substr($authHeader, 7); // الحصول على التوكن فقط
+                    Log::info('Tamara Webhook: Found signature in Authorization Bearer header.');
+                } else {
+                    // إذا لم يكن في هيدر Authorization، تحقق من معامل tamaraToken في الرابط
+                    $signatureToVerify = $request->query('tamaraToken');
+                    if ($signatureToVerify) {
+                        Log::info('Tamara Webhook: Found signature in tamaraToken query parameter.');
+                    }
                 }
-                $authenticator->authenticate($rawContent, $signature); 
+                
+                if (empty($signatureToVerify)) {
+                    Log::error('Tamara Webhook Error: Missing signature. Checked Authorization Bearer header and tamaraToken query parameter.');
+                    return response()->json(['status' => 'error', 'message' => 'Missing signature'], 401); // Unauthorized
+                }
+                
+                // بناءً على توثيق Tamara PHP SDK، دالة authenticate تتوقع (string $requestBody, string $signature)
+                $authenticator->authenticate($rawContent, $signatureToVerify); 
                 // --- MODIFICATION END ---
                 Log::info('Tamara Webhook: Signature verified successfully.');
+
             } catch (InvalidSignatureException $e) {
                 Log::error('Tamara Webhook Error: Invalid Signature.', ['message' => $e->getMessage()]);
-                return response()->json(['status' => 'error', 'message' => 'Invalid signature'], 401); // Unauthorized
-            } catch (\Exception $e) {
+                return response()->json(['status' => 'error', 'message' => 'Invalid signature'], 401); 
+            } catch (\TypeError $e) { 
+                Log::error('Tamara Webhook Error: TypeError during signature verification. Check SDK method signature and parameters.', [
+                    'message' => $e->getMessage(), 'file' => $e->getFile(), 'line' => $e->getLine(),
+                ]);
+                return response()->json(['status' => 'error', 'message' => 'Signature verification library error.'], 500);
+            }
+             catch (\Exception $e) {
                 Log::error('Tamara Webhook Error: Exception during signature verification.', ['message' => $e->getMessage(), 'class' => get_class($e)]);
                 return response()->json(['status' => 'error', 'message' => 'Signature verification failed due to an unexpected error.'], 500);
             }
@@ -199,7 +219,8 @@ class PaymentController extends Controller
         }
         
         $requestData = json_decode($rawContent, true) ?: [];
-        
+        // ... (باقي كود معالجة الويب هوك: تحديد نوع الحدث، جلب الفاتورة، الخ) ...
+        // ... (هذا الجزء يبقى كما هو من الرد السابق) ...
         $tamaraOrderId = $requestData['order_id'] ?? null;
         $resolved_order_reference_id = $requestData['order_reference_id'] ?? ($requestData['order_number'] ?? null);
         $eventType = $requestData['event_type'] ?? null;
@@ -235,8 +256,6 @@ class PaymentController extends Controller
                     if ($resolved_order_reference_id) {
                         $invoiceQuery->where('invoice_number', $resolved_order_reference_id);
                     }
-                    // في حالة عدم وجود order_reference_id, يمكن محاولة الربط عبر tamaraOrderId إذا تم تخزينه سابقاً
-                    // كـ payment_gateway_ref عند بدء عملية الدفع
                     elseif ($tamaraOrderId) {
                         $invoiceQuery->orWhere('payment_gateway_ref', $tamaraOrderId);
                     }
@@ -264,14 +283,13 @@ class PaymentController extends Controller
 
                     if (!$existingPayment) {
                         $tamaraAmount = null;
-                        // استخلاص المبلغ من حمولة الويب هوك
                         if (isset($requestData['total_amount']['amount'])) {
                             $tamaraAmount = $requestData['total_amount']['amount'];
                             if (isset($requestData['total_amount']['currency'])) $tamaraCurrency = $requestData['total_amount']['currency'];
                         } elseif (isset($requestData['order_amount']['amount'])) {
                             $tamaraAmount = $requestData['order_amount']['amount'];
                              if (isset($requestData['order_amount']['currency'])) $tamaraCurrency = $requestData['order_amount']['currency'];
-                        } elseif (isset($requestData['data']['payment_amount']['amount'])) { // من بنية بيانات تمارا أحياناً
+                        } elseif (isset($requestData['data']['payment_amount']['amount'])) { 
                             $tamaraAmount = $requestData['data']['payment_amount']['amount'];
                              if (isset($requestData['data']['payment_amount']['currency'])) $tamaraCurrency = $requestData['data']['payment_amount']['currency'];
                         } elseif (isset($requestData['data']['total_amount']['amount'])) {
@@ -422,8 +440,6 @@ class PaymentController extends Controller
 
             } elseif ($eventType === self::EVENT_TYPE_ORDER_AUTHORISED) {
                 Log::info("Processing Tamara event: {$eventType}", ['tamara_order_id' => $tamaraOrderId, 'order_reference_id' => $resolved_order_reference_id]);
-                // يمكنك إضافة منطق هنا إذا لزم الأمر، مثلاً تحديث حالة الفاتورة إلى "قيد المعالجة"
-                // حالياً، الاعتماد على order_approved لتحديث كل شيء
             } elseif (in_array($eventType, [self::EVENT_TYPE_ORDER_DECLINED, self::EVENT_TYPE_ORDER_CANCELED, self::EVENT_TYPE_ORDER_EXPIRED])) {
                  Log::info("Processing Tamara event: {$eventType}", ['tamara_order_id' => $tamaraOrderId, 'order_reference_id' => $resolved_order_reference_id]);
                 DB::transaction(function () use ($tamaraOrderId, $resolved_order_reference_id, $eventType, $requestData) {
@@ -479,6 +495,7 @@ class PaymentController extends Controller
 
     public function retryTamaraPayment(Request $request, Invoice $invoice): RedirectResponse
     {
+        // ... (الكود كما هو) ...
         Log::debug('Entering retryTamaraPayment method.', ['invoice_id' => $invoice->id, 'current_invoice_status' => $invoice->status, 'original_payment_option' => $invoice->payment_option]);
 
         if (auth()->guest() || !$invoice->booking || $invoice->booking->user_id !== auth()->id()) {
@@ -497,19 +514,17 @@ class PaymentController extends Controller
         }
 
         $amountToRetry = 0.0;
-        $retryPaymentOption = 'full'; // افتراضياً، نحاول دفع الفاتورة بالكامل عند إعادة المحاولة
+        $retryPaymentOption = 'full'; 
 
         if ($invoice->status === Invoice::STATUS_PARTIALLY_PAID) {
             $amountToRetry = $invoice->remaining_amount > 0.009 ? $invoice->remaining_amount : 0.0;
-            // $retryPaymentOption يبقى 'full' لأننا ندفع المتبقي من الإجمالي
         } elseif ($invoice->payment_option === 'down_payment' && $invoice->status !== Invoice::STATUS_PAID) { 
-            // إذا كانت الفاتورة أصلاً عربون ولم تُدفع جزئياً بعد (يعني فشل دفع العربون الأول)
             $amountToRetry = $invoice->booking?->down_payment_amount > 0.009
                                 ? $invoice->booking->down_payment_amount
-                                : ($invoice->amount > 0.009 ? round($invoice->amount / 2, 2) : 0.0); // احتياطي إذا لم يُسجل down_payment_amount
-            $retryPaymentOption = 'down_payment'; // نرسل لتمارا كـ "دفعة أولى"
-        } else { // حالات أخرى (مثل UNPAID لدفعة كاملة)
-            $amountToRetry = $invoice->amount; // ندفع المبلغ الإجمالي للفاتورة
+                                : ($invoice->amount > 0.009 ? round($invoice->amount / 2, 2) : 0.0);
+            $retryPaymentOption = 'down_payment';
+        } else { 
+            $amountToRetry = $invoice->amount;
         }
         Log::info("Retry Tamara: Determined amount to retry: {$amountToRetry} with option: {$retryPaymentOption}", ['invoice_id' => $invoice->id]);
 
