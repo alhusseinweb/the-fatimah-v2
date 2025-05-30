@@ -355,7 +355,7 @@
 
 
         <div class="mt-4 pt-3 border-top">
-            <button type="submit" class="btn btn-primary">
+            <button type="submit" class="btn btn-primary btn-lg">
                 <i class="fas fa-save me-1"></i> حفظ جميع الإعدادات
             </button>
         </div>
@@ -365,7 +365,7 @@
 
 @push('scripts')
 <script>
-    // Script for deleting slider images (if you need it)
+    // Script for deleting slider images
     let deletedImagesArray = [];
     const deletedImagesInput = document.getElementById('deleted_slider_images_input');
 
@@ -373,39 +373,70 @@
         if (confirm('هل أنت متأكد من حذف هذه الصورة من السلايدر؟')) {
             const itemToRemove = document.getElementById(elementId);
             if (itemToRemove) {
-                itemToRemove.style.display = 'none'; // Or remove from DOM: itemToRemove.remove();
+                itemToRemove.style.display = 'none';
             }
-            deletedImagesArray.push(imagePath);
+            // إضافة المسار إلى مصفوفة المحذوفات إذا لم يكن موجوداً بالفعل
+            if (!deletedImagesArray.includes(imagePath)) {
+                deletedImagesArray.push(imagePath);
+            }
             if(deletedImagesInput) {
-                deletedImagesInput.value = JSON.stringify(deletedImagesArray); // Store as JSON string
+                // تحديث الحقل المخفي بجميع الصور المراد حذفها
+                //  نرسل كمصفوفة لـ PHP ليتمكن من التعامل معها بسهولة
+                // deleted_slider_images[] في HTML
+                // إذا كنت ستستخدم حقل واحد، فستحتاج إلى JSON.stringify ثم json_decode في Controller
+                // حالياً، مع اسم الحقل كـ deleted_slider_images[]، يمكننا إنشاء عدة حقول hidden
+                // أو الأفضل هو تجميعها في JavaScript ثم إرسالها (هذا الجزء قد يحتاج تعديل طريقة الإرسال إذا كان هناك مشاكل)
+                // الطريقة الأبسط الآن هي إنشاء حقل hidden لكل صورة محذوفة أو تجميعها في حقل واحد كسلسلة مفصولة.
+                // للتسهيل الآن، لن نقوم بتحديث الحقل المخفي هنا بشكل تفصيلي ونفترض أن الـ Controller
+                // يمكنه التعامل مع deleted_slider_images كمدخل إذا احتجنا لإعادة تصميم هذه الجزئية.
+                // الحل الأفضل هو استخدام AJAX أو إضافة حقول hidden ديناميكياً.
+                // حالياً، السكربت يخفي الصورة فقط. الحذف الفعلي للملفات والقيم من DB يتم في Controller.
+                // يمكنك إرسال deletedImagesArray عبر AJAX أو تجميعها في حقل hidden واحد
+                // هنا مثال بسيط لتحديث حقل واحد بـ JSON string:
+                if (deletedImagesInput) { // تأكد من وجود الحقل
+                     // حذف المسار من المصفوفة إذا تم "حذفه" ثم "إلغاء الحذف" (غير مدعوم حالياً)
+                    // لتبسيط الأمر، إذا تم الضغط على حذف، يتم إضافته للقائمة
+                    const currentDeleted = JSON.parse(deletedImagesInput.value || "[]");
+                    if (!currentDeleted.includes(imagePath)) {
+                        currentDeleted.push(imagePath);
+                    }
+                    deletedImagesInput.value = JSON.stringify(currentDeleted);
+                }
             }
         }
     }
      document.addEventListener('DOMContentLoaded', function () {
-        // Activate tab if there's a hash in URL (e.g. #sms_settings_card)
         var hash = window.location.hash;
         if (hash) {
-            var triggerEl = document.querySelector('.nav-tabs button[data-bs-target="' + hash + '"]');
-            if (!triggerEl) { // If specific card ID, find its parent tab
-                var cardElement = document.getElementById(hash.substring(1)); // remove #
-                if (cardElement) {
-                    var tabPane = cardElement.closest('.tab-pane');
-                    if (tabPane) {
-                        triggerEl = document.querySelector('.nav-tabs button[data-bs-target="#' + tabPane.id + '"]');
-                    }
-                }
-            }
-            if (triggerEl) {
-                var tab = new bootstrap.Tab(triggerEl);
+            // محاولة تفعيل التبويب أولاً
+            var triggerElTab = document.querySelector('.nav-tabs button[data-bs-target="' + hash + '"]');
+            if (triggerElTab) {
+                var tab = new bootstrap.Tab(triggerElTab);
                 tab.show();
-                // Scroll to element if it's a card inside the tab
-                if (hash.includes('_card')) {
-                     setTimeout(function() {
-                        document.getElementById(hash.substring(1))?.scrollIntoView({ behavior: 'smooth' });
-                    }, 200);
-                }
             }
+            
+            // محاولة الانتقال إلى العنصر داخل التبويب
+            // تأخير بسيط لإعطاء الوقت للتبويب للتفعيل قبل محاولة الانتقال
+            setTimeout(function() {
+                var elementToScroll = document.getElementById(hash.substring(1)); // إزالة #
+                if (elementToScroll) {
+                    elementToScroll.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                     // إضافة وميض خفيف للعنصر
+                    elementToScroll.classList.add('flash-highlight');
+                    setTimeout(() => elementToScroll.classList.remove('flash-highlight'), 2000);
+                }
+            }, 200);
         }
     });
 </script>
+<style>
+    .flash-highlight {
+        animation: flash-animation 1s 2; /* وميض مرتين خلال ثانية واحدة */
+    }
+    @keyframes flash-animation {
+        0% { background-color: transparent; }
+        50% { background-color: rgba(255, 255, 0, 0.3); } /* لون وميض أصفر فاتح */
+        100% { background-color: transparent; }
+    }
+</style>
 @endpush
