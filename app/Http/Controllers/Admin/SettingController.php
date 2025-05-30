@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB; // <-- *** إضافة هذا السطر لاستيراد DB Facade ***
 
 class SettingController extends Controller
 {
@@ -30,17 +31,15 @@ class SettingController extends Controller
         'tamara_api_token',
         'tamara_notification_token',
         'tamara_webhook_verification_bypass',
-        // أضف أي مفاتيح إعدادات أخرى هنا
     ];
 
-    private array $booleanSettingKeys = [ // مفاتيح الإعدادات المنطقية
+    private array $booleanSettingKeys = [
         'maintenance_mode',
         'enable_bank_transfer',
         'tamara_enabled',
         'tamara_webhook_verification_bypass',
         'sms_stop_sending_on_limit',
     ];
-
 
     public function edit()
     {
@@ -60,7 +59,7 @@ class SettingController extends Controller
                 if ($key === 'homepage_slider_images') {
                     $settings[$key] = [];
                 } elseif (in_array($key, $this->booleanSettingKeys)) {
-                    $settings[$key] = '0'; // الافتراضي للـ booleans هو '0' (false)
+                    $settings[$key] = '0'; 
                 } else {
                     $settings[$key] = '';
                 }
@@ -70,25 +69,23 @@ class SettingController extends Controller
             $settings['homepage_slider_images'] = [];
         }
 
-        // --- Debugging: Log the value being sent to the view ---
         if (isset($settings['enable_bank_transfer'])) {
             Log::debug("Settings Edit Page Load: 'enable_bank_transfer' value being passed to view:", ['value' => $settings['enable_bank_transfer']]);
         }
-        // --- End Debugging ---
-
+        
         return view('admin.settings.edit', compact('settings'));
     }
 
     public function update(Request $request)
     {
-        // --- Debugging: Log all request data ---
         Log::debug('Settings Update Request - Raw Data:', $request->all());
-        // --- End Debugging ---
 
         $rules = [
             'site_name_ar' => 'nullable|string|max:100',
             'site_name_en' => 'nullable|string|max:100',
-            // ... (باقي قواعد التحقق كما هي) ...
+            'contact_email' => 'nullable|email|max:100',
+            'contact_phone' => 'nullable|string|max:20',
+            'contact_whatsapp' => 'nullable|string|max:20',
             'booking_availability_months' => 'nullable|integer|min:1|max:24',
             'booking_buffer_time' => 'nullable|integer|min:0|max:360',
             
@@ -104,60 +101,62 @@ class SettingController extends Controller
             'tamara_notification_token' => 'nullable|string|max:1000',
         ];
 
-        // إضافة قواعد التحقق للحقول المنطقية و باقي الحقول النصية
         foreach ($this->settingKeys as $key) {
-            if (!isset($rules[$key])) { // إذا لم يكن للحقل قاعدة تحقق مخصصة بالفعل
+            if (!isset($rules[$key])) {
                 if (in_array($key, $this->booleanSettingKeys)) {
-                    $rules[$key] = 'nullable|boolean'; // Laravel سيتعامل مع 'on', 1, true كـ true, وعدم وجوده أو '0', false كـ false
+                    $rules[$key] = 'nullable|boolean'; 
                 } else if ($key === 'homepage_slider_images' || Str::endsWith($key, '_file') ) {
-                    // تم التعامل معها بالفعل أو لا تحتاج لقاعدة هنا
+                    // Handled by specific rules or file handling logic
                 }
                 else {
-                    // افترض أن باقي المفاتيح هي نصوص
                     $rules[$key] = 'nullable|string|max:65535'; 
                 }
             }
         }
         
-        $validatedData = $request->validate($rules, [ /* ... رسائل الخطأ ... */ ]);
+        $validatedData = $request->validate($rules, [ /* ... رسائل الخطأ الخاصة بك ... */ ]);
         Log::debug('Settings Update Request - Validated Data:', $validatedData);
 
-
+        // *** السطر 127 (تقريباً) الذي كان يسبب الخطأ هو DB::beginTransaction(); ***
+        // *** يجب أن يكون DB مستورداً بشكل صحيح لاستخدامه ***
         try {
-            DB::beginTransaction();
+            DB::beginTransaction(); // <-- هذا هو السطر 127 المحتمل
 
             foreach ($this->settingKeys as $key) {
-                if (!Str::endsWith($key, '_file') && $key !== 'homepage_slider_images') { // تجاهل مفاتيح الملفات هنا
+                if (!Str::endsWith($key, '_file') && $key !== 'homepage_slider_images') {
                     $valueToStore = null;
                     if (in_array($key, $this->booleanSettingKeys)) {
-                        // لـ checkbox/switch, إذا لم يتم إرسال المفتاح، فهذا يعني أنه '0' (false)
-                        // إذا تم إرساله، فقيمة $request->input($key) ستكون '1' (لأن value="1" في الـ HTML)
                         $valueToStore = $request->has($key) ? '1' : '0';
                         Log::debug("Processing boolean setting '{$key}': request->has='{$request->has($key)}', valueToStore='{$valueToStore}'");
                     } elseif (array_key_exists($key, $validatedData)) { 
-                        // لباقي الحقول التي تم التحقق منها وموجودة في $validatedData
                         $valueToStore = $validatedData[$key];
                     } elseif ($request->exists($key)) {
-                        // إذا كان المفتاح موجوداً في الطلب ولكنه لم يكن في $validatedData (مثلاً، حقل نصي فارغ ولم يكن nullable بشكل صريح في rules لسبب ما)
-                        // هذا أقل احتمالاً إذا كانت قواعد التحقق شاملة
                         $valueToStore = $request->input($key);
                     }
-                    // إذا كان $valueToStore لا يزال null هنا، فهذا يعني أن الحقل لم يتم إرساله ولم يكن boolean
-                    // قد ترغب في عدم تحديثه أو تعيين قيمة افتراضية. حالياً سيتم حفظ null.
-
-                    if ($valueToStore !== null || array_key_exists($key, $validatedData)) { // تحديث فقط إذا كانت هناك قيمة أو كان ضمن البيانات المتحقق منها
+                    
+                    if ($valueToStore !== null || array_key_exists($key, $validatedData) || in_array($key, $this->booleanSettingKeys)) {
+                         // الشرط in_array($key, $this->booleanSettingKeys) يضمن حفظ '0' للحقول المنطقية غير المحددة
                         Setting::updateOrCreate(['key' => $key], ['value' => $valueToStore]);
                          if ($key === 'enable_bank_transfer' || $key === 'tamara_enabled') {
-                            Log::info("Setting '{$key}' updated to: " . ($valueToStore ?? 'NULL'));
+                            Log::info("Setting '{$key}' updated to: " . ($valueToStore ?? 'NULL_explicitly'));
                         }
                     }
                 }
             }
 
             // ... (منطق حفظ الملفات كما هو) ...
-            if ($request->hasFile('logo_light_file')) { /* ... */ }
-            if ($request->hasFile('logo_dark_file')) { /* ... */ }
-            if ($request->hasFile('favicon_file')) { /* ... */ }
+            if ($request->hasFile('logo_light_file')) { 
+                $path = $request->file('logo_light_file')->store('logos', 'public');
+                Setting::updateOrCreate(['key' => 'logo_path_light'], ['value' => 'storage/' . $path]);
+            }
+            if ($request->hasFile('logo_dark_file')) { 
+                $path = $request->file('logo_dark_file')->store('logos', 'public');
+                Setting::updateOrCreate(['key' => 'logo_path_dark'], ['value' => 'storage/' . $path]);
+            }
+            if ($request->hasFile('favicon_file')) { 
+                $path = $request->file('favicon_file')->store('favicons', 'public');
+                Setting::updateOrCreate(['key' => 'favicon_path'], ['value' => 'storage/' . $path]);
+            }
             if ($request->has('deleted_slider_images_json') || $request->hasFile('slider_images')) {
                 $currentSliderImages = json_decode(Setting::where('key', 'homepage_slider_images')->value('value') ?? '[]', true);
                 if (!is_array($currentSliderImages)) $currentSliderImages = [];
@@ -165,8 +164,6 @@ class SettingController extends Controller
                 $deletedImages = json_decode($request->input('deleted_slider_images_json', '[]'), true);
                 if (is_array($deletedImages)) {
                     $currentSliderImages = array_filter($currentSliderImages, function ($path) use ($deletedImages) {
-                        // إذا كنت تريد حذف الملفات الفعلية من storage, افعل ذلك هنا
-                        // if (in_array($path, $deletedImages)) { Storage::disk('public')->delete(str_replace('storage/', '', $path)); return false; }
                         return !in_array($path, $deletedImages);
                     });
                 }
@@ -180,23 +177,22 @@ class SettingController extends Controller
                 Setting::updateOrCreate(['key' => 'homepage_slider_images'], ['value' => json_encode(array_values($currentSliderImages))]);
             }
 
-
             DB::commit();
             Log::info('General settings updated by admin ID: ' . auth()->id());
             
             Artisan::call('config:clear');
             Artisan::call('cache:clear');
-            Artisan::call('view:clear'); // إضافة مسح كاش الواجهات
+            Artisan::call('view:clear'); 
             Log::info('Configuration, application, and view caches cleared after settings update.');
 
             return redirect()->route('admin.settings.edit')->with('success', 'تم تحديث الإعدادات العامة بنجاح.');
 
         } catch (\Illuminate\Validation\ValidationException $e) {
-            DB::rollBack();
+            DB::rollBack(); // مهم هنا أيضاً
             Log::warning('Settings update validation failed.', ['errors' => $e->errors(), 'admin_id' => auth()->id()]);
             return back()->withErrors($e->errors())->withInput();
         } catch (\Exception $e) {
-            DB::rollBack();
+            DB::rollBack(); // مهم هنا أيضاً
             Log::error('Failed to update general settings: ' . $e->getMessage(), [
                 'exception_class' => get_class($e),
                 'trace' => Str::limit($e->getTraceAsString(), 1000),
