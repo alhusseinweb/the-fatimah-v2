@@ -265,8 +265,7 @@
 
                         @if($isBankTransferEnabled)
                              <div class="payment-method-item {{ $defaultPaymentMethod == 'bank_transfer' ? 'selected' : '' }}" data-value="bank_transfer">
-                                 <input class="form-check-input" type="radio" name="payment_method" id="pay_bank" value="bank_transfer" {{ $defaultPaymentMethod == 'bank_transfer' ? 'checked' : '' }} required>
-                                 <i class="fas fa-university fa-fw me-2 text-primary" style="font-size: 1.5em; vertical-align: middle;"></i>
+                                 <input class="form-check-input" type="radio" name="payment_method" id="pay_bank" value="bank_transfer" {{ $defaultPaymentMethod == 'bank_transfer' ? 'checked' : '' }} required
                                  <label for="pay_bank" style="cursor:pointer;" class="ms-1">تحويل بنكي</label>
                             </div>
                         @endif
@@ -274,7 +273,7 @@
 
                     @if(!$isTamaraEnabled && !$isBankTransferEnabled)
                         <div class="alert alert-warning py-3">
-                            <i class="fas fa-exclamation-triangle me-2"></i>عفواً، لا توجد طرق دفع إلكترونية مفعلة حالياً. يمكنك إكمال الحجز وسيتم التواصل معك لتأكيده وترتيب عملية الدفع.
+                            عفواً، لا توجد طرق دفع إلكترونية مفعلة حالياً. يمكنك إكمال الحجز وسيتم التواصل معك لتأكيده وترتيب عملية الدفع.
                         </div>
                          {{-- إذا لم تكن هناك طرق دفع، قد تحتاج إلى إخفاء زر "المتابعة للدفع" أو تعديل نصه --}}
                          {{-- أو إرسال قيمة خاصة لـ payment_method مثل 'manual_confirmation' --}}
@@ -285,7 +284,7 @@
                     @if($isBankTransferEnabled)
                         <div id="bank-details" style="display: {{ $defaultPaymentMethod == 'bank_transfer' ? 'block' : 'none' }};">
                             <hr class="my-3">
-                            <h6><i class="fas fa-info-circle text-primary me-1"></i> بيانات التحويل البنكي:</h6>
+                            <h6> بيانات التحويل البنكي:</h6>
                             @if($bankAccounts && $bankAccounts->count() > 0)
                                 <ul class="list-unstyled mb-2 small">
                                     @foreach($bankAccounts as $account)
