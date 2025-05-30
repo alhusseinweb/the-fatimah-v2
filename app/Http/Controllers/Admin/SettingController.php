@@ -3,191 +3,199 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Setting;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Validator;
+use App\Models\Setting;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Artisan; // لاستخدام أوامر artisan لمسح الكاش
+use Illuminate\Validation\Rule;
+
 
 class SettingController extends Controller
 {
-    // قائمة بمفاتيح الإعدادات المتوقعة، مع إضافة مفاتيح SMS
-    protected $settingKeys = [
-        'policy_ar',
-        'policy_en', // سيبقى هذا المفتاح إذا كان لا يزال مستخدماً في مكان ما، وإلا يمكن إزالته
-        'twilio_account_sid', // إذا كنت لا تزال تستخدم Twilio لأي شيء آخر
-        'twilio_auth_token',
-        'twilio_verify_sid',
-        'sendgrid_api_key', // إذا كنت لا تزال تستخدم SendGrid
-        'tamara_api_key',   // إذا كنت لا تزال تستخدم Tamara
+    // قائمة بمفاتيح الإعدادات التي يديرها هذا المتحكم
+    // أضفنا مفاتيح تمارا الجديدة
+    private array $settingKeys = [
+        'site_name_ar', 'site_name_en', 'site_description_ar', 'site_description_en',
+        'logo_path_light', 'logo_path_dark', 'favicon_path',
+        'contact_email', 'contact_phone', 'contact_whatsapp', 'contact_address_ar', 'contact_address_en',
+        'social_facebook', 'social_twitter', 'social_instagram', 'social_linkedin', 'social_snapchat', 'social_tiktok',
+        'maintenance_mode', 'maintenance_message_ar', 'maintenance_message_en',
+        'default_currency_code', 'default_currency_symbol',
+        'booking_availability_months', 'booking_buffer_time',
+        'policy_ar', 'policy_en', 'terms_ar', 'terms_en',
+        'seo_meta_title_ar', 'seo_meta_title_en', 'seo_meta_description_ar', 'seo_meta_description_en', 'seo_meta_keywords_ar', 'seo_meta_keywords_en',
+        'google_analytics_id', 'facebook_pixel_id',
+        'enable_bank_transfer', 'enable_tamara_payment', // مفتاح عام لتفعيل تمارا
+        'homepage_slider_images', // لن يتم تعديله مباشرة هنا، ولكن جيد أن يكون معروفاً
 
-        // مفاتيح إعدادات الصفحة الرئيسية المرئية
-        'homepage_logo_path',
-        'homepage_slider_images',
+        // مفاتيح إعدادات حدود رسائل SMS التي تمت إضافتها سابقاً
+        'sms_monthly_limit', 'sms_stop_sending_on_limit',
 
-        // مفاتيح إعدادات SMS
-        'sms_monthly_limit',
-        'sms_stop_sending_on_limit',
-
-        'months_available_for_booking',
-        'reminder_notifications_enabled', // إذا كنت لا تزال تستخدم هذا الخيار
-        // يمكنك إضافة مفاتيح أخرى هنا
-        'contact_whatsapp', // مثال لمفتاح قد يكون لديك
-        'logo_path_dark',   // مثال لمفتاح شعار آخر
+        // --- MODIFICATION START: Tamara Setting Keys ---
+        'tamara_enabled', // للتحكم العام في تفعيل/تعطيل تمارا
+        'tamara_api_url',
+        'tamara_api_token',
+        'tamara_notification_token', // يستخدم للتحقق من صحة الويب هوك
+        'tamara_webhook_verification_bypass', // لتجاوز التحقق من الويب هوك (لأغراض التطوير)
+        // --- MODIFICATION END ---
     ];
+
 
     public function edit()
     {
-        $settingsArray = Setting::pluck('value', 'key')->all();
+        $settingsCollection = Setting::whereIn('key', $this->settingKeys)->get();
+        $settings = [];
+        foreach ($settingsCollection as $setting) {
+            // التحقق إذا كانت القيمة JSON لـ homepage_slider_images
+            if ($setting->key === 'homepage_slider_images') {
+                $decodedValue = json_decode($setting->value, true);
+                // إذا فشل التحويل أو لم يكن مصفوفة، استخدم مصفوفة فارغة
+                $settings[$setting->key] = (is_array($decodedValue)) ? $decodedValue : [];
+            } else {
+                $settings[$setting->key] = $setting->value;
+            }
+        }
 
-        // معالجة خاصة لصور السلايدر (JSON)
-        $settingsArray['homepage_slider_images'] = json_decode($settingsArray['homepage_slider_images'] ?? '[]', true) ?? [];
+        // تعيين قيم افتراضية إذا لم تكن موجودة
+        foreach ($this->settingKeys as $key) {
+            if (!array_key_exists($key, $settings)) {
+                if ($key === 'homepage_slider_images') {
+                    $settings[$key] = [];
+                } elseif (in_array($key, ['maintenance_mode', 'enable_bank_transfer', 'enable_tamara_payment', 'tamara_enabled', 'tamara_webhook_verification_bypass', 'sms_stop_sending_on_limit'])) {
+                    $settings[$key] = '0'; // الافتراضي للـ booleans هو '0' (false)
+                } else {
+                    $settings[$key] = '';
+                }
+            }
+        }
+        // التأكد من أن homepage_slider_images هي مصفوفة دائماً
+        if (!is_array($settings['homepage_slider_images'])) {
+            $settings['homepage_slider_images'] = [];
+        }
 
-        // معالجة خاصة لخيار إيقاف إرسال SMS (boolean)
-        $settingsArray['sms_stop_sending_on_limit'] = filter_var($settingsArray['sms_stop_sending_on_limit'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
-        // معالجة خاصة لخيار تفعيل إشعارات التذكير (boolean)
-        $settingsArray['reminder_notifications_enabled'] = filter_var($settingsArray['reminder_notifications_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
-
-
-        // قم بتمرير المصفوفة بأكملها إلى الـ view. الـ view ستستخدم $settings['key_name']
-        return view('admin.settings.edit', ['settings' => $settingsArray]);
+        return view('admin.settings.edit', compact('settings'));
     }
 
     public function update(Request $request)
     {
+        // ملاحظة: قواعد التحقق قد تحتاج إلى تعديل بناءً على متطلبات كل حقل
         $rules = [
-            'policy_ar' => 'nullable|string',
-            // 'policy_en' => 'nullable|string', // إذا تم حذفه من الواجهة، لا داعي للتحقق منه
-            // ... قواعد التحقق الأخرى للمفاتيح النصية ...
-            'months_available_for_booking' => 'required|integer|min:1|max:12',
-            'contact_whatsapp' => 'nullable|string|max:20', // مثال
+            'site_name_ar' => 'nullable|string|max:100',
+            'site_name_en' => 'nullable|string|max:100',
+            'contact_email' => 'nullable|email|max:100',
+            'contact_phone' => 'nullable|string|max:20',
+            'contact_whatsapp' => 'nullable|string|max:20',
+            'booking_availability_months' => 'nullable|integer|min:1|max:24',
+            'booking_buffer_time' => 'nullable|integer|min:0|max:360', // بالدقائق
+            'maintenance_mode' => 'nullable|boolean',
+            'enable_bank_transfer' => 'nullable|boolean',
+            // 'enable_tamara_payment' => 'nullable|boolean', // تم استبداله بـ tamara_enabled
 
-            // قواعد التحقق لملفات الصور (إذا كانت لا تزال موجودة في النموذج)
-            'homepage_logo_path' => 'nullable|image|max:2048',
-            'logo_path_dark' => 'nullable|image|max:2048', // مثال لشعار آخر
-            'homepage_slider_images' => 'nullable|array',
-            'homepage_slider_images.*' => 'nullable|image|max:2048', // اسمح بأن تكون بعض العناصر فارغة إذا كان المستخدم يحذف صوراً
+            'logo_light_file' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
+            'logo_dark_file' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg,webp|max:2048',
+            'favicon_file' => 'nullable|image|mimes:ico,png|max:512',
+            'slider_images.*' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:4096', // لكل صورة في السلايدر
 
-            // قواعد التحقق لإعدادات SMS
-            'sms_monthly_limit' => 'required|integer|min:0', // 0 يعني لا يوجد حد
+            // قواعد التحقق لإعدادات حدود الرسائل النصية
+            'sms_monthly_limit' => 'nullable|integer|min:0',
+            'sms_stop_sending_on_limit' => 'nullable|boolean',
+
+            // --- MODIFICATION START: Tamara Settings Validation ---
+            'tamara_enabled' => 'nullable|boolean',
+            'tamara_api_url' => 'nullable|string|url|max:255',
+            'tamara_api_token' => 'nullable|string|max:255', // عادة ما يكون طويلاً
+            'tamara_notification_token' => 'nullable|string|max:255', // عادة ما يكون طويلاً
+            'tamara_webhook_verification_bypass' => 'nullable|boolean',
+            // --- MODIFICATION END ---
         ];
 
-        $messages = [
-            'homepage_logo_path.image' => 'ملف الشعار يجب أن يكون صورة.',
-            'homepage_logo_path.max' => 'حجم ملف الشعار لا يجب أن يتجاوز 2 ميجابايت.',
-            'logo_path_dark.image' => 'ملف الشعار الداكن يجب أن يكون صورة.',
-            'logo_path_dark.max' => 'حجم ملف الشعار الداكن لا يجب أن يتجاوز 2 ميجابايت.',
-            'homepage_slider_images.*.image' => 'كل ملف سلايد يجب أن يكون صورة.',
-            'homepage_slider_images.*.max' => 'حجم ملف السلايد لا يجب أن يتجاوز 2 ميجابايت.',
-            'sms_monthly_limit.required' => 'الحد الشهري للرسائل مطلوب.',
-            'sms_monthly_limit.integer' => 'الحد الشهري للرسائل يجب أن يكون رقماً صحيحاً.',
-            'sms_monthly_limit.min' => 'الحد الشهري للرسائل لا يمكن أن يكون سالباً.',
-        ];
-
-        $validator = Validator::make($request->all(), $rules, $messages);
-
-        if ($validator->fails()) {
-            Log::error('Settings update validation failed', ['errors' => $validator->errors()->all()]);
-            return redirect()->back()
-                        ->withErrors($validator)
-                        ->withInput();
-        }
-
-        $currentSettings = Setting::pluck('value', 'key')->toArray();
-
-        // معالجة رفع ملف الشعار الرئيسي (إذا تم إرساله)
-        if ($request->hasFile('homepage_logo_path')) {
-            $logoFile = $request->file('homepage_logo_path');
-            if (isset($currentSettings['homepage_logo_path']) && $currentSettings['homepage_logo_path']) {
-                Storage::disk('public')->delete(str_replace(Storage::url(''), '', $currentSettings['homepage_logo_path']));
-            }
-            $logoPath = $logoFile->store('settings/logos', 'public');
-            Setting::updateOrCreate(['key' => 'homepage_logo_path'], ['value' => Storage::url($logoPath)]);
-            Log::info('Homepage logo updated', ['path' => Storage::url($logoPath)]);
-        }
-
-        // معالجة رفع ملف الشعار الداكن (إذا تم إرساله)
-        if ($request->hasFile('logo_path_dark')) {
-            $logoFileDark = $request->file('logo_path_dark');
-            if (isset($currentSettings['logo_path_dark']) && $currentSettings['logo_path_dark']) {
-                Storage::disk('public')->delete(str_replace(Storage::url(''), '', $currentSettings['logo_path_dark']));
-            }
-            $logoPathDark = $logoFileDark->store('settings/logos', 'public');
-            Setting::updateOrCreate(['key' => 'logo_path_dark'], ['value' => Storage::url($logoPathDark)]);
-            Log::info('Dark logo updated', ['path' => Storage::url($logoPathDark)]);
-        }
-
-
-        // معالجة صور السلايدر
-        $existingSliderImages = json_decode($currentSettings['homepage_slider_images'] ?? '[]', true) ?? [];
-        $updatedSliderImagePaths = $existingSliderImages; // ابدأ بالصور الموجودة
-
-        // حذف الصور التي تم تحديدها للحذف
-        if ($request->has('delete_slider_images') && is_array($request->delete_slider_images)) {
-            foreach ($request->delete_slider_images as $imagePathToDelete) {
-                // تأكد من أن المسار يبدأ بـ storage/ لحذفه بشكل صحيح من قرص public
-                $storagePathToDelete = str_replace(Storage::url(''), '', $imagePathToDelete); // تحويل URL إلى مسار تخزين
-                if (Storage::disk('public')->exists($storagePathToDelete)) {
-                    Storage::disk('public')->delete($storagePathToDelete);
-                    Log::info('Slider image deleted', ['path' => $storagePathToDelete]);
-                }
-                // إزالة الصورة من المصفوفة
-                $updatedSliderImagePaths = array_filter($updatedSliderImagePaths, function ($path) use ($imagePathToDelete) {
-                    return $path !== $imagePathToDelete;
-                });
-            }
-        }
-
-        // إضافة صور جديدة
-        if ($request->hasFile('homepage_slider_images')) {
-            foreach ($request->file('homepage_slider_images') as $sliderImage) {
-                if ($sliderImage->isValid()) {
-                    $sliderImagePath = $sliderImage->store('settings/slider', 'public');
-                    $updatedSliderImagePaths[] = Storage::url($sliderImagePath);
-                    Log::info('New slider image uploaded', ['path' => Storage::url($sliderImagePath)]);
-                }
-            }
-        }
-        // إعادة ترتيب الفهارس إذا تم حذف عناصر
-        $updatedSliderImagePaths = array_values($updatedSliderImagePaths);
-        Setting::updateOrCreate(['key' => 'homepage_slider_images'], ['value' => json_encode($updatedSliderImagePaths)]);
-
-
-        // تحديث باقي الإعدادات النصية و checkbox
-        // استخدام $this->settingKeys لضمان تحديث المفاتيح المعرفة فقط
-        $booleanSettings = ['reminder_notifications_enabled', 'sms_stop_sending_on_limit'];
-
+        // إضافة باقي المفاتيح كـ nullable|string مبدئياً إذا لم يكن لها قواعد خاصة
         foreach ($this->settingKeys as $key) {
-            if (in_array($key, ['homepage_logo_path', 'logo_path_dark', 'homepage_slider_images'])) {
-                continue; // تم التعامل معها بالفعل
-            }
-
-            if (in_array($key, $booleanSettings)) {
-                $value = $request->has($key) ? '1' : '0';
-            } elseif ($request->filled($key) || $request->input($key) === null || $request->input($key) === '') {
-                // اسمح بحفظ القيم الفارغة للحقول النصية
-                 $value = $request->input($key);
-            } else {
-                // إذا لم يكن الحقل موجوداً في الطلب (وليس boolean)، لا نغير قيمته الحالية
-                // هذا يمنع مسح القيم إذا لم يتم إرسالها (مثلاً مفاتيح API)
-                if(isset($currentSettings[$key])) {
-                    $value = $currentSettings[$key]; // الحفاظ على القيمة القديمة
-                } else {
-                    $value = null; // أو قيمة افتراضية مناسبة
+            if (!isset($rules[$key])) {
+                 if (in_array($key, ['maintenance_mode', 'enable_bank_transfer', 'tamara_enabled', 'tamara_webhook_verification_bypass', 'sms_stop_sending_on_limit'])) {
+                    // هذه تم التعامل معها بالفعل
+                } else if ($key === 'homepage_slider_images' || Str::endsWith($key, '_file') ) {
+                    // هذه يتم التعامل معها بشكل خاص (ملفات)
+                }
+                else {
+                    $rules[$key] = 'nullable|string|max:65535'; // استخدام TEXT قد يتطلب max كبير
                 }
             }
-             // معالجة خاصة لـ null إذا كان الحقل يمكن أن يكون فارغاً
-             if ($value === null && in_array($key, ['policy_ar', 'policy_en', /* حقول نصية أخرى اختيارية */])) {
-                 Setting::updateOrCreate(['key' => $key], ['value' => null]);
-             } elseif ($value !== null || in_array($key, $booleanSettings) || $key === 'sms_monthly_limit' || $key === 'months_available_for_booking') {
-                 Setting::updateOrCreate(['key' => $key], ['value' => $value]);
-             }
         }
 
-        Cache::forget('app_settings'); // مفتاح الكاش العام للإعدادات
+        $validatedData = $request->validate($rules, [
+            'booking_availability_months.integer' => 'عدد أشهر التوافر يجب أن يكون رقماً صحيحاً.',
+            'booking_buffer_time.integer' => 'فترة الراحة يجب أن تكون رقماً صحيحاً بالدقائق.',
+            'tamara_api_url.url' => 'رابط API لتمارا يجب أن يكون رابطاً صحيحاً (URL).',
+        ]);
 
-        return redirect()->route('admin.settings.edit')->with('success', 'تم تحديث الإعدادات بنجاح.');
+        try {
+            foreach ($validatedData as $key => $value) {
+                // التعامل مع قيم checkbox (booleans)
+                if (in_array($key, ['maintenance_mode', 'enable_bank_transfer', 'tamara_enabled', 'tamara_webhook_verification_bypass', 'sms_stop_sending_on_limit'])) {
+                    $valueToStore = $request->has($key) ? '1' : '0';
+                } else {
+                    $valueToStore = $value;
+                }
+                
+                if (in_array($key, $this->settingKeys)) { // تأكد من أن المفتاح من ضمن المفاتيح المدارة
+                     Setting::updateOrCreate(['key' => $key], ['value' => $valueToStore]);
+                }
+            }
+
+            // التعامل مع رفع الملفات (الشعارات، الفافيكون)
+            if ($request->hasFile('logo_light_file')) {
+                $path = $request->file('logo_light_file')->store('logos', 'public');
+                Setting::updateOrCreate(['key' => 'logo_path_light'], ['value' => 'storage/' . $path]);
+            }
+            if ($request->hasFile('logo_dark_file')) {
+                $path = $request->file('logo_dark_file')->store('logos', 'public');
+                Setting::updateOrCreate(['key' => 'logo_path_dark'], ['value' => 'storage/' . $path]);
+            }
+            if ($request->hasFile('favicon_file')) {
+                $path = $request->file('favicon_file')->store('favicons', 'public');
+                Setting::updateOrCreate(['key' => 'favicon_path'], ['value' => 'storage/' . $path]);
+            }
+
+            // التعامل مع صور السلايدر
+            $sliderImagesPaths = json_decode(Setting::where('key', 'homepage_slider_images')->value('value') ?? '[]', true);
+            if ($request->has('deleted_slider_images')) {
+                foreach ($request->input('deleted_slider_images') as $deletedImage) {
+                    // حذف الملف الفعلي (اختياري، لكن جيد)
+                    // Storage::disk('public')->delete(str_replace('storage/', '', $deletedImage));
+                    $sliderImagesPaths = array_diff($sliderImagesPaths, [$deletedImage]);
+                }
+            }
+            if ($request->hasFile('slider_images')) {
+                foreach ($request->file('slider_images') as $file) {
+                    $path = $file->store('slider', 'public');
+                    $sliderImagesPaths[] = 'storage/' . $path;
+                }
+            }
+            Setting::updateOrCreate(['key' => 'homepage_slider_images'], ['value' => json_encode(array_values($sliderImagesPaths))]);
+
+
+            Log::info('General settings updated by admin ID: ' . auth()->id());
+            
+            // مسح الكاش بعد تحديث الإعدادات لضمان تطبيقها
+            Artisan::call('config:clear');
+            Artisan::call('cache:clear');
+            Log::info('Configuration and application cache cleared after settings update.');
+
+
+            return redirect()->route('admin.settings.edit')->with('success', 'تم تحديث الإعدادات العامة بنجاح.');
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('Settings update validation failed.', ['errors' => $e->errors(), 'admin_id' => auth()->id()]);
+            return back()->withErrors($e->errors())->withInput();
+        } catch (\Exception $e) {
+            Log::error('Failed to update general settings: ' . $e->getMessage(), [
+                'exception_class' => get_class($e),
+                'trace' => Str::limit($e->getTraceAsString(), 1000),
+                'admin_id' => auth()->id()
+            ]);
+            return back()->with('error', 'فشل تحديث الإعدادات العامة: حدث خطأ ما.')->withInput();
+        }
     }
 }
