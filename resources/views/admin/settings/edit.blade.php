@@ -4,70 +4,18 @@
 
 @push('styles')
 <style>
-    .card-header h5 {
-        margin-bottom: 0;
-        display: flex;
-        align-items: center;
-    }
-    .card-header i.fas {
-        margin-left: 0.5rem; /* For RTL */
-    }
-    html[dir="ltr"] .card-header i.fas {
-        margin-left: 0;
-        margin-right: 0.5rem;
-    }
-    .nav-tabs .nav-link.active {
-        background-color: #f8f9fa;
-        border-bottom-color: #dee2e6;
-    }
-    .form-text {
-        font-size: 0.8rem;
-    }
-    .image-preview-container {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-top: 0.5rem;
-    }
-    .image-preview-item {
-        position: relative;
-        border: 1px solid #ddd;
-        padding: 5px;
-        border-radius: 4px;
-    }
-    .image-preview-item img {
-        max-width: 100px;
-        max-height: 100px;
-        object-fit: cover;
-    }
-    .delete-image-btn {
-        position: absolute;
-        top: -5px;
-        right: -5px; /* For RTL */
-        background-color: rgba(255, 0, 0, 0.7);
-        color: white;
-        border: none;
-        border-radius: 50%;
-        width: 20px;
-        height: 20px;
-        font-size: 12px;
-        line-height: 20px;
-        text-align: center;
-        cursor: pointer;
-        padding: 0;
-    }
-     html[dir="ltr"] .delete-image-btn {
-        right: auto;
-        left: -5px;
-    }
-    .flash-highlight {
-        animation: flash-animation 1s 2;
-    }
-    @keyframes flash-animation {
-        0% { background-color: transparent; }
-        50% { background-color: rgba(255, 255, 0, 0.3); }
-        100% { background-color: transparent; }
-    }
+    .card-header h5 { margin-bottom: 0; display: flex; align-items: center; }
+    .card-header i.fas { margin-left: 0.5rem; }
+    html[dir="ltr"] .card-header i.fas { margin-left: 0; margin-right: 0.5rem; }
+    .nav-tabs .nav-link.active { background-color: #f8f9fa; border-bottom-color: #dee2e6; }
+    .form-text { font-size: 0.8rem; }
+    .image-preview-container { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.5rem; }
+    .image-preview-item { position: relative; border: 1px solid #ddd; padding: 5px; border-radius: 4px; }
+    .image-preview-item img { max-width: 100px; max-height: 100px; object-fit: cover; }
+    .delete-image-btn { position: absolute; top: -5px; right: -5px; background-color: rgba(255, 0, 0, 0.7); color: white; border: none; border-radius: 50%; width: 20px; height: 20px; font-size: 12px; line-height: 20px; text-align: center; cursor: pointer; padding: 0; }
+     html[dir="ltr"] .delete-image-btn { right: auto; left: -5px; }
+    .flash-highlight { animation: flash-animation 1s 2; }
+    @keyframes flash-animation { 0% { background-color: transparent; } 50% { background-color: rgba(255, 255, 0, 0.3); } 100% { background-color: transparent; } }
 </style>
 @endpush
 
@@ -133,7 +81,6 @@
         </ul>
 
         <div class="tab-content" id="settingsTabsContent">
-            {{-- General Site Settings Tab --}}
             <div class="tab-pane fade show active" id="general-settings" role="tabpanel" aria-labelledby="general-settings-tab">
                 <div class="card shadow-sm mb-4">
                     <div class="card-header">
@@ -201,7 +148,6 @@
                 </div>
             </div>
 
-            {{-- Contact Information Tab --}}
             <div class="tab-pane fade" id="contact-settings" role="tabpanel" aria-labelledby="contact-settings-tab">
                 <div class="card shadow-sm mb-4">
                     <div class="card-header">
@@ -222,7 +168,6 @@
                         </div>
                     </div>
                 </div>
-                {{-- START: MODIFICATIONS FOR WHATSAPP AND INSTAGRAM --}}
                 <div class="card shadow-sm mb-4">
                     <div class="card-header">
                         <h5><i class="fab fa-whatsapp"></i> إعدادات الواتساب</h5>
@@ -261,10 +206,8 @@
                         </div>
                     </div>
                 </div>
-                {{-- END: MODIFICATIONS FOR WHATSAPP AND INSTAGRAM --}}
             </div>
             
-            {{-- Booking Settings Tab --}}
             <div class="tab-pane fade" id="booking-settings" role="tabpanel" aria-labelledby="booking-settings-tab">
                 <div class="card shadow-sm mb-4">
                     <div class="card-header">
@@ -283,12 +226,19 @@
                                 @error('booking_buffer_time') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             </div>
                         </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="outside_ahsa_fee" class="form-label">رسوم التصوير خارج الأحساء (ريال سعودي)</label>
+                                <input type="number" step="0.01" class="form-control @error('outside_ahsa_fee') is-invalid @enderror" id="outside_ahsa_fee" name="outside_ahsa_fee" value="{{ old('outside_ahsa_fee', $settings['outside_ahsa_fee'] ?? '300.00') }}" min="0">
+                                <small class="form-text text-muted">القيمة التي ستتم إضافتها على الفاتورة عند اختيار التصوير خارج الأحساء.</small>
+                                @error('outside_ahsa_fee') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                            </div>
+                        </div>
                         <div class="mb-3">
                             <label for="policy_ar" class="form-label">سياسة الحجز (عربي)</label>
                             <textarea class="form-control @error('policy_ar') is-invalid @enderror" id="policy_ar" name="policy_ar" rows="5">{{ old('policy_ar', $settings['policy_ar'] ?? '') }}</textarea>
                             @error('policy_ar') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
-                         {{-- Policy EN - Not explicitly requested by user but good for completeness --}}
                         <div class="mb-3">
                             <label for="policy_en" class="form-label">سياسة الحجز (إنجليزي - اختياري)</label>
                             <textarea class="form-control @error('policy_en') is-invalid @enderror" id="policy_en" name="policy_en" rows="5">{{ old('policy_en', $settings['policy_en'] ?? '') }}</textarea>
@@ -298,8 +248,8 @@
                 </div>
             </div>
 
-            {{-- Payment Settings Tab --}}
             <div class="tab-pane fade" id="payment-settings" role="tabpanel" aria-labelledby="payment-settings-tab">
+                {{-- Payment Settings Content --}}
                 <div class="card shadow-sm mb-4">
                     <div class="card-header">
                         <h5><i class="fas fa-money-check-alt"></i> خيارات الدفع العامة</h5>
@@ -361,7 +311,8 @@
             </div>
 
             <div class="tab-pane fade" id="data-management" role="tabpanel" aria-labelledby="data-management-tab">
-                <div class="card shadow-sm mb-4 border-danger">
+                {{-- Data Management Content --}}
+                 <div class="card shadow-sm mb-4 border-danger">
                     <div class="card-header bg-danger text-white">
                         <h5 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>منطقة الخطر</h5>
                     </div>
@@ -381,7 +332,6 @@
                 </div>
             </div>
         </div>
-
 
         <div class="mt-4 pt-3 border-top">
             <button type="submit" class="btn btn-primary btn-lg">
