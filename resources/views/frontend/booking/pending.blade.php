@@ -130,7 +130,7 @@
                          @endif
 
                         <div class="booking-section">
-                            <h5 class="section-title"><i class="fas fa-receipt"></i> ملخص الحجز </h5>
+                            <h5 class="section-title"> ملخص الحجز </h5>
                             <dl>
                                 <dt>رقم الحجز:</dt> <dd>#{{ toArabicDigits($booking->id) }}</dd>
                                 <dt>الخدمة:</dt> <dd>{{ $booking->service?->name_ar ?? $booking->service?->name_en ?? 'غير محدد' }}</dd>
@@ -147,7 +147,7 @@
 
                         @if ($invoice = $booking->invoice)
                             <div class="booking-section">
-                                <h5 class="section-title"><i class="fas fa-file-invoice-dollar"></i> تفاصيل الفاتورة </h5>
+                                <h5 class="section-title"> تفاصيل الفاتورة </h5>
                                 <dl>
                                     <dt>رقم الفاتورة:</dt> <dd>{{ $invoice->invoice_number }}</dd>
                                     <dt>المبلغ الإجمالي:</dt> <dd class="fw-bold">{{ formatAmountConditionallyPending($invoice->amount) }} {{ $invoice->currency ?? 'SAR' }}</dd>
@@ -179,10 +179,10 @@
 
                            <div class="booking-section">
                                 <h5 class="section-title">
-                                    @if($invoice->payment_method == 'bank_transfer') <i class="fas fa-university"></i> الدفع بواسطة التحويل البنكي
-                                    @elseif($invoice->payment_method == 'tamara') <i class="fas fa-credit-card"></i> الدفع بواسطة تمارا
-                                    @elseif($invoice->payment_method == 'manual_confirmation_due_to_no_gateway') <i class="fas fa-user-clock"></i> بانتظار التأكيد اليدوي
-                                    @else <i class="fas fa-info-circle"></i> تفاصيل الدفع
+                                    @if($invoice->payment_method == 'bank_transfer')  الدفع بواسطة التحويل البنكي
+                                    @elseif($invoice->payment_method == 'tamara')  الدفع بواسطة تمارا
+                                    @elseif($invoice->payment_method == 'manual_confirmation_due_to_no_gateway')  بانتظار التأكيد اليدوي
+                                    @else  تفاصيل الدفع
                                     @endif
                                 </h5>
 
@@ -204,7 +204,7 @@
                                          <div class="mt-3 text-center">
                                              <form method="POST" action="{{ route('payment_retry_tamara', $invoice) }}" class="m-0 d-inline-block">
                                                  @csrf
-                                                 <button type="submit" class="btn-custom btn-pay"><i class="fas fa-credit-card me-1"></i> دفع المتبقي الآن عبر تمارا</button>
+                                                 <button type="submit" class="btn-custom btn-pay"> دفع المتبقي الآن عبر تمارا</button>
                                              </form>
                                          </div>
                                      @endif
@@ -225,7 +225,7 @@
                                          <div class="mt-3 text-center">
                                              <form method="POST" action="{{ route('payment_retry_tamara', $invoice) }}" class="m-0 d-inline-block">
                                                  @csrf
-                                                 <button type="submit" class="btn-custom btn-pay"><i class="fas fa-credit-card me-1"></i> 
+                                                 <button type="submit" class="btn-custom btn-pay"> 
                                                      {{ $invoice->status == \App\Models\Invoice::STATUS_PARTIALLY_PAID ? 'دفع المتبقي الآن' : 'ادفع الآن عبر تمارا' }}
                                                  </button>
                                              </form>
@@ -258,8 +258,8 @@
                         @endif
 
                         <div class="actions-container">
-                            <a href="{{ route('customer.dashboard') }}" class="btn-custom btn-primary-custom"> <i class="fas fa-arrow-left me-1"></i> العودة إلى لوحة التحكم </a>
-                            <a href="{{ route('services.index') }}" class="btn-custom btn-secondary-custom"> <i class="fas fa-camera-retro me-1"></i> تصفح خدمات أخرى </a>
+                            <a href="{{ route('customer.dashboard') }}" class="btn-custom btn-primary-custom">  العودة إلى لوحة التحكم </a>
+                            <a href="{{ route('services.index') }}" class="btn-custom btn-secondary-custom">  تصفح خدمات أخرى </a>
                         </div>
                     </div> 
                 </div> 
