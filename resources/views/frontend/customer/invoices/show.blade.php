@@ -2,25 +2,33 @@
 @extends('layouts.app')
 
 @php
-    // دالة toArabicDigits يفترض أنها معرفة كـ helper عام أو في AppServiceProvider
-    if (!function_exists('toArabicDigits')) {
-        function toArabicDigits($number) {
+    // من الأفضل أن تكون هذه الدوال معرفة كـ helpers عامة في مشروعك
+    // (مثلاً في app/Helpers/NumberHelper.php ويتم تحميلها عبر composer.json أو تسجيلها في AppServiceProvider)
+    if (!function_exists('toArabicDigitsGlobal')) {
+        function toArabicDigitsGlobal($number) {
+            if (is_null($number)) return '';
             return str_replace(range(0, 9), ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'], $number);
         }
     }
-    // دالة formatAmountConditionally للفاتورة
-    if (!function_exists('formatAmountConditionallyInvoiceShow')) {
-        function formatAmountConditionallyInvoiceShow($value) {
+    if (!function_exists('formatAmountConditionallyGlobal')) {
+        function formatAmountConditionallyGlobal($value, $currency = null) {
+            if (is_null($value)) return '-';
             $value = (float) $value;
             $roundedToTwoDecimals = round($value, 2);
             $hasSignificantFraction = (fmod($roundedToTwoDecimals, 1) != 0.00);
-            $formattedNumber = number_format($roundedToTwoDecimals, $hasSignificantFraction ? 2 : 0, '.', ''); // Ensure period for decimal
-            return toArabicDigits($formattedNumber);
+            $formattedNumber = number_format($roundedToTwoDecimals, $hasSignificantFraction ? 2 : 0, '.', '');
+            $result = toArabicDigitsGlobal($formattedNumber);
+            if ($currency) {
+                $result .= ' ' . $currency;
+            }
+            return $result;
         }
     }
+
+    $invoiceTitleNumber = $invoice->invoice_number ?: $invoice->id;
 @endphp
 
-@section('title', 'تفاصيل الفاتورة رقم ' . ($invoice->invoice_number ?: $invoice->id))
+@section('title', "تفاصيل الفاتورة رقم " . $invoiceTitleNumber)
 
 @section('styles')
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -42,7 +50,7 @@
     .invoice-section-title::after { content: ''; position: absolute; bottom: 0; right: 0; width: 50px; height: 3px; background-color: #555; }
     .info-row { display: flex; align-items: flex-start; margin-bottom: 12px; padding: 6px 0; border-bottom: 1px dashed #eee; }
     .info-row:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
-    .info-label { font-weight: 600; color: #555; width: 160px; flex-shrink: 0; margin-left: 15px; } /* زيادة عرض الليبل قليلاً */
+    .info-label { font-weight: 600; color: #555; width: 160px; flex-shrink: 0; margin-left: 15px; }
     html[dir="ltr"] .info-label { margin-left: 0; margin-right: 15px; }
     .info-value { color: #333; flex-grow: 1; }
     .info-value.fw-bold { font-weight: 700 !important; }
@@ -75,9 +83,9 @@
     .btn-tamara-pay:hover { background-color: #3A3A3A; border-color: #3A3A3A; color: white; }
     .btn-tamara-pay img { height: 20px; margin-left: 8px; }
     html[dir="ltr"] .btn-tamara-pay img { margin-left: 0; margin-right: 8px; }
-    .alert { border-radius: 8px; } /* تنسيق بسيط للـ alert */
-    @media (max-width: 767px) { /* ... (تنسيقات الجوال كما هي) ... */ }
-    @media (max-width: 576px) { /* ... (تنسيقات الجوال كما هي) ... */ }
+    .alert { border-radius: 8px; }
+    @media (max-width: 767px) { .invoice-card-header { flex-direction: column; align-items: flex-start; } .invoice-card-title { margin-bottom: 10px; } .info-label { min-width: 100px; font-size: 0.9em; } .info-value { font-size: 0.9em; } .btn-action { padding: 6px 12px; font-size: 13px; } .invoice-actions { justify-content: center; } }
+    @media (max-width: 576px) { .invoice-card-body { padding: 20px; } .info-row { flex-direction: column; align-items: flex-start; } .info-label { width: auto; margin-bottom: 4px; margin-left: 0;} html[dir="ltr"] .info-label { margin-right: 0; } .info-value { display: block; width: 100%; } .invoice-actions { flex-direction: column; align-items: stretch; } .invoice-actions .btn-action { width: 100%; margin-bottom: 10px; } .invoice-actions .btn-action:last-child { margin-bottom: 0; } }
 </style>
 @endsection
 
@@ -87,7 +95,7 @@
         <div class="invoice-card-header">
             <h1 class="invoice-card-title">
                 <i class="fas fa-file-invoice"></i>
-                تفاصيل الفاتورة رقم {{ $invoice->invoice_number ?: $invoice->id }}
+                تفاصيل الفاتورة رقم {{ $invoiceTitleNumber }}
             </h1>
             <a href="{{ route('customer.dashboard') }}" class="btn-action btn-back">
                 <i class="fas fa-arrow-right"></i> العودة إلى لوحة التحكم
@@ -102,7 +110,7 @@
                 $isTamaraGenerallyEnabled = class_exists(App\Services\TamaraService::class) && filter_var(App\Models\Setting::where('key', 'tamara_enabled')->value('value'), FILTER_VALIDATE_BOOLEAN);
 
                 $remainingAmount = $invoice->remaining_amount ?? 0;
-                if (!isset($invoice->remaining_amount)) { // Fallback if accessor not present
+                if (!isset($invoice->remaining_amount)) {
                     $totalPaidForInvoice = $invoice->payments->where('status', 'completed')->sum('amount');
                     $remainingAmount = $invoice->amount - $totalPaidForInvoice;
                 }
@@ -117,18 +125,18 @@
                     case \App\Models\Invoice::STATUS_PARTIALLY_PAID:
                         $alertClass = 'alert-info';
                         if ($remainingAmount > 0.009) {
-                            $alertText = 'تم دفع جزء. المبلغ المتبقي: ' . formatAmountConditionallyInvoiceShow($remainingAmount) . ' ' . ($invoice->currency ?: 'SAR');
-                            if ($isTamaraGenerallyEnabled && $invoice->payment_method === 'tamara') { // اسمح بالدفع بتمارا إذا كانت طريقة الدفع الأصلية هي تمارا
+                            $alertText = 'تم دفع جزء. المبلغ المتبقي: ' . formatAmountConditionallyGlobal($remainingAmount, $invoice->currency);
+                            if ($isTamaraGenerallyEnabled && $invoice->payment_method === 'tamara') {
                                 $allowTamaraPayment = true;
                             }
                         } else {
-                            $alertClass = 'alert-success'; // إذا كان المتبقي صفر، اعتبرها مدفوعة
+                            $alertClass = 'alert-success';
                             $alertText = 'الفاتورة مدفوعة بالكامل.';
                         }
                         break;
                     case \App\Models\Invoice::STATUS_UNPAID:
-                    case \App\Models\Invoice::STATUS_PENDING: // قد تكون من redirect أو webhook
-                    case \App\Models\Invoice::STATUS_PENDING_CONFIRMATION: // لـ manual confirmation
+                    case \App\Models\Invoice::STATUS_PENDING:
+                    case \App\Models\Invoice::STATUS_PENDING_CONFIRMATION:
                     case \App\Models\Invoice::STATUS_FAILED:
                         $alertClass = ($invoice->status === \App\Models\Invoice::STATUS_FAILED) ? 'alert-danger' : 'alert-warning';
                         if($invoice->status === \App\Models\Invoice::STATUS_PENDING_CONFIRMATION"){
@@ -185,14 +193,14 @@
                         </div>
                     </div>
                      <div class="col-md-6">
-                        <div class="info-row"> <span class="info-label">المبلغ الإجمالي:</span> <span class="info-value fw-bold">{{ formatAmountConditionallyInvoiceShow($invoice->amount) }} {{ $invoice->currency }}</span> </div>
+                        <div class="info-row"> <span class="info-label">المبلغ الإجمالي:</span> <span class="info-value fw-bold">{{ formatAmountConditionallyGlobal($invoice->amount, $invoice->currency) }}</span> </div>
                     </div>
                     <div class="col-md-6">
-                        <div class="info-row"> <span class="info-label">المبلغ المدفوع:</span> <span class="info-value text-success fw-bold">{{ formatAmountConditionallyInvoiceShow($invoice->total_paid_amount) }} {{ $invoice->currency }}</span> </div>
+                        <div class="info-row"> <span class="info-label">المبلغ المدفوع:</span> <span class="info-value text-success fw-bold">{{ formatAmountConditionallyGlobal($invoice->total_paid_amount, $invoice->currency) }}</span> </div>
                     </div>
                     @if ($remainingAmount > 0.009 && $invoice->status != \App\Models\Invoice::STATUS_PAID)
                          <div class="col-md-6">
-                            <div class="info-row"> <span class="info-label">المبلغ المتبقي:</span> <span class="info-value text-danger fw-bold">{{ formatAmountConditionallyInvoiceShow($remainingAmount) }} {{ $invoice->currency }}</span> </div>
+                            <div class="info-row"> <span class="info-label">المبلغ المتبقي:</span> <span class="info-value text-danger fw-bold">{{ formatAmountConditionallyGlobal($remainingAmount, $invoice->currency) }}</span> </div>
                         </div>
                      @endif
                      <div class="col-md-6">
@@ -220,11 +228,11 @@
                         </div>
                     </div>
                     <div class="col-md-6">
-                        <div class="info-row"> <span class="info-label">تاريخ الإنشاء:</span> <span class="info-value">{{ $invoice->created_at ? toArabicDigits($invoice->created_at->translatedFormat('d F Y - H:i')) : '-' }}</span> </div>
+                        <div class="info-row"> <span class="info-label">تاريخ الإنشاء:</span> <span class="info-value">{{ $invoice->created_at ? toArabicDigitsGlobal($invoice->created_at->translatedFormat('d F Y - H:i')) : '-' }}</span> </div>
                     </div>
                     @if ($invoice->paid_at)
                          <div class="col-md-6">
-                            <div class="info-row"> <span class="info-label">تاريخ أول دفعة:</span> <span class="info-value">{{ $invoice->paid_at ? toArabicDigits(\Carbon\Carbon::parse($invoice->paid_at)->translatedFormat('d F Y - H:i')) : '-' }}</span> </div>
+                            <div class="info-row"> <span class="info-label">تاريخ أول دفعة:</span> <span class="info-value">{{ $invoice->paid_at ? toArabicDigitsGlobal(\Carbon\Carbon::parse($invoice->paid_at)->translatedFormat('d F Y - H:i')) : '-' }}</span> </div>
                         </div>
                      @endif
                     @if ($invoice->payment_gateway_ref)
@@ -249,7 +257,7 @@
                     <h2 class="invoice-section-title">معلومات الحجز المرتبط</h2>
                     <div class="row">
                         <div class="col-md-6">
-                            <div class="info-row"> <span class="info-label">رقم الحجز:</span> <span class="info-value"><a href="{{ route('customer.bookings.show', $booking->id) }}">#{{ toArabicDigits($booking->id) }}</a></span> </div>
+                            <div class="info-row"> <span class="info-label">رقم الحجز:</span> <span class="info-value"><a href="{{ route('customer.bookings.show', $booking->id) }}">#{{ toArabicDigitsGlobal($booking->id) }}</a></span> </div>
                         </div>
                         @if ($booking->service)
                             <div class="col-md-6">
@@ -257,7 +265,7 @@
                             </div>
                         @endif
                         <div class="col-md-6">
-                            <div class="info-row"> <span class="info-label">تاريخ ووقت الحجز:</span> <span class="info-value">{{ $booking->booking_datetime ? toArabicDigits(\Carbon\Carbon::parse($booking->booking_datetime)->translatedFormat('l، d F Y - h:i a')) : 'غير محدد' }}</span> </div>
+                            <div class="info-row"> <span class="info-label">تاريخ ووقت الحجز:</span> <span class="info-value">{{ $booking->booking_datetime ? toArabicDigitsGlobal(\Carbon\Carbon::parse($booking->booking_datetime)->translatedFormat('l، d F Y - h:i a')) : 'غير محدد' }}</span> </div>
                         </div>
                          
                         <div class="col-md-6">
@@ -270,7 +278,7 @@
                         @endif
                         @if($booking->outside_location_fee_applied > 0)
                             <div class="col-md-6">
-                                <div class="info-row"> <span class="info-label">رسوم خارج المنطقة:</span> <span class="info-value">{{ formatAmountConditionallyInvoiceShow($booking->outside_location_fee_applied) }} {{ $invoice->currency ?? 'SAR' }}</span> </div>
+                                <div class="info-row"> <span class="info-label">رسوم خارج المنطقة:</span> <span class="info-value">{{ formatAmountConditionallyGlobal($booking->outside_location_fee_applied, ($invoice->currency ?? 'SAR')) }}</span> </div>
                             </div>
                         @endif
                          <div class="col-md-6">
@@ -302,5 +310,5 @@
 @endsection
 
 @section('scripts')
- {{-- لا حاجة لـ JavaScript هنا إذا كانت دالة toArabicDigits() معرفة كـ helper في PHP --}}
+ {{-- No specific JavaScript needed here if toArabicDigitsGlobal and formatAmountConditionallyGlobal are defined in PHP --}}
 @endsection
