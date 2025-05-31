@@ -81,42 +81,49 @@ class BookingController extends Controller
     /**
      * Display the specified booking details.
      */
-    public function show(Booking $booking): View
-    {
-        $booking->load(['user', 'service', 'discountCode', 'invoice.payments']);
+public function show(Booking $booking): View
+{
+    $booking->load(['user', 'service', 'discountCode', 'invoice.payments']);
 
-        // جلب جميع الحالات الأصلية
-        $allStatuses = Booking::getStatusesWithOptions();
+    // جلب جميع الحالات الأصلية
+    $allBookingStatuses = Booking::getStatusesWithOptions(); // استخدام اسم مميز
 
-        // تحديد الحالات التي لا نريد عرضها في القائمة المنسدلة
-        $statusesToRemove = [
-            Booking::STATUS_NO_SHOW,
-            Booking::STATUS_RESCHEDULED_BY_ADMIN,
-            Booking::STATUS_RESCHEDULED_BY_USER,
-        ];
+    // تحديد الحالات التي لا نريد عرضها في القائمة المنسدلة
+    $statusesToRemove = [
+        Booking::STATUS_NO_SHOW,
+        Booking::STATUS_RESCHEDULED_BY_ADMIN,
+        Booking::STATUS_RESCHEDULED_BY_USER,
+    ];
 
-        // تصفية الحالات
-        $filteredStatuses = array_filter($allStatuses, function ($key) use ($statusesToRemove) {
-            return !in_array($key, $statusesToRemove, true);
-        }, ARRAY_FILTER_USE_KEY);
-        
-        $paymentConfirmationOptions = [
-            'deposit' => 'تأكيد استلام العربون فقط',
-            'full' => 'تأكيد استلام المبلغ الكامل/المتبقي',
-            // 'none' => 'لا تغيير على حالة الدفع (تأكيد الحجز فقط)' // يمكن إضافته إذا أردت تأكيد الحجز بدون تسجيل دفعة هنا
-        ];
-        
-        // جلب ترجمات حالات الفاتورة للعرض
-        if (method_exists(Invoice::class, 'getStatusesWithOptions')) {
-            $invoiceStatusTranslations = Invoice::getStatusesWithOptions();
-        } elseif (method_exists(Invoice::class, 'statuses')) { // كـ fallback
-            $invoiceStatusTranslations = Invoice::statuses();
-        } else {
-            $invoiceStatusTranslations = []; 
-        }
+    // تصفية الحالات وتخزينها في المتغير 'statuses' الذي سيتم تمريره للـ view
+    $statuses = array_filter($allBookingStatuses, function ($key) use ($statusesToRemove) {
+        return !in_array($key, $statusesToRemove, true);
+    }, ARRAY_FILTER_USE_KEY);
+    
+    // خيارات تأكيد الدفع (تستخدم في JavaScript لإظهار/إخفاء الحقول)
+    $paymentConfirmationOptions = [
+        'deposit' => 'تأكيد استلام العربون فقط',
+        'full'    => 'تأكيد استلام المبلغ الكامل/المتبقي',
+        // 'none' => 'لا تغيير على حالة الدفع (تأكيد الحجز فقط)' // يمكن إضافته إذا أردت تأكيد الحجز بدون تسجيل دفعة هنا
+    ];
 
-        return view('admin.bookings.show', compact('booking', 'statuses', 'invoiceStatusTranslations', 'paymentConfirmationOptions'));
+    // جلب ترجمات حالات الفاتورة للعرض
+    if (method_exists(Invoice::class, 'getStatusesWithOptions')) {
+        $invoiceStatusTranslations = Invoice::getStatusesWithOptions();
+    } elseif (method_exists(Invoice::class, 'statuses')) { // كـ fallback
+        $invoiceStatusTranslations = Invoice::statuses();
+    } else {
+        $invoiceStatusTranslations = []; 
     }
+
+    // هذا هو السطر 118 المشار إليه في الخطأ أو قريب منه
+    return view('admin.bookings.show', compact(
+        'booking', 
+        'statuses', // المتغير $statuses الآن مُعرف ويحمل القيم المفلترة
+        'invoiceStatusTranslations', 
+        'paymentConfirmationOptions'
+    ));
+}
 
     /**
      * Update the status of the specified booking.
