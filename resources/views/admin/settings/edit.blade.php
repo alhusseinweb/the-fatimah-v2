@@ -61,11 +61,11 @@
         left: -5px;
     }
     .flash-highlight {
-        animation: flash-animation 1s 2; /* وميض مرتين خلال ثانية واحدة */
+        animation: flash-animation 1s 2;
     }
     @keyframes flash-animation {
         0% { background-color: transparent; }
-        50% { background-color: rgba(255, 255, 0, 0.3); } /* لون وميض أصفر فاتح */
+        50% { background-color: rgba(255, 255, 0, 0.3); }
         100% { background-color: transparent; }
     }
 </style>
@@ -104,7 +104,6 @@
         @csrf
         @method('PATCH')
 
-        {{-- Tabs for different settings sections --}}
         <ul class="nav nav-tabs mb-3" id="settingsTabs" role="tablist">
             <li class="nav-item" role="presentation">
                 <button class="nav-link active" id="general-settings-tab" data-bs-toggle="tab" data-bs-target="#general-settings" type="button" role="tab" aria-controls="general-settings" aria-selected="true">
@@ -141,19 +140,16 @@
                         <h5><i class="fas fa-info-circle"></i> معلومات الموقع الأساسية</h5>
                     </div>
                     <div class="card-body">
-                        {{-- Site Name AR --}}
                         <div class="mb-3">
                             <label for="site_name_ar" class="form-label">اسم الموقع (عربي)</label>
                             <input type="text" class="form-control @error('site_name_ar') is-invalid @enderror" id="site_name_ar" name="site_name_ar" value="{{ old('site_name_ar', $settings['site_name_ar'] ?? config('app.name', 'Fatimah Booking')) }}">
                             @error('site_name_ar') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
-                        {{-- Site Name EN --}}
                         <div class="mb-3">
                             <label for="site_name_en" class="form-label">اسم الموقع (إنجليزي)</label>
                             <input type="text" class="form-control @error('site_name_en') is-invalid @enderror" id="site_name_en" name="site_name_en" value="{{ old('site_name_en', $settings['site_name_en'] ?? '') }}">
                             @error('site_name_en') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
-                        {{-- Logos and Favicon --}}
                         <div class="row">
                             <div class="col-md-4 mb-3">
                                 <label for="logo_light_file" class="form-label">الشعار (النسخة الفاتحة/الرئيسية)</label>
@@ -174,7 +170,6 @@
                                 @error('favicon_file') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             </div>
                         </div>
-                        {{-- Slider Images --}}
                          <div class="mb-3">
                             <label for="slider_images" class="form-label">صور السلايدر في الصفحة الرئيسية</label>
                             <input type="file" class="form-control @error('slider_images.*') is-invalid @enderror" id="slider_images" name="slider_images[]" multiple>
@@ -192,11 +187,9 @@
                                         @endif
                                     @endforeach
                                 </div>
-                                {{-- هذا الحقل سيتم تحديثه عبر JavaScript ليحتوي على قائمة الصور المراد حذفها --}}
                                 <input type="hidden" name="deleted_slider_images_json" id="deleted_slider_images_input" value="[]">
                             @endif
                         </div>
-                        {{-- Maintenance Mode --}}
                         <div class="mb-3">
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" role="switch" id="maintenance_mode" name="maintenance_mode" value="1" {{ old('maintenance_mode', $settings['maintenance_mode'] ?? '0') == '1' ? 'checked' : '' }}>
@@ -212,28 +205,63 @@
             <div class="tab-pane fade" id="contact-settings" role="tabpanel" aria-labelledby="contact-settings-tab">
                 <div class="card shadow-sm mb-4">
                     <div class="card-header">
-                        <h5><i class="fas fa-phone-alt"></i> معلومات التواصل</h5>
+                        <h5><i class="fas fa-phone-alt"></i> معلومات التواصل الأساسية</h5>
                     </div>
                     <div class="card-body">
                          <div class="row">
-                            <div class="col-md-4 mb-3">
+                            <div class="col-md-6 mb-3">
                                 <label for="contact_email" class="form-label">البريد الإلكتروني للتواصل</label>
                                 <input type="email" class="form-control @error('contact_email') is-invalid @enderror" id="contact_email" name="contact_email" value="{{ old('contact_email', $settings['contact_email'] ?? '') }}">
                                 @error('contact_email') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             </div>
-                            <div class="col-md-4 mb-3">
-                                <label for="contact_phone" class="form-label">رقم الهاتف للتواصل</label>
+                            <div class="col-md-6 mb-3">
+                                <label for="contact_phone" class="form-label">رقم الهاتف للتواصل (اختياري)</label>
                                 <input type="text" class="form-control @error('contact_phone') is-invalid @enderror" id="contact_phone" name="contact_phone" value="{{ old('contact_phone', $settings['contact_phone'] ?? '') }}">
                                 @error('contact_phone') <div class="invalid-feedback">{{ $message }}</div> @enderror
-                            </div>
-                            <div class="col-md-4 mb-3">
-                                <label for="contact_whatsapp" class="form-label">رقم الواتساب (مع رمز الدولة)</label>
-                                <input type="text" class="form-control @error('contact_whatsapp') is-invalid @enderror" id="contact_whatsapp" name="contact_whatsapp" value="{{ old('contact_whatsapp', $settings['contact_whatsapp'] ?? '') }}" placeholder="+9665XXXXXXXX">
-                                @error('contact_whatsapp') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             </div>
                         </div>
                     </div>
                 </div>
+                {{-- START: MODIFICATIONS FOR WHATSAPP AND INSTAGRAM --}}
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header">
+                        <h5><i class="fab fa-whatsapp"></i> إعدادات الواتساب</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="contact_whatsapp" class="form-label">رقم الواتساب (مع رمز الدولة)</label>
+                            <input type="text" class="form-control @error('contact_whatsapp') is-invalid @enderror" id="contact_whatsapp" name="contact_whatsapp" value="{{ old('contact_whatsapp', $settings['contact_whatsapp'] ?? '') }}" placeholder="+9665XXXXXXXX">
+                            @error('contact_whatsapp') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="display_whatsapp_contact" name="display_whatsapp_contact" value="1" {{ old('display_whatsapp_contact', $settings['display_whatsapp_contact'] ?? '1') == '1' ? 'checked' : '' }}>
+                                <label class="form-check-label" for="display_whatsapp_contact">تفعيل عرض رابط الواتساب في الصفحة الرئيسية</label>
+                            </div>
+                            @error('display_whatsapp_contact') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
+                        </div>
+                    </div>
+                </div>
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header">
+                        <h5><i class="fab fa-instagram"></i> إعدادات الإنستقرام</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="contact_instagram_url" class="form-label">رابط حساب الإنستقرام</label>
+                            <input type="url" class="form-control @error('contact_instagram_url') is-invalid @enderror" id="contact_instagram_url" name="contact_instagram_url" value="{{ old('contact_instagram_url', $settings['contact_instagram_url'] ?? '') }}" placeholder="https://www.instagram.com/username">
+                            @error('contact_instagram_url') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="display_instagram_contact" name="display_instagram_contact" value="1" {{ old('display_instagram_contact', $settings['display_instagram_contact'] ?? '1') == '1' ? 'checked' : '' }}>
+                                <label class="form-check-label" for="display_instagram_contact">تفعيل عرض رابط الإنستقرام في الصفحة الرئيسية</label>
+                            </div>
+                            @error('display_instagram_contact') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
+                        </div>
+                    </div>
+                </div>
+                {{-- END: MODIFICATIONS FOR WHATSAPP AND INSTAGRAM --}}
             </div>
             
             {{-- Booking Settings Tab --}}
@@ -260,6 +288,12 @@
                             <textarea class="form-control @error('policy_ar') is-invalid @enderror" id="policy_ar" name="policy_ar" rows="5">{{ old('policy_ar', $settings['policy_ar'] ?? '') }}</textarea>
                             @error('policy_ar') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
+                         {{-- Policy EN - Not explicitly requested by user but good for completeness --}}
+                        <div class="mb-3">
+                            <label for="policy_en" class="form-label">سياسة الحجز (إنجليزي - اختياري)</label>
+                            <textarea class="form-control @error('policy_en') is-invalid @enderror" id="policy_en" name="policy_en" rows="5">{{ old('policy_en', $settings['policy_en'] ?? '') }}</textarea>
+                            @error('policy_en') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                        </div>
                     </div>
                 </div>
             </div>
@@ -283,7 +317,6 @@
                     </div>
                 </div>
 
-                {{-- Tamara Settings Card --}}
                 <div class="card shadow-sm mb-4">
                     <div class="card-header">
                         <h5 class="mb-0"><img src="{{ asset('images/tamara.png') }}" alt="Tamara" style="height: 20px; margin-left: 8px; vertical-align: middle;">إعدادات بوابة الدفع تمارا (Tamara)</h5>
@@ -327,7 +360,6 @@
                 </div>
             </div>
 
-            {{-- Data Management Tab (Danger Zone) --}}
             <div class="tab-pane fade" id="data-management" role="tabpanel" aria-labelledby="data-management-tab">
                 <div class="card shadow-sm mb-4 border-danger">
                     <div class="card-header bg-danger text-white">
@@ -357,7 +389,6 @@
             </button>
         </div>
     </form>
-    {{-- نموذج مخفي لإرسال طلب الحذف --}}
     <form id="deleteAllDataForm" action="{{ route('admin.data.delete_all_bookings') }}" method="POST" style="display: none;">
         @csrf
     </form>
@@ -366,32 +397,26 @@
 
 @push('scripts')
 <script>
-    // Script for deleting slider images
-    let deletedSliderImagesArray = []; // تم تغيير الاسم ليكون أوضح
+    let deletedSliderImagesArray = [];
     const deletedSliderImagesInput = document.getElementById('deleted_slider_images_input');
 
     function deleteSliderImage(imagePath, elementId) {
         if (confirm('هل أنت متأكد من حذف هذه الصورة من السلايدر؟')) {
             const itemToRemove = document.getElementById(elementId);
             if (itemToRemove) {
-                itemToRemove.style.display = 'none'; // إخفاء العنصر من العرض
+                itemToRemove.style.display = 'none';
             }
-            // إضافة المسار إلى مصفوفة المحذوفات إذا لم يكن موجوداً بالفعل
             if (!deletedSliderImagesArray.includes(imagePath)) {
                 deletedSliderImagesArray.push(imagePath);
             }
             if(deletedSliderImagesInput) {
-                // تحديث الحقل المخفي بقائمة الصور المراد حذفها كـ JSON string
-                // في المتحكم، ستحتاج إلى json_decode لهذا الحقل
-                // تم تغيير اسم الحقل إلى deleted_slider_images_json ليعكس أنه يحتوي على JSON
-                deletedSliderImagesInput.name = 'deleted_slider_images_json'; // تأكد من اسم الحقل
+                deletedSliderImagesInput.name = 'deleted_slider_images_json';
                 deletedSliderImagesInput.value = JSON.stringify(deletedSliderImagesArray);
             }
         }
     }
 
     document.addEventListener('DOMContentLoaded', function() {
-        // Activate tab if there's a hash in URL
         var hash = window.location.hash;
         if (hash) {
             var triggerElTab = document.querySelector('.nav-tabs button[data-bs-target="' + hash + '"]');
@@ -418,7 +443,6 @@
             }
         }
 
-        // JavaScript for Delete All Data confirmation
         const deleteAllDataBtn = document.getElementById('deleteAllDataBtn');
         const deleteAllDataForm = document.getElementById('deleteAllDataForm');
 
