@@ -3,7 +3,7 @@
 @section('title', "تفاصيل الحجز #" . $booking->id)
 
 @php
-    // يتم تمرير $statuses (ترجمات حالات الحجز) من BookingController@show
+    // يتم تمرير $statuses (ترجمات حالات الحجز) و $paymentConfirmationOptions من BookingController@show
     // جلب ترجمات حالات الفاتورة
     if (method_exists(\App\Models\Invoice::class, 'getStatusesWithOptions')) {
         $invoiceStatusTranslationsAdminShow = \App\Models\Invoice::getStatusesWithOptions();
@@ -21,9 +21,8 @@
     // دالة toArabicDigits يفترض أنها معرفة كـ helper عام أو في AppServiceProvider
     if (!function_exists('toArabicDigits')) {
         function toArabicDigits($number) {
-            // يمكن تركها فارغة إذا كانت الدالة معرفة بشكل عام
-            // أو إضافة تعريف بسيط هنا إذا لزم الأمر فقط لهذه الصفحة
-            return str_replace(range(0, 9), ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'], $number);
+            if (is_null($number)) return '';
+            return str_replace(range(0, 9), ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'], (string)$number);
         }
     }
 @endphp
@@ -131,10 +130,16 @@
                     <div class="row justify-content-center">
                         <div class="col-md-11">
                             @if(session('update_status_success'))
-                                <div class="alert alert-success">{{ session('update_status_success') }}</div>
+                                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                                    {{ session('update_status_success') }}
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                                </div>
                             @endif
                             @if(session('update_status_error'))
-                                <div class="alert alert-danger">{{ session('update_status_error') }}</div>
+                                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                                    {{ session('update_status_error') }}
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                                </div>
                             @endif
 
                             @if ($errors->updateStatus && $errors->updateStatus->any())
@@ -144,7 +149,7 @@
                                     </ul>
                                 </div>
                             @endif
-                             @if (!$errors->updateStatus && $errors->any() && !$errors->hasBag('updatePayment')) {{-- عرض الأخطاء العامة فقط إذا لم تكن ضمن updateStatus bag أو updatePayment bag --}}
+                             @if (!$errors->updateStatus && $errors->any() && !$errors->hasBag('updatePayment'))
                                 <div class="alert alert-danger">
                                     <ul class="mb-0">
                                         @foreach ($errors->all() as $error) <li>{{ $error }}</li> @endforeach
@@ -158,7 +163,7 @@
                                 <div class="mb-3">
                                     <label for="status" class="form-label fw-bold">الحالة الجديدة:</label>
                                     <select name="status" id="status" class="form-select @error('status', 'updateStatus') is-invalid @enderror" required>
-                                        @foreach ($statuses as $value => $label) {{-- $statuses يتم تمريرها من BookingController@show --}}
+                                        @foreach ($statuses as $value => $label)
                                             <option value="{{ $value }}" @selected(old('status', $booking->status) == $value)>
                                                 {{ $label }}
                                             </option>
@@ -181,7 +186,11 @@
                                         @php
                                             $currentInvoice = $booking->invoice;
                                             $isPartiallyPaid = $currentInvoice?->status === \App\Models\Invoice::STATUS_PARTIALLY_PAID;
-                                            $remainingAmount = $isPartiallyPaid ? ($currentInvoice->remaining_amount ?? 0) : 0;
+                                            // إذا كانت الفاتورة مدفوعة جزئياً، المبلغ المتبقي هو المهم للعرض
+                                            // وإذا لم تكن مدفوعة جزئياً (مثلاً غير مدفوعة)، فمبلغ العربون هو المهم أو المبلغ الكامل
+                                            $amountForFullConfirmation = $isPartiallyPaid ? ($currentInvoice->remaining_amount ?? 0) : ($currentInvoice?->amount ?? 0);
+                                            $downPaymentAmountForBooking = $booking->down_payment_amount ?? ($currentInvoice ? round($currentInvoice->amount / 2, 2) : 0);
+                                            
                                             $currency = $currentInvoice?->currency ?: 'SAR';
                                             $currentBookingStatus = $booking->status;
                                             $confirmedBookingStatusValueConstant = \App\Models\Booking::STATUS_CONFIRMED;
@@ -190,27 +199,28 @@
                                         @endphp
 
                                         @foreach($paymentConfirmationOptions as $value => $label)
+                                            {{-- لا تعرض خيار العربون إذا كان الحجز مؤكدًا بالفعل أو الفاتورة مدفوعة جزئيًا --}}
                                             @if($value === $depositValueConstant && ($isPartiallyPaid || $currentBookingStatus === $confirmedBookingStatusValueConstant))
                                                 @continue
                                             @endif
+
                                             @php
-                                                $currentLabel = $label;
-                                                if ($value === $fullValueConstant && $isPartiallyPaid) {
-                                                    $currentLabel = "تأكيد استلام المبلغ المتبقي (" . toArabicDigits(number_format($remainingAmount, 2)) . " $currency)";
-                                                } elseif ($value === $fullValueConstant && !$isPartiallyPaid && $currentInvoice) {
-                                                     $currentLabel = "تأكيد استلام المبلغ الكامل (" . toArabicDigits(number_format($currentInvoice->amount, 2)) . " $currency)";
+                                                $currentDisplayLabel = $label;
+                                                if ($value === $fullValueConstant) {
+                                                    $currentDisplayLabel = "تأكيد استلام المبلغ الكامل/المتبقي (" . toArabicDigits(number_format($amountForFullConfirmation, 2)) . " $currency)";
+                                                } elseif ($value === $depositValueConstant) {
+                                                    $currentDisplayLabel = "تأكيد استلام العربون فقط (" . toArabicDigits(number_format($downPaymentAmountForBooking, 2)) . " $currency)";
                                                 }
                                             @endphp
                                             <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="payment_confirmation_type" id="confirm_{{ $value }}" value="{{ $value }}"
-                                                       {{ ($isPartiallyPaid && $value === $fullValueConstant) || (!$isPartiallyPaid && $currentBookingStatus !== $confirmedBookingStatusValueConstant && $loop->first && !($value === $depositValueConstant && ($isPartiallyPaid || $currentBookingStatus === $confirmedBookingStatusValueConstant)) ) ? 'checked' : '' }}>
+                                                <input class="form-check-input" type="radio" name="payment_confirmation_type" id="confirm_{{ $value }}" value="{{ $value }}">
                                                 <label class="form-check-label" for="confirm_{{ $value }}">
-                                                    {{ $currentLabel }}
+                                                    {{ $currentDisplayLabel }}
                                                 </label>
                                             </div>
                                         @endforeach
                                     @else
-                                        <p class="text-danger small mb-0">خطأ: لم يتم تمرير خيارات تأكيد الدفع.</p>
+                                        <p class="text-danger small mb-0">خطأ: لم يتم تمرير خيارات تأكيد الدفع من المتحكم.</p>
                                     @endisset
                                     @error('payment_confirmation_type', 'updateStatus') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
                                 </div>
@@ -268,15 +278,232 @@
     </div>
 
     <div class="modal fade" id="depositAmountModal" tabindex="-1" aria-labelledby="depositAmountModalLabel" aria-hidden="true">
-        {{-- ... (محتوى المودال كما هو) ... --}}
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="depositAmountModalLabel">تسجيل مبلغ العربون</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="إغلاق"></button>
+                </div>
+                <div class="modal-body">
+                    <p>لتأكيد الحجز مع عربون، يرجى إدخال مبلغ العربون الذي تم استلامه:</p>
+                    <div class="mb-3">
+                        <label for="deposit_amount_input" class="form-label">مبلغ العربون المدفوع ({{ $booking->invoice?->currency ?: 'SAR' }})</label>
+                        <input type="text" inputmode="decimal" class="form-control" id="deposit_amount_input" required placeholder="أدخل مبلغ العربون">
+                        <div class="invalid-feedback" id="deposit_amount_error"></div>
+                    </div>
+                    <p class="text-muted small">سيتم تحديث حالة الحجز إلى "مؤكد" وحالة الفاتورة إلى "مدفوعة جزئياً" وإنشاء سجل دفع بهذا المبلغ.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+                    <button type="button" class="btn btn-primary" id="submitDepositModal">تأكيد العربون وتحديث الحالة</button>
+                </div>
+            </div>
+        </div>
     </div>
 
 @endsection
 
 @push('scripts')
-{{-- ... (سكريبتات JavaScript كما هي، مع التأكد من أن toArabicDigitsJS معرفة إذا كنت ستستخدمها هنا) ... --}}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const statusSelect = document.getElementById('status');
+    const paymentConfirmationDiv = document.getElementById('payment_confirmation_options');
+    const cancellationReasonSection = document.getElementById('cancellationReasonSection');
+    const cancellationReasonTextarea = document.getElementById('cancellation_reason');
+    
+    const depositModalElement = document.getElementById('depositAmountModal');
+    const depositModalInstance = (typeof bootstrap !== 'undefined' && depositModalElement) ? new bootstrap.Modal(depositModalElement) : null;
+    
+    const depositAmountInput = document.getElementById('deposit_amount_input');
+    const submitDepositModalBtn = document.getElementById('submitDepositModal');
+    const modalDepositAmountHiddenInput = document.getElementById('modal_deposit_amount');
+    const depositAmountError = document.getElementById('deposit_amount_error');
+    const updateStatusForm = document.getElementById('updateBookingStatusForm');
+
+    const cancellationStatusesRequiringReasonJS = @json(\App\Models\Booking::getCancellationStatusesRequiringReason());
+    const confirmedBookingStatusValueJS = '{{ \App\Models\Booking::STATUS_CONFIRMED }}';
+    const depositPaymentValueJS = 'deposit'; // القيمة المستخدمة في الـ radio button لخيار العربون
+    const fullPaymentValueJS = 'full'; // القيمة المستخدمة في الـ radio button لخيار الدفع الكامل
+
+    function toggleCancellationReasonField() {
+        if (!statusSelect || !cancellationReasonSection || !cancellationReasonTextarea) return;
+        const selectedStatus = statusSelect.value;
+        if (cancellationStatusesRequiringReasonJS.includes(selectedStatus)) {
+            cancellationReasonSection.style.display = 'block';
+            cancellationReasonTextarea.setAttribute('required', 'required');
+        } else {
+            cancellationReasonSection.style.display = 'none';
+            cancellationReasonTextarea.removeAttribute('required');
+             cancellationReasonTextarea.value = ''; // إفراغ الحقل عند الإخفاء
+        }
+    }
+
+    function togglePaymentConfirmationOptions() {
+        if (!statusSelect || !paymentConfirmationDiv) return;
+        const showOptions = statusSelect.value === confirmedBookingStatusValueJS;
+        paymentConfirmationDiv.style.display = showOptions ? 'block' : 'none';
+
+        if(showOptions) {
+            const invoiceStatusJS = '{{ $booking->invoice?->status }}';
+            const isInvoicePartiallyPaidJS = invoiceStatusJS === '{{ \App\Models\Invoice::STATUS_PARTIALLY_PAID }}';
+            const currentBookingStatusJS = '{{ $booking->status }}';
+            
+            const radios = paymentConfirmationDiv.querySelectorAll('input[name="payment_confirmation_type"]');
+            let firstVisibleRadioToSelect = null;
+            
+            radios.forEach(radio => {
+                const radioContainer = radio.closest('.form-check');
+                // إخفاء خيار العربون إذا كان الحجز مؤكدًا بالفعل أو الفاتورة مدفوعة جزئيًا
+                if (radio.value === depositPaymentValueJS && (isInvoicePartiallyPaidJS || currentBookingStatusJS === confirmedBookingStatusValueJS)) {
+                    radioContainer.style.display = 'none';
+                    if (radio.checked) radio.checked = false; 
+                } else {
+                    radioContainer.style.display = 'block';
+                    if (!firstVisibleRadioToSelect && !paymentConfirmationDiv.querySelector('input[name="payment_confirmation_type"]:checked')) {
+                        firstVisibleRadioToSelect = radio;
+                    }
+                }
+            });
+            
+            // تحديد خيار افتراضي إذا لم يكن هناك شيء محدد وكان القسم ظاهرًا
+            if (!paymentConfirmationDiv.querySelector('input[name="payment_confirmation_type"]:checked')) {
+                if (isInvoicePartiallyPaidJS) { // إذا كانت مدفوعة جزئيا، الافتراضي هو الدفع الكامل للمتبقي
+                    const fullPayRadio = paymentConfirmationDiv.querySelector('input[value="' + fullPaymentValueJS + '"]');
+                    if (fullPayRadio && fullPayRadio.closest('.form-check').style.display !== 'none') fullPayRadio.checked = true;
+                } else if (firstVisibleRadioToSelect) { // وإلا، حدد أول خيار ظاهر
+                    firstVisibleRadioToSelect.checked = true;
+                }
+            }
+        }
+    }
+
+    if (statusSelect) {
+        togglePaymentConfirmationOptions(); // استدعاء عند التحميل
+        statusSelect.addEventListener('change', togglePaymentConfirmationOptions);
+        toggleCancellationReasonField(); // استدعاء عند التحميل
+        statusSelect.addEventListener('change', toggleCancellationReasonField);
+    }
+
+    if(updateStatusForm && statusSelect && depositModalElement) { // استخدام depositModalElement للتحقق الأولي
+        updateStatusForm.addEventListener('submit', function (event) {
+            const selectedStatus = statusSelect.value;
+            const paymentOptionsDiv = document.getElementById('payment_confirmation_options');
+            let selectedPaymentTypeRadio = null;
+            let selectedPaymentType = null;
+
+            if (paymentOptionsDiv && paymentOptionsDiv.style.display === 'block') {
+                selectedPaymentTypeRadio = paymentOptionsDiv.querySelector('input[name="payment_confirmation_type"]:checked');
+                if (selectedPaymentTypeRadio) {
+                    selectedPaymentType = selectedPaymentTypeRadio.value;
+                } else {
+                    // إذا كان القسم ظاهرًا ولكن لا يوجد خيار محدد
+                    // هذا لا يجب أن يحدث إذا كان منطق التحديد الافتراضي يعمل
+                    console.warn('Payment confirmation options visible, but NO payment type is selected.');
+                    // event.preventDefault(); // منع الإرسال في هذه الحالة
+                    // alert('يرجى تحديد نوع تأكيد الدفع.');
+                    // return; 
+                }
+            }
+            
+            const depositRadioElement = document.getElementById('confirm_deposit');
+            const depositRadioContainer = depositRadioElement ? depositRadioElement.closest('.form-check') : null;
+            
+            console.debug("Form Submit Check:", {
+                selectedStatus,
+                confirmedBookingStatusValueJS,
+                selectedPaymentType,
+                depositPaymentValueJS,
+                depositRadioContainerVisible: depositRadioContainer ? depositRadioContainer.style.display !== 'none' : false
+            });
+
+            if (selectedStatus === confirmedBookingStatusValueJS && 
+                selectedPaymentType === depositPaymentValueJS && 
+                depositRadioContainer && 
+                depositRadioContainer.style.display !== 'none') {
+                
+                event.preventDefault(); 
+                
+                if(depositAmountInput && depositAmountError && depositModalInstance) {
+                    depositAmountInput.classList.remove('is-invalid');
+                    if(depositAmountError) depositAmountError.textContent = '';
+                    depositAmountInput.value = ''; 
+                    
+                    const downPaymentForBooking = parseFloat('{{ $booking->down_payment_amount ?? ($booking->invoice ? round($booking->invoice->amount / 2, 2) : 0) }}');
+                    depositAmountInput.placeholder = `مثلاً: ${downPaymentForBooking > 0 ? downPaymentForBooking.toFixed(2) : 'أدخل مبلغ العربون'}`;
+                    
+                    if(modalDepositAmountHiddenInput) modalDepositAmountHiddenInput.value = '';
+                    depositModalInstance.show();
+                } else {
+                    console.error('Modal elements for deposit amount are not found or depositModalInstance is null!');
+                    alert('حدث خطأ في تهيئة نافذة إدخال العربون. يرجى تحديث الصفحة والمحاولة مرة أخرى.');
+                }
+            } else {
+                if(modalDepositAmountHiddenInput) modalDepositAmountHiddenInput.value = ''; // مسح قيمة العربون إذا لم يكن مطلوباً
+                console.debug('Proceeding with normal form submission. Modal not required.');
+            }
+        });
+    }
+
+    if (submitDepositModalBtn && depositAmountInput && modalDepositAmountHiddenInput && depositAmountError && updateStatusForm) {
+        submitDepositModalBtn.addEventListener('click', function() {
+            let depositAmountStr = depositAmountInput.value.trim().replace(',', '.');
+            let depositAmount = parseFloat(depositAmountStr);
+            const maxAmount = parseFloat('{{ $booking->invoice?->amount ?? 0 }}'); 
+
+            if(depositAmountError) depositAmountError.textContent = '';
+            depositAmountInput.classList.remove('is-invalid');
+
+            if (isNaN(depositAmount) || depositAmount <= 0) {
+                depositAmountInput.classList.add('is-invalid');
+                if(depositAmountError) depositAmountError.textContent = 'الرجاء إدخال مبلغ صحيح للعربون (أكبر من صفر).';
+                return;
+            }
+            if (maxAmount > 0 && depositAmount >= maxAmount) {
+                depositAmountInput.classList.add('is-invalid');
+                if(depositAmountError) depositAmountError.textContent = 'مبلغ العربون لا يمكن أن يكون مساوياً أو أكبر من المبلغ الإجمالي للفاتورة.';
+                return;
+            }
+
+            modalDepositAmountHiddenInput.value = depositAmount;
+            
+            submitDepositModalBtn.disabled = true;
+            submitDepositModalBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> جاري...';
+            
+            // لا حاجة لتحديد الراديو هنا مرة أخرى، فقط أرسل الفورم
+            updateStatusForm.submit();
+        });
+    }
+    
+    if(depositModalElement && depositAmountInput && modalDepositAmountHiddenInput && depositAmountError){
+       depositModalElement.addEventListener('hidden.bs.modal', function () {
+           depositAmountInput.classList.remove('is-invalid');
+           if(depositAmountError) depositAmountError.textContent = '';
+           if(modalDepositAmountHiddenInput) modalDepositAmountHiddenInput.value = ''; // إفراغ عند إغلاق المودال
+           // إعادة تفعيل زر المودال إذا تم تعطيله
+           if(submitDepositModalBtn) {
+               submitDepositModalBtn.disabled = false;
+               submitDepositModalBtn.innerHTML = 'تأكيد العربون وتحديث الحالة';
+           }
+       });
+    }
+});
+</script>
 @endpush
 
 @push('styles')
-{{-- ... (أنماط CSS كما هي) ... --}}
+<style>
+    .dl-row dt, .dl-row dd { margin-bottom: 0.6rem; font-size: 0.95em; }
+    .dl-row dt { font-weight: 600; color: #525f7f; }
+    .dl-row dt i.fa-fw { margin-left: 5px; color: #adb5bd; }
+    .list-group-flush .list-group-item { background-color: transparent; border: none; padding-left: 0; padding-right: 0; }
+    .payment-log-list i { width: 1.2em; text-align: center; margin-left: 3px; }
+    .payment-log-list small { font-size: 0.8em; }
+    .status-pill { font-size: 0.8rem; font-weight: 600; border-radius: 50rem; vertical-align: middle; }
+    .bg-success-soft { background-color: rgba(40, 167, 69, 0.1); } .text-success { color: #28a745 !important; }
+    .bg-warning-soft { background-color: rgba(255, 193, 7, 0.1); } .text-warning { color: #ffc107 !important; }
+    .bg-info-soft { background-color: rgba(23, 162, 184, 0.1); } .text-info { color: #17a2b8 !important; }
+    .bg-primary-soft { background-color: rgba(0, 123, 255, 0.1); } 
+    .bg-secondary-soft { background-color: rgba(108, 117, 125, 0.1); } .text-secondary { color: #6c757d !important; }
+    .bg-danger-soft { background-color: rgba(220, 53, 69, 0.1); } 
+</style>
 @endpush
