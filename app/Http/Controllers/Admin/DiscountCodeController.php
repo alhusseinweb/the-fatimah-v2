@@ -5,137 +5,144 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\DiscountCode;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule; // لاستخدام قواعد التحقق
+use Illuminate\Support\Carbon;
+use Illuminate\Validation\Rule; // لاستخدام Rule
 
 class DiscountCodeController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
+    // خيارات طرق الدفع التي يمكن للخصم أن ينطبق عليها
+    protected function getPaymentMethodOptions(): array
+    {
+        return [
+            'bank_transfer' => 'التحويل البنكي',
+            'tamara' => 'تمارا',
+            // أضف المزيد هنا إذا لزم الأمر من إعدادات الموقع مثلاً
+        ];
+    }
+
     public function index()
     {
-        $discountCodes = DiscountCode::latest()->paginate(15);
+        $discountCodes = DiscountCode::orderBy('created_at', 'desc')->paginate(10);
+        // جلب مصفوفة الأنواع لترجمتها في العرض
+        // هذا السطر موجود بالفعل في ملف index.blade.php الذي أرفقته، لذلك لا داعي لتمريره من هنا إذا كان الأمر كذلك.
+        // $types = DiscountCode::types();
         return view('admin.discount_codes.index', compact('discountCodes'));
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
     public function create()
     {
-        $discountCode = new DiscountCode(['is_active' => true]); // كود جديد، مفعل افتراضياً
-        $types = DiscountCode::types(); // جلب أنواع الخصومات
-        return view('admin.discount_codes.create', compact('discountCode', 'types'));
+        $discountCode = new DiscountCode(['is_active' => true, 'start_date' => Carbon::today()]); // قيم افتراضية
+        $types = DiscountCode::types();
+        $paymentMethodOptions = $this->getPaymentMethodOptions();
+        return view('admin.discount_codes.create', compact('discountCode', 'types', 'paymentMethodOptions'));
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
+        $paymentMethodKeys = array_keys($this->getPaymentMethodOptions());
+
         $validatedData = $request->validate([
-            // الكود يجب أن يكون فريداً وغير مكرر
-            'code' => ['required', 'string', 'max:50', Rule::unique('discount_codes')],
-            // النوع يجب أن يكون أحد الأنواع المعرفة في الموديل
+            'code' => 'required|string|unique:discount_codes,code|max:255',
             'type' => ['required', Rule::in(array_keys(DiscountCode::types()))],
-            // القيمة يجب أن تكون رقماً، والحد الأدنى يعتمد على النوع
-            'value' => ['required', 'numeric', 'min:0'],
-            // تاريخ البدء مطلوب وهو تاريخ
-            'start_date' => ['required', 'date'],
-            // تاريخ الانتهاء اختياري، ولكن يجب أن يكون بعد تاريخ البدء إذا وُجد
-            'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
-            // الحد الأقصى للاستخدام اختياري، يجب أن يكون رقماً صحيحاً موجباً
-            'max_uses' => ['nullable', 'integer', 'min:1'],
-            // الحالة
-            'is_active' => ['sometimes', 'boolean'],
+            'value' => 'required|numeric|min:0.01', // يجب أن تكون القيمة أكبر من صفر عادةً
+            'start_date' => 'required|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
+            'max_uses' => 'nullable|integer|min:1',
+            'is_active' => 'sometimes|boolean',
+            'allowed_payment_methods' => 'nullable|array',
+            'allowed_payment_methods.*' => ['string', Rule::in($paymentMethodKeys)],
+            'applicable_from_time' => 'nullable|date_format:H:i',
+            // إذا تم تحديد وقت الانتهاء، يجب أن يكون بعد وقت البدء، ولكن فقط إذا تم تحديد وقت البدء أيضاً
+            'applicable_to_time' => ['nullable', 'date_format:H:i', Rule::requiredIf(function () use ($request) {
+                return !is_null($request->input('applicable_from_time'));
+            }), 'after:applicable_from_time'],
+        ],[
+            'applicable_to_time.after' => 'وقت انتهاء تطبيق الخصم يجب أن يكون بعد وقت البدء.',
+            'applicable_to_time.required_if' => 'يجب تحديد وقت انتهاء تطبيق الخصم إذا تم تحديد وقت البدء.'
         ]);
 
-        // التعامل مع checkbox الحالة
         $validatedData['is_active'] = $request->has('is_active');
-        // تحويل قيمة النسبة المئوية إذا كانت أكبر من 100 (اختياري حسب منطق العمل)
-        if ($validatedData['type'] === DiscountCode::TYPE_PERCENTAGE && $validatedData['value'] > 100) {
-             return back()->withErrors(['value' => 'قيمة النسبة المئوية لا يمكن أن تتجاوز 100.'])->withInput();
+        $validatedData['allowed_payment_methods'] = $request->input('allowed_payment_methods', null);
+        // إذا كان applicable_from_time فارغًا ولكن applicable_to_time ليس كذلك، قم بإفراغه أيضًا (أو العكس حسب المنطق المطلوب)
+        if(empty($validatedData['applicable_from_time']) && !empty($validatedData['applicable_to_time'])){
+            $validatedData['applicable_to_time'] = null;
+        }
+        if(!empty($validatedData['applicable_from_time']) && empty($validatedData['applicable_to_time'])){
+             // إذا أردت أن يكون وقت الانتهاء مطلوباً إذا تم تحديد وقت البدء، القاعدة أعلاه ستفعل ذلك
+             // أو يمكنك وضع قيمة افتراضية مثل نهاية اليوم إذا كان هذا هو المطلوب
         }
 
 
         DiscountCode::create($validatedData);
 
-        return redirect()->route('admin.discount-codes.index')
-                         ->with('success', 'تم إضافة كود الخصم بنجاح.');
+        return redirect()->route('admin.discount-codes.index')->with('success', 'تم إضافة كود الخصم بنجاح.');
     }
 
-    /**
-     * Display the specified resource. (Optional)
-     */
-    public function show(DiscountCode $discountCode)
-    {
-        return redirect()->route('admin.discount-codes.edit', $discountCode);
-    }
-
-    /**
-     * Show the form for editing the specified resource.
-     */
     public function edit(DiscountCode $discountCode)
     {
-        $types = DiscountCode::types(); // جلب أنواع الخصومات
-        return view('admin.discount_codes.edit', compact('discountCode', 'types'));
+        $types = DiscountCode::types();
+        $paymentMethodOptions = $this->getPaymentMethodOptions();
+        return view('admin.discount_codes.edit', compact('discountCode', 'types', 'paymentMethodOptions'));
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
     public function update(Request $request, DiscountCode $discountCode)
     {
+        $paymentMethodKeys = array_keys($this->getPaymentMethodOptions());
+
         $validatedData = $request->validate([
-            // الكود يجب أن يكون فريداً، مع تجاهل الكود الحالي عند التحقق
-            'code' => ['required', 'string', 'max:50', Rule::unique('discount_codes')->ignore($discountCode->id)],
+            'code' => ['required', 'string', 'max:255', Rule::unique('discount_codes')->ignore($discountCode->id)],
             'type' => ['required', Rule::in(array_keys(DiscountCode::types()))],
-            'value' => ['required', 'numeric', 'min:0'],
-            'start_date' => ['required', 'date'],
-            'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
-            'max_uses' => ['nullable', 'integer', 'min:1'],
-            'is_active' => ['sometimes', 'boolean'],
+            'value' => 'required|numeric|min:0.01',
+            'start_date' => 'required|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
+            'max_uses' => 'nullable|integer|min:1',
+            'is_active' => 'sometimes|boolean',
+            'allowed_payment_methods' => 'nullable|array',
+            'allowed_payment_methods.*' => ['string', Rule::in($paymentMethodKeys)],
+            'applicable_from_time' => 'nullable|date_format:H:i',
+            'applicable_to_time' => ['nullable', 'date_format:H:i', Rule::requiredIf(function () use ($request) {
+                return !is_null($request->input('applicable_from_time'));
+            }), 'after:applicable_from_time'],
+        ],[
+            'applicable_to_time.after' => 'وقت انتهاء تطبيق الخصم يجب أن يكون بعد وقت البدء.',
+            'applicable_to_time.required_if' => 'يجب تحديد وقت انتهاء تطبيق الخصم إذا تم تحديد وقت البدء.'
         ]);
 
         $validatedData['is_active'] = $request->has('is_active');
-         if ($validatedData['type'] === DiscountCode::TYPE_PERCENTAGE && $validatedData['value'] > 100) {
-             return back()->withErrors(['value' => 'قيمة النسبة المئوية لا يمكن أن تتجاوز 100.'])->withInput();
+        $validatedData['allowed_payment_methods'] = $request->input('allowed_payment_methods', null);
+
+        if(empty($validatedData['applicable_from_time']) && !empty($validatedData['applicable_to_time'])){
+            $validatedData['applicable_to_time'] = null;
+        }
+
+
+        if (isset($validatedData['max_uses']) && !is_null($validatedData['max_uses'])) {
+            if ($discountCode->current_uses > $validatedData['max_uses']) {
+                return back()->withErrors(['max_uses' => 'الحد الأقصى للاستخدام لا يمكن أن يكون أقل من عدد الاستخدامات الحالية ('.$discountCode->current_uses.').'])->withInput();
+            }
         }
 
 
         $discountCode->update($validatedData);
 
-        return redirect()->route('admin.discount-codes.index')
-                         ->with('success', 'تم تحديث كود الخصم بنجاح.');
+        return redirect()->route('admin.discount-codes.index')->with('success', 'تم تحديث كود الخصم بنجاح.');
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(DiscountCode $discountCode)
     {
-        try {
-            // لا تسمح بالحذف إذا كان الكود مستخدماً (يمكن إضافة هذا التحقق إذا لزم الأمر)
-            // if ($discountCode->current_uses > 0) {
-            //     return redirect()->route('admin.discount-codes.index')
-            //                      ->with('error', 'لا يمكن حذف كود الخصم لأنه مستخدم بالفعل.');
-            // }
-            $discountCode->delete();
-            return redirect()->route('admin.discount-codes.index')
-                             ->with('success', 'تم حذف كود الخصم بنجاح.');
-        } catch (\Exception $e) {
-            return redirect()->route('admin.discount-codes.index')
-                             ->with('error', 'حدث خطأ أثناء محاولة حذف كود الخصم.');
+        // يمكنك إضافة منطق هنا للتحقق مما إذا كان الكود مستخدمًا في حجوزات نشطة قبل الحذف
+        // على سبيل المثال، التحقق من جدول bookings
+        if ($discountCode->bookings()->exists()) {
+            return redirect()->route('admin.discount-codes.index')->with('error', 'لا يمكن حذف كود الخصم لأنه مستخدم في حجوزات حالية.');
         }
+        $discountCode->delete();
+        return redirect()->route('admin.discount-codes.index')->with('success', 'تم حذف كود الخصم بنجاح.');
     }
 
-    /**
-      * Toggle the active status of the discount code.
-      */
     public function toggleActive(DiscountCode $discountCode)
     {
         $discountCode->update(['is_active' => !$discountCode->is_active]);
         $message = $discountCode->is_active ? 'تم تفعيل كود الخصم.' : 'تم تعطيل كود الخصم.';
-        return redirect()->back()->with('success', $message);
+        return redirect()->route('admin.discount-codes.index')->with('success', $message);
     }
 }
