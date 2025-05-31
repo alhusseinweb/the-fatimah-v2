@@ -6,16 +6,22 @@
 
     // حساب قيمة العربون (50%) للعرض
     $fullAmount = $service->price_sar ?? 0;
-    $downPaymentAmount = round($fullAmount / 2, 0);
-    
+    // --- MODIFICATION: التأكد من أن العربون لا يقل عن قيمة معينة إذا كان السعر صغيراً جداً، أو حسب منطق العمل لديك
+    // حالياً، التقريب العادي round($fullAmount / 2, 0) قد يؤدي لـ 0 إذا كان السعر 0.5 مثلاً.
+    // إذا كنت تريد هللة واحدة على الأقل للعربون، يمكن استخدام ceil أو max. للتبسيط، سنبقيه كما هو ونعالج المبلغ النهائي للدفع.
+    $downPaymentAmount = round($fullAmount / 2, 2); // استخدام هللتين للتوحيد
+
     // --- MODIFICATION START: Use conditional formatting function for amounts ---
     if (!function_exists('formatAmountConditionallyBookingForm')) { // اسم فريد للدالة لتجنب التضارب
         function formatAmountConditionallyBookingForm($value) {
             $value = (float) $value;
-            $roundedToTwoDecimals = round($value, 2);
-            $hasSignificantFraction = (fmod($roundedToTwoDecimals, 1) != 0);
-            $formattedNumber = number_format($roundedToTwoDecimals, $hasSignificantFraction ? 2 : 0);
-            if (function_exists('toArabicDigits')) { // افترض وجود دالة toArabicDigits
+            // التقريب لأقرب هللتين بشكل دقيق
+            $roundedToTwoDecimals = floor($value * 100) / 100; // استخدام floor لتجنب مشاكل التقريب مع fmod
+            $hasSignificantFraction = (($roundedToTwoDecimals - floor($roundedToTwoDecimals)) > 0.001); // التحقق من وجود جزء عشري حقيقي
+            
+            $formattedNumber = number_format($roundedToTwoDecimals, $hasSignificantFraction ? 2 : 0, '.', ''); // إزالة فاصل الآلاف
+
+            if (function_exists('toArabicDigits')) {
                 return toArabicDigits($formattedNumber);
             }
             return $formattedNumber;
@@ -41,7 +47,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
 <meta name="csrf-token" content="{{ csrf_token() }}">
 <style>
-    /* ... (أنماط CSS تبقى كما هي من الملف الذي أرفقته) ... */
     body { font-family: 'Tajawal', sans-serif !important; background-color: #f8f9fa; direction: rtl; text-align: right; }
     *, h1, h2, h3, h4, h5, h6, p, span, button, input, select, textarea, label, div { font-family: 'Tajawal', sans-serif !important; }
     .booking-form-wrapper { padding: 40px 0; min-height: calc(100vh - 150px); }
@@ -80,7 +85,7 @@
     .payment-options, .payment-methods { display: flex; flex-direction: column; gap: 15px; }
     .payment-option-item, .payment-method-item { display: flex; align-items: center; padding: 12px; border: 1px solid #e0e0e0; border-radius: 10px; cursor: pointer; transition: all 0.2s ease; }
     .payment-option-item:hover, .payment-method-item:hover { background-color: #f9f9f9; border-color: #ccc; }
-    .payment-option-item.selected, .payment-method-item.selected { border-color: #555; background-color: rgba(85, 85, 85, 0.05); }
+    .payment-option-item.selected, .payment-method-item.selected { border-color: #555; background-color: rgba(85, 85, 85, 0.05); box-shadow: 0 0 5px rgba(85,85,85,0.1); }
     .payment-option-item .amount, .payment-method-item img { margin: 0 8px; }
     .payment-option-item .amount { font-weight: 600; color: #28a745; }
     #bank-details { background-color: #f9f9f9; border-radius: 10px; padding: 15px; margin-top: 15px; }
@@ -121,6 +126,10 @@
         @if (session('error'))
             <div class="alert alert-danger">{{ session('error') }}</div>
         @endif
+        @if ($errors->has('discount_code')) {{-- لعرض أخطاء الخصم من جهة الخادم إذا لم يتمكن الـ AJAX من التعامل معها --}}
+            <div class="alert alert-danger">{{ $errors->first('discount_code') }}</div>
+        @endif
+
 
         <div class="booking-card mb-4">
             <div class="card-header primary-header">
@@ -147,8 +156,8 @@
             @csrf
             <input type="hidden" name="service_id" value="{{ $service->id }}">
             <input type="hidden" name="date" value="{{ $selectedDate }}">
-            <input type="hidden" name="time" value="{{ $selectedTime }}">
-            <input type="hidden" name="payment_option" id="payment_option_input" value="full"> {{-- القيمة الافتراضية، سيتم تحديثها بـ JS --}}
+            <input type="hidden" name="time" id="booking_time_hidden_input" value="{{ $selectedTime }}"> {{-- إضافة id هنا --}}
+            <input type="hidden" name="payment_option" id="payment_option_input" value="full">
 
             <div class="booking-card mb-4">
                 <div class="card-header"> <h5 class="mb-0">معلومات إضافية</h5> </div>
@@ -186,12 +195,12 @@
                 <div class="card-body">
                     <label for="discount_code_input" class="form-label visually-hidden">كود الخصم</label>
                     <div class="input-group mb-2">
-                        <input type="text" class="form-control @error('discount_code') is-invalid @enderror" placeholder="أدخل كود الخصم هنا" name="discount_code" id="discount_code_input" value="{{ old('discount_code') }}" aria-describedby="discount_result">
+                        <input type="text" class="form-control" placeholder="أدخل كود الخصم هنا" name="discount_code" id="discount_code_input" value="{{ old('discount_code') }}" aria-describedby="discount_result" dir="ltr">
                         <button class="btn btn-outline-secondary" type="button" id="check_discount_btn" style="border-color: #e0e0e0;">
                              التحقق
                         </button>
                     </div>
-                     @error('discount_code') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
+                     {{-- تم إزالة @error('discount_code') من هنا لأننا نعرض خطأ عام في الأعلى أو رسالة AJAX --}}
                     <div id="discount_result" class="mt-1" style="min-height: 22px; font-size: 0.9rem;"></div>
                 </div>
             </div>
@@ -202,12 +211,12 @@
                     @error('payment_option') <div class="alert alert-danger py-2 small">{{ $message }}</div> @enderror
                     <div class="payment-options">
                         <div class="payment-option-item selected" data-value="full">
-                            <input class="form-check-input" type="radio" name="payment_option_radio" id="pay_full" value="full" checked>
+                            <input class="form-check-input" type="radio" name="payment_option_radio_display" id="pay_full" value="full" checked>
                             <label for="pay_full" style="cursor:pointer; margin-right: 8px;">دفع المبلغ كاملاً</label>
                             <span class="ms-auto amount" id="full_payment_option_amount">{{ $fullAmountFormatted }} ريال</span>
                         </div>
                         <div class="payment-option-item" data-value="down_payment">
-                            <input class="form-check-input" type="radio" name="payment_option_radio" id="pay_down_payment" value="down_payment">
+                            <input class="form-check-input" type="radio" name="payment_option_radio_display" id="pay_down_payment" value="down_payment">
                             <label for="pay_down_payment" style="cursor:pointer; margin-right: 8px;">دفع عربون (٥٠%) لتأكيد الحجز</label>
                             <span class="ms-auto amount" id="down_payment_option_amount">{{ $downPaymentAmountFormatted }} ريال</span>
                         </div>
@@ -221,13 +230,14 @@
                     <div class="policy-box">
                          @php
                              $policy = app()->getLocale() == 'ar' ? ($bookingPolicyAr ?? '') : ($bookingPolicyEn ?? '');
-                             if(empty($policy) && app()->getLocale() == 'en') $policy = $bookingPolicyAr ?? '';
+                             if(empty($policy) && app()->getLocale() == 'en') $policy = $bookingPolicyAr ?? ''; // Fallback to AR if EN is empty
+                             if(empty($policy) && app()->getLocale() == 'ar' && !empty($bookingPolicyEn)) $policy = $bookingPolicyEn ?? ''; // Fallback to EN if AR is empty
                              if(empty($policy)) $policy = 'لم يتم تحديد سياسة الحجز بعد.';
                          @endphp
                          {!! nl2br(e($policy)) !!}
                     </div>
                     <div class="policy-check-container">
-                        <input class="policy-check-input form-check-input @error('agreed_to_policy') is-invalid @enderror" type="checkbox" value="1" id="agreed_to_policy" name="agreed_to_policy" required>
+                        <input class="policy-check-input form-check-input @error('agreed_to_policy') is-invalid @enderror" type="checkbox" value="1" id="agreed_to_policy" name="agreed_to_policy" {{ old('agreed_to_policy') ? 'checked' : '' }} required>
                         <label class="policy-check-label form-check-label" for="agreed_to_policy">
                             لقد قرأت سياسة الحجز وأوافق عليها <span class="text-danger">*</span>
                         </label>
@@ -236,14 +246,12 @@
                 </div>
             </div>
             
-            {{-- --- MODIFICATION START: Conditional Payment Method Section --- --}}
             <div class="booking-card mb-4">
                 <div class="card-header"> <h5 class="mb-0"> اختر طريقة الدفع <span class="text-danger">*</span> </h5> </div>
                 <div class="card-body">
                     @error('payment_method') <div class="alert alert-danger py-2 small">{{ $message }}</div> @enderror
                     
                     @php
-                        // تحديد طريقة الدفع الافتراضية
                         $defaultPaymentMethod = old('payment_method');
                         if (!$defaultPaymentMethod) {
                             if ($isTamaraEnabled) {
@@ -265,7 +273,7 @@
 
                         @if($isBankTransferEnabled)
                              <div class="payment-method-item {{ $defaultPaymentMethod == 'bank_transfer' ? 'selected' : '' }}" data-value="bank_transfer">
-                                 <input class="form-check-input" type="radio" name="payment_method" id="pay_bank" value="bank_transfer" {{ $defaultPaymentMethod == 'bank_transfer' ? 'checked' : '' }} required
+                                 <input class="form-check-input" type="radio" name="payment_method" id="pay_bank" value="bank_transfer" {{ $defaultPaymentMethod == 'bank_transfer' ? 'checked' : '' }} required>
                                  <label for="pay_bank" style="cursor:pointer;" class="ms-1"> تحويل بنكي </label>
                             </div>
                         @endif
@@ -273,14 +281,11 @@
 
                     @if(!$isTamaraEnabled && !$isBankTransferEnabled)
                         <div class="alert alert-warning py-3">
-                            عفواً، لا توجد طرق دفع إلكترونية مفعلة حالياً. يمكنك إكمال الحجز وسيتم التواصل معك لتأكيده وترتيب عملية الدفع.
+                            عفواً، لا توجد طرق دفع إلكترونية مفعلة حالياً. سيكتمل حجزك مبدئياً وسيتم التواصل معك لترتيب عملية الدفع.
                         </div>
-                         {{-- إذا لم تكن هناك طرق دفع، قد تحتاج إلى إخفاء زر "المتابعة للدفع" أو تعديل نصه --}}
-                         {{-- أو إرسال قيمة خاصة لـ payment_method مثل 'manual_confirmation' --}}
                          <input type="hidden" name="payment_method" value="manual_confirmation_due_to_no_gateway">
                     @endif
                     
-                    {{-- تفاصيل الحساب البنكي (تظهر شرطياً) --}}
                     @if($isBankTransferEnabled)
                         <div id="bank-details" style="display: {{ $defaultPaymentMethod == 'bank_transfer' ? 'block' : 'none' }};">
                             <hr class="my-3">
@@ -292,7 +297,7 @@
                                         <div class="bank-item-header">{{ $account->{'bank_name_' . app()->getLocale()} ?? $account->bank_name_ar }}</div>
                                         <div class="bank-item-detail">
                                             <span class="bank-item-detail-label">اسم المستفيد:</span>
-                                            <span>{{ $account->account_name_ar ?: ($account->owner_name ?? '-') }}</span>
+                                            <span>{{ $account->{'account_name_' . app()->getLocale()} ?? $account->account_name_ar }}</span>
                                         </div>
                                         <div class="bank-item-detail">
                                             <span class="bank-item-detail-label">رقم الحساب:</span>
@@ -315,7 +320,6 @@
                     @endif
                 </div>
             </div>
-            {{-- --- MODIFICATION END --- --}}
 
 
             <div class="d-grid gap-3 mt-4">
@@ -333,11 +337,10 @@
 
 @section('scripts')
 <script>
-    // --- !!! دالة JS لتحويل الأرقام !!! ---
     function toArabicDigitsJS(str) {
         if (str === null || str === undefined) return '';
         const western = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.'];
-        const eastern = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩', '٫']; // استخدام فاصلة عشرية عربية
+        const eastern = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩', '٫'];
         let numStr = String(str);
         western.forEach((digit, index) => {
             numStr = numStr.replace(new RegExp(digit.replace('.', '\\.'), "g"), eastern[index]);
@@ -346,14 +349,14 @@
     }
 
     const originalFullAmount = {{ (float)($service->price_sar ?? 0) }};
-    let currentFullAmount = originalFullAmount;
+    let currentFullAmountAfterDiscount = originalFullAmount; // السعر الحالي بعد الخصم، يبدأ بالسعر الأصلي
     let currentDiscountAmountRaw = 0;
     let isDiscountApplied = false;
 
-    const totalAmountDisplay = document.getElementById('total_amount_display');
-    const amountToPayDisplay = document.getElementById('amount_to_pay_display');
-    const paymentOptionInput = document.getElementById('payment_option_input'); // الحقل المخفي
-    const paymentOptionItems = document.querySelectorAll('.payment-option-item'); // عناصر الاختيار المرئية
+    const totalAmountDisplay = document.getElementById('total_amount_display'); // يعرض السعر الأصلي دائماً أو السعر بعد الخصم
+    const amountToPayDisplay = document.getElementById('amount_to_pay_display'); // المبلغ المطلوب دفعه الآن
+    const paymentOptionInput = document.getElementById('payment_option_input');
+    const paymentOptionItems = document.querySelectorAll('.payment-option-item');
     const fullPaymentOptionAmountSpan = document.getElementById('full_payment_option_amount');
     const downPaymentOptionAmountSpan = document.getElementById('down_payment_option_amount');
     
@@ -364,31 +367,32 @@
     const paymentMethodItems = document.querySelectorAll('.payment-method-item');
     const bankDetailsDiv = document.getElementById('bank-details');
     const serviceIdForDiscount = '{{ $service->id }}';
+    const bookingTimeForDiscount = document.getElementById('booking_time_hidden_input')?.value || '{{ $selectedTime }}'; // جلب وقت الحجز
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
     const submitBookingBtn = document.getElementById('submit_booking_btn');
 
-    // --- دالة لتنسيق الأرقام مع أو بدون كسور عشرية ---
     function formatDisplayAmount(value) {
         const numValue = parseFloat(value);
-        // نقرب لأقرب هللتين
         const roundedToTwoDecimals = Math.round(numValue * 100) / 100;
-        // نتحقق إذا كان الجزء العشري من الرقم المقرب هو صفر
-        const hasSignificantFraction = (roundedToTwoDecimals % 1 !== 0);
+        const hasSignificantFraction = (Math.abs(roundedToTwoDecimals % 1) > 0.0001); // استخدام Math.abs لتجنب مشاكل السالب
         return toArabicDigitsJS(roundedToTwoDecimals.toFixed(hasSignificantFraction ? 2 : 0));
     }
 
-
     function updateDisplayedPrices() {
-        const downPayment = Math.round(currentFullAmount / 2);
+        // currentFullAmountAfterDiscount هو السعر الإجمالي بعد أي خصم مطبق
+        const downPaymentCalculated = Math.round(currentFullAmountAfterDiscount * 50) / 100; // 50%
         const currentPaymentOptionValue = paymentOptionInput.value;
 
-        const formattedFullAmount = formatDisplayAmount(currentFullAmount);
-        const formattedDownPayment = formatDisplayAmount(downPayment);
-        const formattedAmountToPay = formatDisplayAmount(currentPaymentOptionValue === 'full' ? currentFullAmount : downPayment);
-
-        if(totalAmountDisplay) totalAmountDisplay.textContent = `${formattedFullAmount} ريال سعودي`;
-        if(amountToPayDisplay) amountToPayDisplay.textContent = `${formattedAmountToPay} ريال سعودي`;
-        if(fullPaymentOptionAmountSpan) fullPaymentOptionAmountSpan.textContent = `${formattedFullAmount} ريال`;
+        const formattedFullAmountAfterDiscount = formatDisplayAmount(currentFullAmountAfterDiscount);
+        const formattedDownPayment = formatDisplayAmount(downPaymentCalculated);
+        const amountToPayNow = currentPaymentOptionValue === 'full' ? currentFullAmountAfterDiscount : downPaymentCalculated;
+        const formattedAmountToPayNow = formatDisplayAmount(amountToPayNow);
+        
+        // totalAmountDisplay يجب أن يعكس السعر *بعد* الخصم إذا تم تطبيقه
+        if(totalAmountDisplay) totalAmountDisplay.textContent = `${formattedFullAmountAfterDiscount} ريال سعودي`;
+        if(amountToPayDisplay) amountToPayDisplay.textContent = `${formattedAmountToPayNow} ريال سعودي`;
+        
+        if(fullPaymentOptionAmountSpan) fullPaymentOptionAmountSpan.textContent = `${formattedFullAmountAfterDiscount} ريال`;
         if(downPaymentOptionAmountSpan) downPaymentOptionAmountSpan.textContent = `${formattedDownPayment} ريال`;
 
         paymentOptionItems.forEach(item => {
@@ -416,21 +420,112 @@
                 if (radio) radio.checked = false;
             }
         });
-         // إذا لم يتم تحديد أي طريقة (مثلاً بسبب old input لقيمة لم تعد متاحة)، ولم يتم تحديد أي طريقة دفع بعد
         if(!methodFoundAndSelected && !document.querySelector('input[name="payment_method"]:checked')) {
-            // حاول تحديد أول طريقة دفع متاحة كافتراضي
-            const firstAvailableMethod = document.querySelector('.payment-method-item input[name="payment_method"]');
-            if(firstAvailableMethod){
-                firstAvailableMethod.checked = true;
-                const parentItem = firstAvailableMethod.closest('.payment-method-item');
+            const firstAvailableMethodRadio = document.querySelector('.payment-method-item input[name="payment_method"]');
+            if(firstAvailableMethodRadio){
+                firstAvailableMethodRadio.checked = true;
+                const parentItem = firstAvailableMethodRadio.closest('.payment-method-item');
                 if(parentItem) parentItem.classList.add('selected');
-                methodValue = firstAvailableMethod.value; // تحديث القيمة المستخدمة لإظهار/إخفاء تفاصيل البنك
+                methodValue = firstAvailableMethodRadio.value;
             }
         }
-
-
         if(bankDetailsDiv) bankDetailsDiv.style.display = (methodValue === 'bank_transfer') ? 'block' : 'none';
+        
+        // --- MODIFICATION START: Reset or Re-check discount if payment method changes ---
+        if (isDiscountApplied && discountInput && discountInput.value.trim() !== '') {
+            // الخيار 1: إعادة تعيين الخصم
+            // resetDiscountState(); 
+            // discountResultDiv.innerHTML = '<span class="text-info">الرجاء إعادة التحقق من كود الخصم بعد تغيير طريقة الدفع.</span>';
+            // الخيار 2: إعادة التحقق (أكثر تعقيداً قليلاً، يتطلب استدعاء checkDiscountFunctionality)
+            //  checkDiscountFunctionality(discountInput.value.trim()); // قد تحتاج لتمرير القيم المحدثة
+            // للتبسيط الآن، سنقوم بإعادة التعيين إذا تغيرت طريقة الدفع
+            // ولكن من الأفضل أن يقوم المستخدم بإعادة التحقق يدوياً أو يتم التحقق النهائي في الخادم
+            // يمكنك تفعيل السطر التالي إذا أردت إعادة تعيين الخصم تلقائياً:
+            // resetDiscountState();
+            // discountResultDiv.innerHTML = '<span class="text-info">تم تغيير طريقة الدفع، قد تحتاج لإعادة التحقق من كود الخصم.</span>';
+        }
+        // --- MODIFICATION END ---
     }
+
+    function resetDiscountState() {
+        isDiscountApplied = false;
+        currentFullAmountAfterDiscount = originalFullAmount;
+        currentDiscountAmountRaw = 0;
+        updateDisplayedPrices();
+        if(discountResultDiv) discountResultDiv.innerHTML = '';
+        if(discountInput) {
+            discountInput.classList.remove('is-invalid');
+            discountInput.readOnly = false;
+        }
+        if(checkDiscountBtn) {
+            checkDiscountBtn.disabled = false;
+            checkDiscountBtn.innerHTML = 'التحقق';
+        }
+    }
+    
+    // --- MODIFICATION START: Encapsulate discount check logic in a function ---
+    function checkDiscountFunctionality(code) {
+        if (!code) {
+            discountResultDiv.innerHTML = '<span class="text-danger">الرجاء إدخال كود الخصم أولاً.</span>';
+            return;
+        }
+        discountResultDiv.innerHTML = `<div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">جاري التحقق...</span></div>`;
+        checkDiscountBtn.disabled = true;
+        discountInput.classList.remove('is-invalid');
+
+        const selectedPaymentMethodValue = document.querySelector('input[name="payment_method"]:checked')?.value || null;
+
+        const payload = {
+            discount_code: code,
+            service_id: serviceIdForDiscount,
+            booking_time: bookingTimeForDiscount, // bookingTimeForDiscount تم تعريفه في الأعلى
+            selected_payment_method: selectedPaymentMethodValue
+        };
+        // console.log('Sending to discount check:', payload); // لغرض الاختبار
+
+        fetch('{{ route("api.discount.check") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(response => response.json().then(data => ({ status: response.status, body: data })))
+        .then(({ status, body }) => {
+            checkDiscountBtn.disabled = false;
+            if (status >= 200 && status < 300 && body.valid) {
+                isDiscountApplied = true;
+                currentDiscountAmountRaw = parseFloat(body.discount_value_raw || 0);
+                currentFullAmountAfterDiscount = parseFloat(body.new_price_raw || originalFullAmount);
+                updateDisplayedPrices();
+                // استخدم body.discount_amount لأنه سيكون منسقاً من الخادم إذا أردت، أو استخدم body.discount_value_raw ونسقه هنا
+                const formattedDiscountTaken = formatDisplayAmount(currentDiscountAmountRaw);
+                discountResultDiv.innerHTML = `<span class="text-success">${body.message}. تم خصم: ${formattedDiscountTaken} ${body.currency || 'ريال'}</span>`;
+                checkDiscountBtn.innerHTML = 'تم تطبيق الخصم';
+                checkDiscountBtn.disabled = true;
+                discountInput.readOnly = true;
+            } else {
+                resetDiscountState(); // إعادة تعيين الحالة عند فشل التحقق
+                const errorMessage = body.message || 'كود الخصم غير صالح أو حدث خطأ.';
+                discountResultDiv.innerHTML = `<span class="text-danger">${errorMessage}</span>`;
+                if (discountInput) discountInput.classList.add('is-invalid');
+                 if(checkDiscountBtn) checkDiscountBtn.innerHTML = 'التحقق';
+            }
+        })
+        .catch(error => {
+            console.error('Discount Check Fetch Error:', error);
+            resetDiscountState();
+            discountResultDiv.innerHTML = '<span class="text-danger">حدث خطأ في الشبكة. يرجى المحاولة مرة أخرى.</span>';
+             if(checkDiscountBtn) {
+                checkDiscountBtn.disabled = false;
+                checkDiscountBtn.innerHTML = 'التحقق';
+            }
+        });
+    }
+    // --- MODIFICATION END ---
+
 
     document.addEventListener('DOMContentLoaded', function() {
         paymentOptionItems.forEach(item => {
@@ -448,89 +543,32 @@
         if (checkDiscountBtn && discountInput && discountResultDiv && csrfToken) {
             checkDiscountBtn.addEventListener('click', function() {
                 const code = discountInput.value.trim();
-                if (!code) {
-                    discountResultDiv.innerHTML = '<span class="text-danger">الرجاء إدخال كود الخصم أولاً.</span>';
-                    return;
-                }
-                discountResultDiv.innerHTML = `<div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">جاري التحقق...</span></div>`;
-                checkDiscountBtn.disabled = true;
-                discountInput.classList.remove('is-invalid');
-
-                fetch('{{ route("api.discount.check") }}', { /* تأكد من أن هذا المسار صحيح */
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'X-CSRF-TOKEN': csrfToken,
-                    },
-                    body: JSON.stringify({ discount_code: code, service_id: serviceIdForDiscount })
-                })
-                .then(response => response.json().then(data => ({ status: response.status, body: data })))
-                .then(({ status, body }) => {
-                    checkDiscountBtn.disabled = false;
-                    if (status >= 200 && status < 300 && body.valid) {
-                        isDiscountApplied = true;
-                        currentFullAmount = parseFloat(body.new_price_raw || originalFullAmount);
-                        updateDisplayedPrices();
-                        discountResultDiv.innerHTML = `<span class="text-success">${body.message}. تم خصم: ${toArabicDigitsJS(body.discount_amount_formatted || body.discount_amount)} ${body.currency || 'ريال'}</span>`;
-                        checkDiscountBtn.innerHTML = 'تم تطبيق الخصم';
-                        checkDiscountBtn.disabled = true;
-                        discountInput.readOnly = true;
-                    } else {
-                        isDiscountApplied = false;
-                        currentFullAmount = originalFullAmount;
-                        updateDisplayedPrices();
-                        const errorMessage = body.message || 'كود الخصم غير صالح أو حدث خطأ.';
-                        discountResultDiv.innerHTML = `<span class="text-danger">${errorMessage}</span>`;
-                        discountInput.classList.add('is-invalid');
-                        checkDiscountBtn.innerHTML = 'التحقق';
-                    }
-                })
-                .catch(error => {
-                    console.error('Discount Check Fetch Error:', error);
-                    isDiscountApplied = false;
-                    currentFullAmount = originalFullAmount;
-                    updateDisplayedPrices();
-                    discountResultDiv.innerHTML = '<span class="text-danger">حدث خطأ في الشبكة. يرجى المحاولة مرة أخرى.</span>';
-                    checkDiscountBtn.disabled = false;
-                    checkDiscountBtn.innerHTML = 'التحقق';
-                });
+                checkDiscountFunctionality(code); // --- MODIFICATION: Call the new function ---
             });
         }
 
          if(discountInput) {
              discountInput.addEventListener('input', function() {
+                 // إذا قام المستخدم بتعديل الكود، أعد الحالة الأولية للخصم
                  if (isDiscountApplied || discountInput.classList.contains('is-invalid')) {
-                     isDiscountApplied = false;
-                     currentFullAmount = originalFullAmount;
-                     updateDisplayedPrices();
-                     if(discountResultDiv) discountResultDiv.innerHTML = '';
-                     discountInput.classList.remove('is-invalid');
-                     discountInput.readOnly = false;
-                     if(checkDiscountBtn) {
-                         checkDiscountBtn.disabled = false;
-                         checkDiscountBtn.innerHTML = 'التحقق';
-                     }
+                     resetDiscountState();
                  }
              });
          }
         
-        // ضبط الحالة الأولية بناءً على old() أو الافتراضيات
         const initialPaymentOption = "{{ old('payment_option', 'full') }}";
         selectPaymentOption(initialPaymentOption);
 
-        // --- MODIFICATION START: Set initial payment method considering enabled options ---
         const initialPaymentMethodValue = "{{ old('payment_method') }}";
         let defaultInitialMethod = '';
         if (initialPaymentMethodValue) {
-            // Check if old value is still available
             if ( (initialPaymentMethodValue === 'tamara' && {{ $isTamaraEnabled ? 'true' : 'false' }}) ||
                  (initialPaymentMethodValue === 'bank_transfer' && {{ $isBankTransferEnabled ? 'true' : 'false' }}) ) {
                 defaultInitialMethod = initialPaymentMethodValue;
             }
         }
         
-        if (!defaultInitialMethod) { // If old value not set or not available
+        if (!defaultInitialMethod) {
             if ({{ $isTamaraEnabled ? 'true' : 'false' }}) {
                 defaultInitialMethod = 'tamara';
             } else if ({{ $isBankTransferEnabled ? 'true' : 'false' }}) {
@@ -540,15 +578,16 @@
         if (defaultInitialMethod) {
             selectPaymentMethod(defaultInitialMethod);
         } else {
-            // No payment methods enabled, disable submit button maybe?
             if(submitBookingBtn && !{{ $isTamaraEnabled ? 'true' : 'false' }} && !{{ $isBankTransferEnabled ? 'true' : 'false' }}){
-                submitBookingBtn.disabled = true;
-                submitBookingBtn.textContent = 'لا توجد طرق دفع متاحة';
+                // لا توجد طرق دفع متاحة نهائياً، يجب أن يتعامل الخادم مع هذا بشكل صحيح
+                // يمكن تغيير نص الزر أو تعطيله إذا كان هذا السيناريو يعني أن الحجز لا يمكن أن يكتمل
+                //  submitBookingBtn.disabled = true;
+                //  submitBookingBtn.textContent = 'لا توجد طرق دفع متاحة';
+                 // سنفترض أن الخادم سيعالج حالة 'manual_confirmation_due_to_no_gateway'
             }
         }
-        // --- MODIFICATION END ---
         
-        updateDisplayedPrices(); // تحديث نهائي للأسعار المعروضة عند التحميل
+        updateDisplayedPrices();
 
     });
 </script>
