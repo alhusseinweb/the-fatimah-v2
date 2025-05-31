@@ -148,7 +148,7 @@
                     case \App\Models\Invoice::STATUS_PENDING_CONFIRMATION:
                     case \App\Models\Invoice::STATUS_FAILED:
                         $alertClass = ($invoice->status === \App\Models\Invoice::STATUS_FAILED) ? 'alert-danger' : 'alert-warning';
-                        if($invoice->status === \App\Models\Invoice::STATUS_PENDING_CONFIRMATION"){
+                        if($invoice->status === \App\Models\Invoice::STATUS_PENDING_CONFIRMATION){
                              $alertText = 'الفاتورة بانتظار تأكيد الدفع اليدوي من الإدارة.';
                         } else {
                             $alertText = ($invoice->status === \App\Models\Invoice::STATUS_FAILED) ? 'فشلت عملية الدفع الأخيرة.' : 'الفاتورة بانتظار الدفع.';
