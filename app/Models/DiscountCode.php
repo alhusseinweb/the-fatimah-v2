@@ -4,52 +4,64 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon; // تأكد من استيراده
 
 class DiscountCode extends Model
 {
     use HasFactory;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
+    public const TYPE_FIXED = 'fixed';
+    public const TYPE_PERCENTAGE = 'percentage';
+
     protected $fillable = [
         'code',
-        'type', // e.g., 'percentage', 'fixed'
+        'type',
         'value',
         'start_date',
         'end_date',
         'max_uses',
-        // 'current_uses' is usually updated internally, not via mass assignment
+        'current_uses',
         'is_active',
+        'allowed_payment_methods', // <-- إضافة جديدة
+        'applicable_from_time',    // <-- إضافة جديدة
+        'applicable_to_time',      // <-- إضافة جديدة
+    ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
+        'start_date' => 'date',
+        'end_date' => 'date',
+        'current_uses' => 'integer',
+        'max_uses' => 'integer',
+        'value' => 'float',
+        'allowed_payment_methods' => 'array', // سيقوم Laravel بتحويل JSON إلى مصفوفة والعكس
     ];
 
     /**
-     * The attributes that should be cast.
+     * Get the available discount types.
+     * جلب أنواع الخصومات المتاحة.
      *
-     * @var array<string, string>
+     * @return array
      */
-    protected $casts = [
-        'value' => 'decimal:2', // Cast value to decimal (e.g., for fixed amounts or percentages)
-        'start_date' => 'date', // Cast to date object
-        'end_date' => 'date',   // Cast to date object
-        'max_uses' => 'integer',
-        'current_uses' => 'integer',
-        'is_active' => 'boolean',
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
-    ];
-
-    // Optional: Define possible types as constants for easier management
-    public const TYPE_PERCENTAGE = 'percentage';
-    public const TYPE_FIXED = 'fixed';
-
     public static function types(): array
     {
         return [
-            self::TYPE_PERCENTAGE => 'نسبة مئوية (%)',
-            self::TYPE_FIXED => 'مبلغ ثابت (ريال)',
+            self::TYPE_FIXED => 'قيمة ثابتة',
+            self::TYPE_PERCENTAGE => 'نسبة مئوية',
         ];
+    }
+
+    /**
+     * Scope a query to only include active discount codes.
+     * جلب أكواد الخصم الفعالة فقط.
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true)
+            ->whereDate('start_date', '<=', Carbon::today())
+            ->where(function ($q) {
+                $q->whereNull('end_date')
+                  ->orWhereDate('end_date', '>=', Carbon::today());
+            });
     }
 }
