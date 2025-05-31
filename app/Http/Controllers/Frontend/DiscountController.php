@@ -1,120 +1,118 @@
 <?php
 
-namespace App\Http\Controllers\Frontend; // <-- مسار Namespace للواجهة الأمامية
+namespace App\Http\Controllers\Frontend;
 
 use App\Http\Controllers\Controller;
 use App\Models\DiscountCode;
-use App\Models\Service; // تأكد من استيراد موديل الخدمة
-use Illuminate\Http\JsonResponse; // لاستخدام JsonResponse بشكل صريح
+use App\Models\Service;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Validator; // استخدام Validator بشكل صريح
-// use Illuminate\Validation\ValidationException; // لا نحتاج هذا هنا
+use Illuminate\Support\Facades\Validator;
 
 class DiscountController extends Controller
 {
-    /**
-     * Check the validity of a discount code via AJAX request.
-     * التحقق من صلاحية كود الخصم عبر طلب AJAX.
-     *
-     * @param  Request $request
-     * @return JsonResponse
-     */
     public function checkDiscount(Request $request): JsonResponse
     {
-        // 1. التحقق المبدئي من المدخلات
         $validator = Validator::make($request->all(), [
             'discount_code' => 'required|string',
             'service_id' => 'required|integer|exists:services,id',
+            'booking_time' => 'nullable|date_format:H:i', // وقت الحجز للتحقق
+            'selected_payment_method' => 'nullable|string', // طريقة الدفع المختارة للتحقق
         ]);
 
         if ($validator->fails()) {
             return response()->json([
                 'valid' => false,
-                'message' => 'البيانات المرسلة غير كافية للتحقق.',
+                'message' => 'البيانات المرسلة غير كافية للتحقق من كود الخصم.', // رسالة أوضح
                 'errors' => $validator->errors()
-            ], 422); // Unprocessable Entity
+            ], 422);
         }
 
         $code = $request->input('discount_code');
         $serviceId = $request->input('service_id');
+        $bookingTimeInput = $request->input('booking_time');
+        $selectedPaymentMethod = $request->input('selected_payment_method');
 
         try {
-            $service = Service::findOrFail($serviceId); // جلب الخدمة لمعرفة السعر الأصلي
+            $service = Service::findOrFail($serviceId);
             $originalPrice = $service->price_sar;
 
             $discountCode = DiscountCode::where('code', $code)
-                ->where('is_active', true)
-                ->whereDate('start_date', '<=', Carbon::today())
-                ->where(function ($q) {
-                    $q->whereNull('end_date')
-                      ->orWhereDate('end_date', '>=', Carbon::today());
-                })
+                ->active() // استخدام scope active
                 ->first();
 
-            // 2. التحقق من وجود الكود وصلاحيته
             if (!$discountCode) {
-                return response()->json([
-                    'valid' => false,
-                    'message' => 'كود الخصم غير صحيح أو منتهي الصلاحية.'
-                ], 404); // Not Found أو 422
+                return response()->json(['valid' => false, 'message' => 'كود الخصم غير صحيح أو منتهي الصلاحية.'], 422); // استخدام 422 بشكل عام لأخطاء التحقق من الكود
             }
 
-            // 3. التحقق من حد الاستخدام
             if (!is_null($discountCode->max_uses) && $discountCode->current_uses >= $discountCode->max_uses) {
-                return response()->json([
-                    'valid' => false,
-                    'message' => 'لقد تم استخدام كود الخصم بالحد الأقصى.'
-                ], 422); // Unprocessable Entity
+                return response()->json(['valid' => false, 'message' => 'لقد تم استخدام كود الخصم بالحد الأقصى.'], 422);
             }
 
-            // --- الكود صالح ---
+            // التحقق من شروط طريقة الدفع
+            // يتم التحقق فقط إذا تم إرسال طريقة دفع مختارة، وإذا كان للكود شروط على طرق الدفع
+            if ($selectedPaymentMethod && !empty($discountCode->allowed_payment_methods)) {
+                if (!in_array($selectedPaymentMethod, $discountCode->allowed_payment_methods)) {
+                    Log::info("AJAX: Discount code {$code} not applicable for payment method {$selectedPaymentMethod}. Allowed: " . implode(', ', $discountCode->allowed_payment_methods));
+                    return response()->json(['valid' => false, 'message' => 'كود الخصم غير صالح لطريقة الدفع المختارة حالياً.'], 422);
+                }
+            }
 
-            // 4. حساب قيمة الخصم
+            // التحقق من شروط وقت الحجز
+            // يتم التحقق فقط إذا تم إرسال وقت الحجز، وإذا كان للكود شروط على الوقت
+            if ($bookingTimeInput && ($discountCode->applicable_from_time || $discountCode->applicable_to_time)) {
+                try {
+                    $bookingTimeCarbon = Carbon::createFromFormat('H:i', $bookingTimeInput);
+                    $applicableFrom = $discountCode->applicable_from_time ? Carbon::parse($discountCode->applicable_from_time) : null;
+                    $applicableTo = $discountCode->applicable_to_time ? Carbon::parse($discountCode->applicable_to_time) : null;
+
+                    if ($applicableFrom && $bookingTimeCarbon->lt($applicableFrom)) {
+                        Log::info("AJAX: Discount code {$code} not applicable at {$bookingTimeInput}. Starts at {$discountCode->applicable_from_time}");
+                        return response()->json(['valid' => false, 'message' => 'كود الخصم غير صالح في هذا الوقت (يبدأ في وقت لاحق من اليوم).'], 422);
+                    }
+                    if ($applicableTo && $bookingTimeCarbon->gt($applicableTo)) {
+                         Log::info("AJAX: Discount code {$code} not applicable at {$bookingTimeInput}. Ends at {$discountCode->applicable_to_time}");
+                        return response()->json(['valid' => false, 'message' => 'كود الخصم غير صالح في هذا الوقت (انتهت صلاحيته لهذا اليوم).'], 422);
+                    }
+                } catch (\Exception $timeParseException){
+                    Log::error("AJAX: Error parsing booking_time for discount check.", ['time_input' => $bookingTimeInput, 'error' => $timeParseException->getMessage()]);
+                    // يمكن إرجاع خطأ عام هنا أو تجاهل شرط الوقت إذا كان التنسيق غير صحيح
+                }
+            }
+
+
             $discountAmount = 0;
-            if ($discountCode->type === DiscountCode::TYPE_PERCENTAGE) { // استخدام الثابت مباشرة
+            if ($discountCode->type === DiscountCode::TYPE_PERCENTAGE) {
                 $discountAmount = ($originalPrice * $discountCode->value) / 100;
-            } elseif ($discountCode->type === DiscountCode::TYPE_FIXED) { // استخدام الثابت مباشرة
+            } elseif ($discountCode->type === DiscountCode::TYPE_FIXED) {
                 $discountAmount = $discountCode->value;
             }
-            // تأكد أن الخصم لا يتجاوز سعر الخدمة
-            $discountAmount = min($discountAmount, $originalPrice);
+            $discountAmount = min($discountAmount, $originalPrice); // تأكد أن الخصم لا يتجاوز سعر الخدمة
+            $discountAmount = round($discountAmount, 2); // تقريب قيمة الخصم
 
-            // --- !!! حساب السعر الجديد !!! ---
             $newPrice = $originalPrice - $discountAmount;
-            // تأكد من أن السعر لا يقل عن صفر
-            $newPrice = max(0, $newPrice);
+            $newPrice = max(0, $newPrice); // تأكد أن السعر لا يقل عن صفر
+            $newPrice = round($newPrice, 2);
 
 
-            // 5. إرجاع رد ناجح مع قيمة الخصم والسعر الجديد
             return response()->json([
                 'valid' => true,
                 'message' => 'تم تطبيق كود الخصم بنجاح!',
-                 // قيمة الخصم المنسقة للعرض
-                'discount_amount' => number_format($discountAmount, 2, '.', ''),
-                 // قيمة الخصم كرقم خام لتستخدمها JS إذا احتاجت
-                'discount_value_raw' => $discountAmount,
-                // !!! السعر الجديد بعد الخصم كرقم خام !!!
-                'new_price_raw' => round($newPrice, 2), // التقريب لأقرب هللتين
-                'currency' => 'ريال سعودي', // العملة
-                'discount_type' => $discountCode->type // نوع الخصم (قد يفيد في JS)
+                'discount_amount' => number_format($discountAmount, 2, '.', ''), // قيمة الخصم المنسقة للعرض
+                'discount_value_raw' => $discountAmount, // قيمة الخصم كرقم خام
+                'new_price_raw' => $newPrice, // السعر الجديد بعد الخصم كرقم خام
+                'currency' => 'ريال سعودي',
+                'discount_type' => $discountCode->type,
             ]);
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-             // التعامل مع حالة عدم العثور على الخدمة
-             Log::warning('Discount Check API: Service not found.', ['service_id' => $serviceId]);
-             return response()->json([
-                 'valid' => false,
-                 'message' => 'الخدمة المطلوبة غير موجودة.'
-             ], 404); // Not Found
+             Log::warning('Discount Check API: Service not found.', ['service_id' => $serviceId, 'code' => $code]);
+             return response()->json(['valid' => false, 'message' => 'الخدمة المطلوبة غير موجودة.'], 404);
         } catch (\Exception $e) {
-            // تسجيل الخطأ للرجوع إليه
-            Log::error('Discount Check API Error: ' . $e->getMessage(), ['code' => $code, 'service_id' => $serviceId, 'exception' => $e]);
-            return response()->json([
-                'valid' => false,
-                'message' => 'حدث خطأ أثناء التحقق من الكود. يرجى المحاولة لاحقاً.'
-            ], 500); // Internal Server Error
+            Log::error('Discount Check API Error: ' . $e->getMessage(), ['code' => $code, 'service_id' => $serviceId, 'exception_details' => $e]);
+            return response()->json(['valid' => false, 'message' => 'حدث خطأ أثناء التحقق من الكود. يرجى المحاولة لاحقاً.'], 500);
         }
     }
 }
