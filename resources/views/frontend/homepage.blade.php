@@ -10,7 +10,8 @@
     $displayInstagram = filter_var($settingsHomepage['display_instagram_contact'] ?? true, FILTER_VALIDATE_BOOLEAN);
     
     // شعار الرأس من الإعدادات
-    $headerLogoPath = $settingsHomepage['logo_path_dark'] ?? asset('images/logo_w.png'); // شعار داكن للقائمة الشفافة
+    // بما أننا سنزيل الشعار من النافبار، قد لا نحتاج هذا المتغير هنا إلا إذا كان يستخدم في مكان آخر
+    $headerLogoPath = $settingsHomepage['logo_path_dark'] ?? asset('images/logo_w.png'); 
     $modalLogoPath = $settingsHomepage['logo_path_light'] ?? asset('images/logo.png'); // شعار فاتح للمودال
 
     // صور السلايدر من الإعدادات
@@ -39,16 +40,14 @@
             $cleanedNumber = preg_replace('/[^0-9+]/', '', $number); // السماح بـ + في البداية
             if ($forUrl) {
                 $cleanedNumberForUrl = preg_replace('/[^0-9]/', '', $cleanedNumber); // إزالة كل شيء ما عدا الأرقام للـ URL
-                // منطق بسيط لـ wa.me (قد يحتاج لتحسين حسب تنسيقات الأرقام المدخلة)
-                if (strpos($cleanedNumberForUrl, '00') === 0) { // 00966...
+                if (strpos($cleanedNumberForUrl, '00') === 0) { 
                     return substr($cleanedNumberForUrl, 2);
                 }
-                if (strpos($cleanedNumberForUrl, '0') === 0 && strlen($cleanedNumberForUrl) > 9) { // 05... (Saudi)
+                if (strpos($cleanedNumberForUrl, '0') === 0 && strlen($cleanedNumberForUrl) > 9) { 
                      return '966' . substr($cleanedNumberForUrl, 1);
                 }
-                return ltrim($cleanedNumberForUrl, '+'); // إزالة + إذا كانت موجودة
+                return ltrim($cleanedNumberForUrl, '+'); 
             }
-            // للعرض، يمكنك استخدام toArabicDigits إذا كانت الدالة موجودة ومتاحة
             return function_exists('toArabicDigits') ? toArabicDigits($number) : $number;
         }
     }
@@ -87,8 +86,8 @@
 
         .navbar-overlay { position: absolute; top: 0; left: 0; right: 0; width: 100%; z-index: 1030; background-color: transparent !important; box-shadow: none !important; padding-top: 1rem; padding-bottom: 1rem; transition: background-color 0.3s ease-in-out, padding-top 0.3s ease-in-out, padding-bottom 0.3s ease-in-out; }
         .navbar-overlay.scrolled { background-color: rgba(0, 0, 0, 0.7) !important; padding-top: 0.5rem; padding-bottom: 0.5rem; }
-        .navbar-overlay .navbar-brand img { max-height: 40px; transition: max-height 0.3s ease-in-out; filter: brightness(0) invert(1); /* White logo initially */ }
-        .navbar-overlay.scrolled .navbar-brand img { max-height: 35px; }
+        /* .navbar-overlay .navbar-brand img { max-height: 40px; transition: max-height 0.3s ease-in-out; filter: brightness(0) invert(1); } */ /* تم التعليق على هذا السطر الخاص بالشعار */
+        /* .navbar-overlay.scrolled .navbar-brand img { max-height: 35px; } */ /* تم التعليق على هذا السطر الخاص بالشعار */
         .navbar-overlay .navbar-nav { background-color: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 50px; padding: 0.3rem 1rem; margin-top: 0.5rem; }
         .navbar-overlay.scrolled .navbar-nav { background-color: rgba(255, 255, 255, 0.1); }
         .navbar-overlay .nav-item { margin-left: 0.2rem; margin-right: 0.2rem; }
@@ -103,16 +102,14 @@
 
         .hero-section-carousel { position: relative; overflow: hidden; width: 100%; margin: 0; padding: 0; }
         .hero-section-carousel .carousel-inner, .hero-section-carousel .carousel-item, .hero-section-carousel .hero-slide-item { min-height: 90vh; background-size: cover; background-position: center center; background-repeat: no-repeat; width: 100%; margin: 0; padding: 0; }
-        /* Slider images will be set by JS or dynamically */
-        .hero-section-carousel .carousel-caption { bottom: 0; left: 0; right: 0; top: 0; padding: 0; display: flex; align-items: center; justify-content: center; z-index: 5; color: #fff; background-color: transparent; /* Removed grey overlay from here as per previous request */ }
+        .hero-section-carousel .carousel-caption { bottom: 0; left: 0; right: 0; top: 0; padding: 0; display: flex; align-items: center; justify-content: center; z-index: 5; color: #fff; background-color: transparent; }
         .hero-caption-content { display: flex; flex-direction: column; align-items: center; padding: 20px; border-radius: 10px; text-align: center;}
-        .hero-caption-content .hero-logo-in-caption { max-width: 200px; height: auto; margin-bottom: 25px; z-index: 1; filter: drop-shadow(2px 2px 5px rgba(0,0,0,0.5)); /* Example shadow */ }
+        .hero-caption-content .hero-logo-in-caption { max-width: 200px; height: auto; margin-bottom: 25px; z-index: 1; filter: drop-shadow(2px 2px 5px rgba(0,0,0,0.5)); }
         .hero-book-now-btn { border-width: 2px; font-weight: 700; text-transform: uppercase; transition: all 0.3s ease; z-index: 1; padding: 12px 30px; font-size: 1.1rem; border-radius: 50px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
         .hero-book-now-btn:hover { background-color: #ffffff; color: #333; border-color: #ffffff; transform: translateY(-2px); box-shadow: 0 6px 15px rgba(0,0,0,0.3); }
         .carousel-indicators button { width: 12px; height: 12px; border-radius: 50%; background-color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.7); margin: 0 5px; }
         .carousel-indicators .active { background-color: #fff; }
         .carousel-control-prev-icon, .carousel-control-next-icon { background-color: rgba(0,0,0,0.3); border-radius: 50%; padding: 1.5rem; background-size: 50% 50%; }
-
 
         .services-section { padding-top: 4rem; padding-bottom: 4rem; background-color: #ffffff; position: relative; z-index: 1; }
         .section-title { font-size: 2.5rem; font-weight: 700; margin-bottom: 1rem; position: relative; padding-bottom: 1rem; }
@@ -130,15 +127,14 @@
         .contact-section .btn-success i, .contact-section .btn-light img { transition: transform 0.2s ease-in-out; }
         .contact-section .btn-success:hover i, .contact-section .btn-light:hover img { transform: scale(1.1); }
 
-
         .footer { width: 100%; margin: 0; padding: 25px 0; background-color: #343a40; color: #adb5bd; position: relative; z-index: 1; border-top: 1px solid #495057; }
         .footer .container { text-align: center; }
         .footer p { margin-bottom: 0; font-size: 0.9rem; }
 
         html[dir="rtl"] body { direction: rtl; text-align: right; }
         html[dir="rtl"] .navbar-nav { margin-right: auto !important; margin-left: 0 !important; }
-        html[dir="rtl"] .navbar-overlay .navbar-nav { margin-left: auto !important; margin-right: 0 !important; } /* Adjusted for central positioning */
-        @media (min-width: 992px) { /* lg and up */
+        html[dir="rtl"] .navbar-overlay .navbar-nav { margin-left: auto !important; margin-right: 0 !important; } 
+        @media (min-width: 992px) { 
             html[dir="rtl"] .navbar-overlay .navbar-nav { margin-right: auto !important; margin-left: auto !important; }
         }
         html[dir="rtl"] .dropdown-menu { right: 0; left: auto; text-align: right; }
@@ -146,25 +142,25 @@
         html[dir="ltr"] .contact-section .btn-success i, html[dir="ltr"] .contact-section .btn-light img { margin-right: 0.5rem !important; margin-left: 0 !important; }
         html[dir="rtl"] .modal-header .btn-close { margin-left: auto; margin-right: -0.5rem; }
 
-
         #bookingPolicyModal .modal-body { text-align: right; direction: rtl; }
         #bookingPolicyModal .modal-body h4 { margin-top: 1rem; margin-bottom: 0.5rem; font-weight: 700; }
         #bookingPolicyModal .modal-body ul { padding-right: 2rem; margin-bottom: 1rem; }
         #bookingPolicyModal .modal-body li { margin-bottom: 0.5rem; }
-        #bookingPolicyModal .modal-header { border-bottom: none; padding-top: 1.5rem; padding-bottom: 0.5rem; display: flex; justify-content: center; /* Center logo */ position:relative; }
+        #bookingPolicyModal .modal-header { border-bottom: none; padding-top: 1.5rem; padding-bottom: 0.5rem; display: flex; justify-content: center; position:relative; }
          #bookingPolicyModal .modal-header-logo { max-height: 80px; width: auto; }
-         #bookingPolicyModal .btn-close { position: absolute; top: 1.5rem; /* Adjust based on padding */ right: 1.5rem; /* For RTL */ }
+         #bookingPolicyModal .btn-close { position: absolute; top: 1.5rem; right: 1.5rem; }
          html[dir="ltr"] #bookingPolicyModal .btn-close { right: auto; left: 1.5rem; }
-
-
     </style>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark navbar-overlay fixed-top">
         <div class="container">
+            {{-- الشعار في النافبار - تم تحويله لتعليق لإزالته --}}
+            {{--
             <a class="navbar-brand" href="{{ url('/') }}">
                 <img src="{{ asset($headerLogoPath) }}" alt="{{ $settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo' }}">
             </a>
+            --}}
             <button class="navbar-toggler ms-auto" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -232,7 +228,8 @@
                 <div class="carousel-item {{ $loop->first ? 'active' : '' }} hero-slide-item" style="background-image: url('{{ asset($imagePath) }}');">
                     <div class="carousel-caption">
                         <div class="hero-caption-content">
-                            <img src="{{ asset($headerLogoPath) }}" alt="{{ $settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo' }}" class="img-fluid hero-logo-in-caption">
+                            {{-- الشعار في السلايدر سيبقى إذا كان هذا هو المطلوب --}}
+                            <img src="{{ asset($settingsHomepage['logo_path_dark'] ?? asset('images/logo_w.png')) }}" alt="{{ $settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo' }}" class="img-fluid hero-logo-in-caption">
                             <a href="{{ route('services.index') }}" class="btn btn-outline-light btn-lg hero-book-now-btn">
                                 إحجز الأن
                             </a>
@@ -240,10 +237,10 @@
                     </div>
                 </div>
                 @empty
-                <div class="carousel-item active hero-slide-item" style="background-image: url('{{ asset('images/slider/slider_default.jpg') }}');"> {{-- صورة افتراضية واحدة إذا لم يتم تحميل أي صور --}}
+                <div class="carousel-item active hero-slide-item" style="background-image: url('{{ asset('images/slider/slider_default.jpg') }}');">
                     <div class="carousel-caption">
                         <div class="hero-caption-content">
-                             <img src="{{ asset($headerLogoPath) }}" alt="{{ $settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo' }}" class="img-fluid hero-logo-in-caption">
+                             <img src="{{ asset($settingsHomepage['logo_path_dark'] ?? asset('images/logo_w.png')) }}" alt="{{ $settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo' }}" class="img-fluid hero-logo-in-caption">
                             <a href="{{ route('services.index') }}" class="btn btn-outline-light btn-lg hero-book-now-btn">
                                 إحجز الأن
                             </a>
@@ -269,7 +266,6 @@
         <div class="container">
             <h2 class="section-title mb-5">خدماتنا</h2>
             <div class="row justify-content-center">
-                {{-- سيتم جلب الخدمات ديناميكياً هنا، هذا مجرد مثال --}}
                 <div class="col-md-4">
                     <div class="service-item">
                         <img src="{{ asset('images/placeholder/service-1.jpg') }}" alt="تصوير الأعراس" class="img-fluid service-icon">
@@ -298,7 +294,6 @@
         </div>
     </section>
 
-    {{-- START: MODIFIED CONTACT SECTION --}}
     <section class="contact-section contact-background">
         <div class="container">
             <div class="contact-content-overlay card p-4 p-md-5 mx-auto" style="max-width: 800px;">
@@ -330,8 +325,6 @@
             </div>
         </div>
     </section>
-    {{-- END: MODIFIED CONTACT SECTION --}}
-
 
     <footer class="footer">
         <div class="container">
@@ -349,7 +342,7 @@
           <div class="modal-body">
             @php
                 $policyToDisplay = app()->getLocale() == 'ar' ? $bookingPolicyAr : $bookingPolicyEn;
-                if(empty(trim($policyToDisplay))) $policyToDisplay = (app()->getLocale() == 'ar' ? $bookingPolicyEn : $bookingPolicyAr); // Fallback to other language
+                if(empty(trim($policyToDisplay))) $policyToDisplay = (app()->getLocale() == 'ar' ? $bookingPolicyEn : $bookingPolicyAr); 
                 if(empty(trim($policyToDisplay))) $policyToDisplay = 'لم يتم تحديد سياسة الحجز بعد.';
             @endphp
             {!! nl2br(e($policyToDisplay)) !!}
@@ -363,13 +356,14 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Navbar scroll effect
         window.addEventListener('scroll', function() {
             const navbar = document.querySelector('.navbar-overlay');
-            if (window.scrollY > 50) {
-                navbar.classList.add('scrolled');
-            } else {
-                navbar.classList.remove('scrolled');
+            if (navbar) { // التأكد من أن العنصر موجود
+                if (window.scrollY > 50) {
+                    navbar.classList.add('scrolled');
+                } else {
+                    navbar.classList.remove('scrolled');
+                }
             }
         });
     </script>
