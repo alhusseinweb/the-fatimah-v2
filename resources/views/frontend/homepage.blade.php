@@ -10,7 +10,7 @@
     $displayInstagram = filter_var($settingsHomepage['display_instagram_contact'] ?? true, FILTER_VALIDATE_BOOLEAN);
     
     // شعار الرأس من الإعدادات
-    //$headerLogoPath = $settingsHomepage['logo_path_dark'] ?? asset('images/logo_w1.png'); // شعار داكن للقائمة الشفافة
+    $headerLogoPath = $settingsHomepage['logo_path_dark'] ?? asset('images/logo_w.png'); // شعار داكن للقائمة الشفافة
     $modalLogoPath = $settingsHomepage['logo_path_light'] ?? asset('images/logo.png'); // شعار فاتح للمودال
 
     // صور السلايدر من الإعدادات
