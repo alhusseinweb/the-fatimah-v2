@@ -2,24 +2,26 @@
 @extends('layouts.app')
 
 @php
-    // من الأفضل أن تكون هذه الدوال معرفة كـ helpers عامة في مشروعك
-    if (!function_exists('toArabicDigitsGlobalSafeInvoiceShow')) { // اسم فريد جديد
+    // إعادة تعريف الدوال المساعدة هنا
+    if (!function_exists('toArabicDigitsGlobalSafeInvoiceShow')) {
         function toArabicDigitsGlobalSafeInvoiceShow($number) {
             if (is_null($number)) return '';
             return str_replace(range(0, 9), ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'], (string)$number);
         }
     }
-    if (!function_exists('formatAmountConditionallyGlobalSafeInvoiceShow')) { // اسم فريد جديد
+    if (!function_exists('formatAmountConditionallyGlobalSafeInvoiceShow')) {
         function formatAmountConditionallyGlobalSafeInvoiceShow($value, $currency = null) {
             if (is_null($value)) return '-';
             $value = (float) $value;
             $roundedToTwoDecimals = round($value, 2);
-            $hasSignificantFraction = (fmod($roundedToTwoDecimals, 1) != 0.00);
+            // التأكد من أننا نعرض الفاصلة العشرية فقط إذا كان هناك جزء عشري حقيقي
+            $hasSignificantFraction = (abs($roundedToTwoDecimals - floor($roundedToTwoDecimals)) > 0.0001);
             $formattedNumber = number_format($roundedToTwoDecimals, $hasSignificantFraction ? 2 : 0, '.', '');
             
             $result = toArabicDigitsGlobalSafeInvoiceShow($formattedNumber);
             if ($currency) {
-                $result = $result . ' ' . e($currency); // استخدام e() للأمان
+                // استخدام e() لـ escaping آمن للمتغير
+                $result = $result . ' ' . e($currency); 
             }
             return $result;
         }
@@ -28,6 +30,13 @@
     $invoiceTitleNumberDisplay = $invoice->invoice_number ?: $invoice->id;
     $invoiceTitleNumberDisplay = toArabicDigitsGlobalSafeInvoiceShow((string)$invoiceTitleNumberDisplay);
 
+    // حساب قيمة المبلغ المتبقي هنا لتبسيط العرض
+    $remainingAmount = $invoice->remaining_amount ?? 0; 
+    if (!isset($invoice->remaining_amount) && $invoice) { 
+        $totalPaidForInvoice = $invoice->payments()->where('status', 'completed')->sum('amount');
+        $remainingAmount = $invoice->amount - $totalPaidForInvoice;
+    }
+    $remainingAmount = (float) round($remainingAmount, 2);
 @endphp
 
 @section('title', "تفاصيل الفاتورة رقم " . $invoiceTitleNumberDisplay)
@@ -109,12 +118,13 @@
                 $alertClass = '';
                 $alertText = '';
                 $allowTamaraPayment = false;
-                $isTamaraGenerallyEnabled = class_exists(App\Services\TamaraService::class) && filter_var(App\Models\Setting::where('key', 'tamara_enabled')->value('value'), FILTER_VALIDATE_BOOLEAN);
-
-                $remainingAmount = $invoice->remaining_amount ?? 0; // Accessor
-                // التأكد من أن $remainingAmount هو رقم عشري
-                $remainingAmount = (float) round($remainingAmount, 2);
-
+                // جلب الإعدادات مرة واحدة إذا لم تكن موجودة بالفعل
+                if (!isset($settings)) {
+                    $settings = App\Models\Setting::pluck('value', 'key')->all();
+                }
+                $isTamaraGenerallyEnabled = filter_var($settings['tamara_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                
+                // $remainingAmount تم حسابه في بداية الملف
 
                 switch ($invoice->status) {
                     case \App\Models\Invoice::STATUS_PAID:
@@ -138,7 +148,7 @@
                     case \App\Models\Invoice::STATUS_PENDING_CONFIRMATION:
                     case \App\Models\Invoice::STATUS_FAILED:
                         $alertClass = ($invoice->status === \App\Models\Invoice::STATUS_FAILED) ? 'alert-danger' : 'alert-warning';
-                        if($invoice->status === \App\Models\Invoice::STATUS_PENDING_CONFIRMATION){
+                        if($invoice->status === \App\Models\Invoice::STATUS_PENDING_CONFIRMATION"){
                              $alertText = 'الفاتورة بانتظار تأكيد الدفع اليدوي من الإدارة.';
                         } else {
                             $alertText = ($invoice->status === \App\Models\Invoice::STATUS_FAILED) ? 'فشلت عملية الدفع الأخيرة.' : 'الفاتورة بانتظار الدفع.';
@@ -154,7 +164,7 @@
                         break;
                     default:
                         $alertClass = 'alert-info';
-                        $alertText = 'الحالة: ' . ($invoice->status_label ?? Str::ucfirst(str_replace('_', ' ', $invoice->status)));
+                        $alertText = 'الحالة: ' . ($invoice->status_label ?? Illuminate\Support\Str::ucfirst(str_replace('_', ' ', $invoice->status)));
                         break;
                 }
             @endphp
@@ -186,7 +196,7 @@
                             <span class="info-label">الحالة:</span>
                             <span class="info-value">
                                 <span class="badge {{ $invoice->status_badge_class ?? 'badge-secondary' }}">
-                                    {{ $invoice->status_label ?? Str::ucfirst(str_replace('_', ' ', $invoice->status)) }}
+                                    {{ $invoice->status_label ?? Illuminate\Support\Str::ucfirst(str_replace('_', ' ', $invoice->status)) }}
                                 </span>
                             </span>
                         </div>
@@ -256,7 +266,14 @@
                     <h2 class="invoice-section-title">معلومات الحجز المرتبط</h2>
                     <div class="row">
                         <div class="col-md-6">
-                            <div class="info-row"> <span class="info-label">رقم الحجز:</span> <span class="info-value"><a href="{{ route('customer.bookings.show', $booking->id) }}">#{{ toArabicDigitsGlobalSafeInvoiceShow($booking->id) }}</a></span> </div>
+                            <div class="info-row">
+                                <span class="info-label">رقم الحجز:</span>
+                                <span class="info-value">
+                                    {{-- تعديل: يشير إلى قائمة حجوزات العميل. --}}
+                                    {{-- إذا كان لديك مسار لعرض تفاصيل حجز واحد، استخدمه بدلاً من 'customer.bookings.index' --}}
+                                    <a href="{{ route('customer.bookings.index') }}">#{{ toArabicDigitsGlobalSafeInvoiceShow($booking->id) }}</a>
+                                </span>
+                            </div>
                         </div>
                         @if ($booking->service)
                             <div class="col-md-6">
@@ -288,7 +305,7 @@
                                 <span class="info-label">حالة الحجز:</span>
                                 <span class="info-value">
                                     <span class="badge {{ $booking->status_badge_class ?? 'bg-secondary' }}">
-                                        {{ $booking->status_label ?? Str::ucfirst(str_replace('_', ' ', $booking->status)) }}
+                                        {{ $booking->status_label ?? Illuminate\Support\Str::ucfirst(str_replace('_', ' ', $booking->status)) }}
                                     </span>
                                 </span>
                             </div>
