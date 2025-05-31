@@ -26,23 +26,21 @@ class Booking extends Model
         'service_id',
         'booking_datetime',
         'status',
-        'cancellation_reason',
+        'cancellation_reason', // [cite: 23]
         'event_location',
-        'groom_name_ar',
-        'groom_name_en',
-        'bride_name_ar',
-        'bride_name_en',
+        'groom_name_ar', // [cite: 31]
+        'groom_name_en', // [cite: 31]
+        'bride_name_ar', // [cite: 31]
+        'bride_name_en', // [cite: 31]
         'customer_notes',
         'agreed_to_policy',
         'invoice_id',
         'discount_code_id',
         'reminder_sent_at',
         'down_payment_amount',
-        // --- START: ADDED LOCATION FIELDS ---
-        'shooting_area',                // مثل 'inside_ahsa' أو 'outside_ahsa'
-        'outside_location_city',        // المدينة المختارة إذا كانت خارج الأحساء
-        'outside_location_fee_applied', // الرسوم المطبقة للتصوير الخارجي
-        // --- END: ADDED LOCATION FIELDS ---
+        'shooting_area',
+        'outside_location_city',
+        'outside_location_fee_applied',
     ];
 
     protected $casts = [
@@ -52,9 +50,7 @@ class Booking extends Model
         'updated_at' => 'datetime',
         'reminder_sent_at' => 'datetime',
         'down_payment_amount' => 'float',
-        // --- START: CAST FOR NEW FEE FIELD ---
         'outside_location_fee_applied' => 'float',
-        // --- END: CAST FOR NEW FEE FIELD ---
     ];
 
     public function user(): BelongsTo
@@ -69,7 +65,7 @@ class Booking extends Model
 
     public function discountCode(): BelongsTo
     {
-        return $this->belongsTo(DiscountCode::class)->withDefault(); // withDefault لتجنب الخطأ إذا كان الكود محذوفاً
+        return $this->belongsTo(DiscountCode::class)->withDefault();
     }
 
     public function invoice(): HasOne
@@ -77,7 +73,7 @@ class Booking extends Model
         return $this->hasOne(Invoice::class, 'booking_id', 'id');
     }
 
-    public static function getStatusesWithOptions(): array
+    public static function getStatusesWithOptions(): array // [cite: 15]
     {
         return [
             self::STATUS_PENDING => 'قيد الانتظار/الدفع',
@@ -91,7 +87,7 @@ class Booking extends Model
         ];
     }
 
-    public static function getCancellationStatusesRequiringReason(): array
+    public static function getCancellationStatusesRequiringReason(): array // [cite: 23]
     {
         return [
             self::STATUS_CANCELLED_BY_ADMIN,
@@ -107,7 +103,7 @@ class Booking extends Model
     {
         return match ($this->status) {
             self::STATUS_CONFIRMED => 'badge bg-success text-white',
-            self::STATUS_COMPLETED => 'badge bg-primary text-white', // يمكنك اختيار لون آخر للمكتمل
+            self::STATUS_COMPLETED => 'badge bg-primary text-white',
             self::STATUS_CANCELLED_BY_USER, self::STATUS_CANCELLED_BY_ADMIN => 'badge bg-danger text-white',
             self::STATUS_PENDING => 'badge bg-warning text-dark',
             self::STATUS_NO_SHOW => 'badge bg-secondary text-white',
@@ -116,7 +112,6 @@ class Booking extends Model
         };
     }
 
-    // دالة مساعدة لترجمة shooting_area
     public function getShootingAreaLabelAttribute(): string
     {
         if ($this->shooting_area === 'inside_ahsa') {
@@ -124,6 +119,6 @@ class Booking extends Model
         } elseif ($this->shooting_area === 'outside_ahsa') {
             return 'خارج الأحساء';
         }
-        return $this->shooting_area ?? '-'; // قيمة افتراضية
+        return $this->shooting_area ?? '-';
     }
 }
