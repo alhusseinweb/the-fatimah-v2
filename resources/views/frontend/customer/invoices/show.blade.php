@@ -105,11 +105,10 @@
     <div class="invoice-card">
         <div class="invoice-card-header">
             <h1 class="invoice-card-title">
-                <i class="fas fa-file-invoice"></i>
                 تفاصيل الفاتورة رقم {{ $invoiceTitleNumberDisplay }}
             </h1>
             <a href="{{ route('customer.dashboard') }}" class="btn-action btn-back">
-                <i class="fas fa-arrow-right"></i> العودة إلى لوحة التحكم
+                 العودة إلى لوحة التحكم
             </a>
         </div>
         <div class="invoice-card-body">
@@ -316,7 +315,7 @@
 
             <div class="invoice-actions">
                 <button onclick="window.print()" class="btn-action btn-print">
-                    <i class="fas fa-print"></i> طباعة الفاتورة
+                     طباعة الفاتورة
                 </button>
             </div>
 
