@@ -7,8 +7,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Carbon\Carbon;
-// use App\Models\User; // لا حاجة له هنا إذا لم يستخدم بشكل مباشر
-// use App\Models\Setting; // لا حاجة له هنا بعد إزالة الملحق الذي يستخدمه
 
 class Booking extends Model
 {
@@ -36,12 +34,15 @@ class Booking extends Model
         'bride_name_en',
         'customer_notes',
         'agreed_to_policy',
-        'invoice_id', // تأكد من أن هذا الحقل يُدار بشكل صحيح (عادةً ما يتم تعيينه بعد إنشاء الفاتورة)
+        'invoice_id',
         'discount_code_id',
         'reminder_sent_at',
-        // --- MODIFICATION START ---
-        'down_payment_amount', // إضافة الحقل هنا للسماح بالحفظ
-        // --- MODIFICATION END ---
+        'down_payment_amount',
+        // --- START: ADDED LOCATION FIELDS ---
+        'shooting_area',                // مثل 'inside_ahsa' أو 'outside_ahsa'
+        'outside_location_city',        // المدينة المختارة إذا كانت خارج الأحساء
+        'outside_location_fee_applied', // الرسوم المطبقة للتصوير الخارجي
+        // --- END: ADDED LOCATION FIELDS ---
     ];
 
     protected $casts = [
@@ -50,9 +51,10 @@ class Booking extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'reminder_sent_at' => 'datetime',
-        // --- MODIFICATION START (Optional, but good practice) ---
-        'down_payment_amount' => 'float', // تحويل النوع إلى float
-        // --- MODIFICATION END ---
+        'down_payment_amount' => 'float',
+        // --- START: CAST FOR NEW FEE FIELD ---
+        'outside_location_fee_applied' => 'float',
+        // --- END: CAST FOR NEW FEE FIELD ---
     ];
 
     public function user(): BelongsTo
@@ -67,7 +69,7 @@ class Booking extends Model
 
     public function discountCode(): BelongsTo
     {
-        return $this->belongsTo(DiscountCode::class)->withDefault();
+        return $this->belongsTo(DiscountCode::class)->withDefault(); // withDefault لتجنب الخطأ إذا كان الكود محذوفاً
     }
 
     public function invoice(): HasOne
@@ -105,7 +107,7 @@ class Booking extends Model
     {
         return match ($this->status) {
             self::STATUS_CONFIRMED => 'badge bg-success text-white',
-            self::STATUS_COMPLETED => 'badge bg-primary text-white',
+            self::STATUS_COMPLETED => 'badge bg-primary text-white', // يمكنك اختيار لون آخر للمكتمل
             self::STATUS_CANCELLED_BY_USER, self::STATUS_CANCELLED_BY_ADMIN => 'badge bg-danger text-white',
             self::STATUS_PENDING => 'badge bg-warning text-dark',
             self::STATUS_NO_SHOW => 'badge bg-secondary text-white',
@@ -114,25 +116,14 @@ class Booking extends Model
         };
     }
 
-    // --- MODIFICATION START ---
-    // قم بإزالة أو تعطيل هذا الملحق (accessor) بالكامل.
-    // إذا ظل هذا الملحق موجودًا، فسيقوم دائمًا بإعادة حساب قيمة الدفعة الأولى
-    // بناءً على السعر الأصلي للخدمة، متجاوزًا القيمة الصحيحة المحسوبة (بعد الخصم)
-    // والتي تم حفظها بواسطة BookingController.
-    /*
-    public function getDownPaymentAmountAttribute(): float
+    // دالة مساعدة لترجمة shooting_area
+    public function getShootingAreaLabelAttribute(): string
     {
-        // هذا المنطق يتسبب في المشكلة لأنه يتجاهل الخصومات
-        if ($this->service && $this->service->price_sar > 0) {
-            $downPaymentPercentageSetting = \App\Models\Setting::where('key', 'down_payment_percentage')->first();
-            $downPaymentPercentage = $downPaymentPercentageSetting ? (float) $downPaymentPercentageSetting->value : 0.5;
-
-            if ($downPaymentPercentage > 0 && $downPaymentPercentage <= 1) {
-                return round($this->service->price_sar * $downPaymentPercentage, 2);
-            }
+        if ($this->shooting_area === 'inside_ahsa') {
+            return 'داخل الأحساء';
+        } elseif ($this->shooting_area === 'outside_ahsa') {
+            return 'خارج الأحساء';
         }
-        return 0.00;
+        return $this->shooting_area ?? '-'; // قيمة افتراضية
     }
-    */
-    // --- MODIFICATION END ---
 }
