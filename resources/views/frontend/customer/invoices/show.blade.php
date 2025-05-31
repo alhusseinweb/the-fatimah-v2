@@ -2,32 +2,31 @@
 @extends('layouts.app')
 
 @php
-    // تعريف الدوال هنا مع تبسيط وتوحيد علامات الاقتباس
-    if (!function_exists('toArabicDigitsGlobalSafe')) { // اسم فريد جديد
-        function toArabicDigitsGlobalSafe($number) {
-            if (is_null($number)) return ''; // استخدام علامة اقتباس مفردة
+    // من الأفضل أن تكون هذه الدوال معرفة كـ helpers عامة في مشروعك
+    if (!function_exists('toArabicDigitsGlobalSafeInvoiceShow')) { // اسم فريد جديد
+        function toArabicDigitsGlobalSafeInvoiceShow($number) {
+            if (is_null($number)) return '';
             return str_replace(range(0, 9), ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'], (string)$number);
         }
     }
-    if (!function_exists('formatAmountConditionallyGlobalSafe')) { // اسم فريد جديد
-        function formatAmountConditionallyGlobalSafe($value, $currency = null) {
-            if (is_null($value)) return '-'; // استخدام علامة اقتباس مفردة
+    if (!function_exists('formatAmountConditionallyGlobalSafeInvoiceShow')) { // اسم فريد جديد
+        function formatAmountConditionallyGlobalSafeInvoiceShow($value, $currency = null) {
+            if (is_null($value)) return '-';
             $value = (float) $value;
             $roundedToTwoDecimals = round($value, 2);
             $hasSignificantFraction = (fmod($roundedToTwoDecimals, 1) != 0.00);
             $formattedNumber = number_format($roundedToTwoDecimals, $hasSignificantFraction ? 2 : 0, '.', '');
             
-            $result = toArabicDigitsGlobalSafe($formattedNumber);
+            $result = toArabicDigitsGlobalSafeInvoiceShow($formattedNumber);
             if ($currency) {
-                $result = $result . ' ' . e($currency); // استخدام e() للأمان عند طباعة المتغير
+                $result = $result . ' ' . e($currency); // استخدام e() للأمان
             }
             return $result;
         }
     }
 
     $invoiceTitleNumberDisplay = $invoice->invoice_number ?: $invoice->id;
-    // إذا كنت ستستخدم toArabicDigitsGlobalSafe هنا، تأكد من أن $invoiceTitleNumberDisplay هو سلسلة نصية أو رقم
-    $invoiceTitleNumberDisplay = toArabicDigitsGlobalSafe((string)$invoiceTitleNumberDisplay);
+    $invoiceTitleNumberDisplay = toArabicDigitsGlobalSafeInvoiceShow((string)$invoiceTitleNumberDisplay);
 
 @endphp
 
@@ -112,12 +111,8 @@
                 $allowTamaraPayment = false;
                 $isTamaraGenerallyEnabled = class_exists(App\Services\TamaraService::class) && filter_var(App\Models\Setting::where('key', 'tamara_enabled')->value('value'), FILTER_VALIDATE_BOOLEAN);
 
-                // التأكد من أن $invoice->remaining_amount موجودة ومحسوبة
-                $remainingAmount = $invoice->remaining_amount ?? 0;
-                if (!isset($invoice->remaining_amount) && $invoice) { // Fallback if accessor not present or not loaded
-                    $totalPaidForInvoice = $invoice->payments()->where('status', 'completed')->sum('amount');
-                    $remainingAmount = $invoice->amount - $totalPaidForInvoice;
-                }
+                $remainingAmount = $invoice->remaining_amount ?? 0; // Accessor
+                // التأكد من أن $remainingAmount هو رقم عشري
                 $remainingAmount = (float) round($remainingAmount, 2);
 
 
@@ -129,7 +124,7 @@
                     case \App\Models\Invoice::STATUS_PARTIALLY_PAID:
                         $alertClass = 'alert-info';
                         if ($remainingAmount > 0.009) {
-                            $alertText = 'تم دفع جزء. المبلغ المتبقي: ' . formatAmountConditionallyGlobalSafe($remainingAmount, $invoice->currency);
+                            $alertText = 'تم دفع جزء. المبلغ المتبقي: ' . formatAmountConditionallyGlobalSafeInvoiceShow($remainingAmount, $invoice->currency);
                             if ($isTamaraGenerallyEnabled && $invoice->payment_method === 'tamara') {
                                 $allowTamaraPayment = true;
                             }
@@ -197,14 +192,14 @@
                         </div>
                     </div>
                      <div class="col-md-6">
-                        <div class="info-row"> <span class="info-label">المبلغ الإجمالي:</span> <span class="info-value fw-bold">{{ formatAmountConditionallyGlobalSafe($invoice->amount, $invoice->currency) }}</span> </div>
+                        <div class="info-row"> <span class="info-label">المبلغ الإجمالي:</span> <span class="info-value fw-bold">{{ formatAmountConditionallyGlobalSafeInvoiceShow($invoice->amount, $invoice->currency) }}</span> </div>
                     </div>
                     <div class="col-md-6">
-                        <div class="info-row"> <span class="info-label">المبلغ المدفوع:</span> <span class="info-value text-success fw-bold">{{ formatAmountConditionallyGlobalSafe($invoice->total_paid_amount, $invoice->currency) }}</span> </div>
+                        <div class="info-row"> <span class="info-label">المبلغ المدفوع:</span> <span class="info-value text-success fw-bold">{{ formatAmountConditionallyGlobalSafeInvoiceShow($invoice->total_paid_amount, $invoice->currency) }}</span> </div>
                     </div>
                     @if ($remainingAmount > 0.009 && $invoice->status != \App\Models\Invoice::STATUS_PAID)
                          <div class="col-md-6">
-                            <div class="info-row"> <span class="info-label">المبلغ المتبقي:</span> <span class="info-value text-danger fw-bold">{{ formatAmountConditionallyGlobalSafe($remainingAmount, $invoice->currency) }}</span> </div>
+                            <div class="info-row"> <span class="info-label">المبلغ المتبقي:</span> <span class="info-value text-danger fw-bold">{{ formatAmountConditionallyGlobalSafeInvoiceShow($remainingAmount, $invoice->currency) }}</span> </div>
                         </div>
                      @endif
                      <div class="col-md-6">
@@ -232,11 +227,11 @@
                         </div>
                     </div>
                     <div class="col-md-6">
-                        <div class="info-row"> <span class="info-label">تاريخ الإنشاء:</span> <span class="info-value">{{ $invoice->created_at ? toArabicDigitsGlobalSafe($invoice->created_at->translatedFormat('d F Y - H:i')) : '-' }}</span> </div>
+                        <div class="info-row"> <span class="info-label">تاريخ الإنشاء:</span> <span class="info-value">{{ $invoice->created_at ? toArabicDigitsGlobalSafeInvoiceShow($invoice->created_at->translatedFormat('d F Y - H:i')) : '-' }}</span> </div>
                     </div>
                     @if ($invoice->paid_at)
                          <div class="col-md-6">
-                            <div class="info-row"> <span class="info-label">تاريخ أول دفعة:</span> <span class="info-value">{{ $invoice->paid_at ? toArabicDigitsGlobalSafe(\Carbon\Carbon::parse($invoice->paid_at)->translatedFormat('d F Y - H:i')) : '-' }}</span> </div>
+                            <div class="info-row"> <span class="info-label">تاريخ أول دفعة:</span> <span class="info-value">{{ $invoice->paid_at ? toArabicDigitsGlobalSafeInvoiceShow(\Carbon\Carbon::parse($invoice->paid_at)->translatedFormat('d F Y - H:i')) : '-' }}</span> </div>
                         </div>
                      @endif
                     @if ($invoice->payment_gateway_ref)
@@ -261,7 +256,7 @@
                     <h2 class="invoice-section-title">معلومات الحجز المرتبط</h2>
                     <div class="row">
                         <div class="col-md-6">
-                            <div class="info-row"> <span class="info-label">رقم الحجز:</span> <span class="info-value"><a href="{{ route('customer.bookings.show', $booking->id) }}">#{{ toArabicDigitsGlobalSafe($booking->id) }}</a></span> </div>
+                            <div class="info-row"> <span class="info-label">رقم الحجز:</span> <span class="info-value"><a href="{{ route('customer.bookings.show', $booking->id) }}">#{{ toArabicDigitsGlobalSafeInvoiceShow($booking->id) }}</a></span> </div>
                         </div>
                         @if ($booking->service)
                             <div class="col-md-6">
@@ -269,7 +264,7 @@
                             </div>
                         @endif
                         <div class="col-md-6">
-                            <div class="info-row"> <span class="info-label">تاريخ ووقت الحجز:</span> <span class="info-value">{{ $booking->booking_datetime ? toArabicDigitsGlobalSafe(\Carbon\Carbon::parse($booking->booking_datetime)->translatedFormat('l، d F Y - h:i a')) : 'غير محدد' }}</span> </div>
+                            <div class="info-row"> <span class="info-label">تاريخ ووقت الحجز:</span> <span class="info-value">{{ $booking->booking_datetime ? toArabicDigitsGlobalSafeInvoiceShow(\Carbon\Carbon::parse($booking->booking_datetime)->translatedFormat('l، d F Y - h:i a')) : 'غير محدد' }}</span> </div>
                         </div>
                          
                         <div class="col-md-6">
@@ -282,7 +277,7 @@
                         @endif
                         @if($booking->outside_location_fee_applied > 0)
                             <div class="col-md-6">
-                                <div class="info-row"> <span class="info-label">رسوم خارج المنطقة:</span> <span class="info-value">{{ formatAmountConditionallyGlobalSafe($booking->outside_location_fee_applied, ($invoice->currency ?? 'SAR')) }}</span> </div>
+                                <div class="info-row"> <span class="info-label">رسوم خارج المنطقة:</span> <span class="info-value">{{ formatAmountConditionallyGlobalSafeInvoiceShow($booking->outside_location_fee_applied, ($invoice->currency ?? 'SAR')) }}</span> </div>
                             </div>
                         @endif
                          <div class="col-md-6">
@@ -293,7 +288,7 @@
                                 <span class="info-label">حالة الحجز:</span>
                                 <span class="info-value">
                                     <span class="badge {{ $booking->status_badge_class ?? 'bg-secondary' }}">
-                                        {{ $booking->status_label ?? Str::ucfirst($booking->status) }}
+                                        {{ $booking->status_label ?? Str::ucfirst(str_replace('_', ' ', $booking->status)) }}
                                     </span>
                                 </span>
                             </div>
@@ -314,5 +309,5 @@
 @endsection
 
 @section('scripts')
- {{-- No specific JavaScript needed here as helper functions are defined in PHP within the Blade file --}}
+ {{-- No specific JavaScript needed here --}}
 @endsection
