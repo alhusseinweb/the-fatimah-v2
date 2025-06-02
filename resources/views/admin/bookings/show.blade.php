@@ -3,27 +3,20 @@
 @section('title', "تفاصيل الحجز #" . $booking->id)
 
 @php
-    // يتم تمرير $statuses (ترجمات حالات الحجز) و $paymentConfirmationOptions من BookingController@show
-    // جلب ترجمات حالات الفاتورة
-    if (method_exists(\App\Models\Invoice::class, 'getStatusesWithOptions')) {
-        $invoiceStatusTranslationsAdminShow = \App\Models\Invoice::getStatusesWithOptions();
-    } elseif (method_exists(\App\Models\Invoice::class, 'statuses')) { // كـ fallback
-        $invoiceStatusTranslationsAdminShow = \App\Models\Invoice::statuses();
-    } else {
-        $invoiceStatusTranslationsAdminShow = []; 
-    }
-
-    if (!function_exists('getInvoiceStatusTranslationAdminBookingShow')) { 
-        function getInvoiceStatusTranslationAdminBookingShow($status, $translations) { 
-            return $translations[$status] ?? Illuminate\Support\Str::title(str_replace('_', ' ', $status)); 
-        } 
-    }
+    // $statuses و $paymentConfirmationOptions يتم تمريرها من AdminBookingController@show
+    // $invoiceStatusTranslations يتم تمريرها أيضًا
+    
     // دالة toArabicDigits يفترض أنها معرفة كـ helper عام أو في AppServiceProvider
-    if (!function_exists('toArabicDigits')) {
-        function toArabicDigits($number) {
+    if (!function_exists('toArabicDigitsGlobalAdminShow')) { // اسم فريد لتجنب التعارض
+        function toArabicDigitsGlobalAdminShow($number) {
             if (is_null($number)) return '';
             return str_replace(range(0, 9), ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'], (string)$number);
         }
+    }
+    if (!function_exists('getInvoiceStatusTranslationAdminShow')) { 
+        function getInvoiceStatusTranslationAdminShow($status, $translations) { 
+            return $translations[$status] ?? Illuminate\Support\Str::title(str_replace('_', ' ', $status)); 
+        } 
     }
 @endphp
 
@@ -34,7 +27,7 @@
         <div class="col-lg-7">
             <div class="card shadow-sm mb-4 border-0">
                 <div class="card-header bg-white py-3 d-flex flex-row align-items-center justify-content-between">
-                    <h6 class="m-0 fw-bold text-primary"><i class="fas fa-receipt me-2"></i>تفاصيل الحجز #{{ toArabicDigits($booking->id) }}</h6>
+                    <h6 class="m-0 fw-bold text-primary"><i class="fas fa-receipt me-2"></i>تفاصيل الحجز #{{ toArabicDigitsGlobalAdminShow($booking->id) }}</h6>
                     <span class="status-pill {{ $booking->status_badge_class }} px-3 py-1">
                         {{ $booking->status_label }}
                     </span>
@@ -42,9 +35,9 @@
                 <div class="card-body">
                     <dl class="row mb-0 dl-row">
                         <dt class="col-sm-4"><i class="fas fa-calendar-alt fa-fw me-1 text-muted"></i>تاريخ ووقت الحجز:</dt>
-                        <dd class="col-sm-8">{{ $booking->booking_datetime ? toArabicDigits($booking->booking_datetime->translatedFormat('l, d F Y - h:i A')) : '-' }}</dd>
+                        <dd class="col-sm-8">{{ $booking->booking_datetime ? toArabicDigitsGlobalAdminShow($booking->booking_datetime->translatedFormat('l, d F Y - h:i A')) : '-' }}</dd>
                         <dt class="col-sm-4"><i class="fas fa-calendar-plus fa-fw me-1 text-muted"></i>تاريخ الطلب:</dt>
-                        <dd class="col-sm-8">{{ $booking->created_at ? toArabicDigits($booking->created_at->translatedFormat('d F Y, h:i A')) : '-' }}</dd>
+                        <dd class="col-sm-8">{{ $booking->created_at ? toArabicDigitsGlobalAdminShow($booking->created_at->translatedFormat('d F Y, h:i A')) : '-' }}</dd>
                         
                         @if($booking->cancellation_reason)
                         <hr class="my-3">
@@ -56,16 +49,16 @@
                         <dt class="col-sm-4"><i class="fas fa-user fa-fw me-1 text-muted"></i>اسم العميل:</dt>
                         <dd class="col-sm-8"><a href="{{ route('admin.customers.show', $booking->user_id) }}">{{ $booking->user?->name ?? 'غير متوفر' }}</a></dd>
                         <dt class="col-sm-4"><i class="fas fa-mobile-alt fa-fw me-1 text-muted"></i>رقم الجوال:</dt>
-                        <dd class="col-sm-8" dir="ltr" style="text-align: right;">{{ toArabicDigits($booking->user?->mobile_number ?? 'غير متوفر') }}</dd>
+                        <dd class="col-sm-8" dir="ltr" style="text-align: right;">{{ toArabicDigitsGlobalAdminShow($booking->user?->mobile_number ?? 'غير متوفر') }}</dd>
                          <dt class="col-sm-4"><i class="fas fa-envelope fa-fw me-1 text-muted"></i>البريد الإلكتروني:</dt>
                         <dd class="col-sm-8">{{ $booking->user?->email ?? 'غير متوفر' }}</dd>
                         <hr class="my-3">
                         <dt class="col-sm-4"><i class="fas fa-concierge-bell fa-fw me-1 text-muted"></i>الخدمة المطلوبة:</dt>
                         <dd class="col-sm-8">{{ $booking->service?->name_ar ?? 'غير متوفر' }}</dd>
                         <dt class="col-sm-4"><i class="fas fa-clock fa-fw me-1 text-muted"></i>مدة الخدمة:</dt>
-                        <dd class="col-sm-8">{{ toArabicDigits($booking->service?->duration_hours ?? 'N/A') }} ساعات</dd>
+                        <dd class="col-sm-8">{{ toArabicDigitsGlobalAdminShow($booking->service?->duration_hours ?? 'N/A') }} ساعات</dd>
                         <dt class="col-sm-4"><i class="fas fa-dollar-sign fa-fw me-1 text-muted"></i>سعر الخدمة الأصلي:</dt>
-                        <dd class="col-sm-8">{{ toArabicDigits(number_format($booking->service?->price_sar ?? 0, 2)) }} ريال</dd>
+                        <dd class="col-sm-8">{{ toArabicDigitsGlobalAdminShow(number_format($booking->service?->price_sar ?? 0, 2)) }} ريال</dd>
                         @if($booking->service?->included_items_ar)
                             <dt class="col-sm-4"><i class="fas fa-info-circle fa-fw me-1 text-muted"></i>تشمل الخدمة:</dt>
                             <dd class="col-sm-8">{!! nl2br(e($booking->service->included_items_ar)) !!}</dd>
@@ -78,9 +71,9 @@
                             <dt class="col-sm-4"><i class="fas fa-city fa-fw me-1 text-muted"></i>المدينة (خارج الأحساء):</dt>
                             <dd class="col-sm-8">{{ $booking->outside_location_city }}</dd>
                         @endif
-                        @if($booking->outside_location_fee_applied > 0)
+                        @if(isset($booking->outside_location_fee_applied) && $booking->outside_location_fee_applied > 0)
                             <dt class="col-sm-4"><i class="fas fa-coins fa-fw me-1 text-muted"></i>رسوم خارج المنطقة:</dt>
-                            <dd class="col-sm-8">{{ toArabicDigits(number_format($booking->outside_location_fee_applied, 2)) }} ريال</dd>
+                            <dd class="col-sm-8">{{ toArabicDigitsGlobalAdminShow(number_format($booking->outside_location_fee_applied, 2)) }} ريال</dd>
                         @endif
 
                         <dt class="col-sm-4"><i class="fas fa-map-marker-alt fa-fw me-1 text-muted"></i>مكان الحفل (العنوان):</dt>
@@ -101,11 +94,11 @@
                         <dd class="col-sm-8">
                             @if($invoice = $booking->invoice)
                                 <a href="{{ route('admin.invoices.show', $invoice->id) }}" class="fw-bold">رقم: {{ $invoice->invoice_number }}</a> |
-                                المبلغ الإجمالي: {{ toArabicDigits(number_format($invoice->amount, 2)) }} {{ $invoice->currency }} |
-                                الحالة: <span class="status-pill {{ $invoice->status_badge_class ?? 'bg-secondary' }} {{ $invoice->status_badge_class ? '' : 'text-white' }}">{{ getInvoiceStatusTranslationAdminBookingShow($invoice->status, $invoiceStatusTranslationsAdminShow) }}</span> |
+                                المبلغ الإجمالي: {{ toArabicDigitsGlobalAdminShow(number_format($invoice->amount, 2)) }} {{ $invoice->currency }} |
+                                الحالة: <span class="status-pill {{ $invoice->status_badge_class ?? 'bg-secondary' }} {{ $invoice->status_badge_class ? '' : 'text-white' }}">{{ getInvoiceStatusTranslationAdminShow($invoice->status, $invoiceStatusTranslations) }}</span> |
                                 الدفع: {{ $invoice->payment_method_label ?? ($invoice->payment_method == 'tamara' ? 'تمارا' : ($invoice->payment_method == 'bank_transfer' ? 'تحويل بنكي' : ($invoice->payment_method == 'manual_confirmation_due_to_no_gateway' ? 'بانتظار التأكيد اليدوي' : ($invoice->payment_method ?: 'غير محدد')))) }}
                                 @if($invoice->status == \App\Models\Invoice::STATUS_PARTIALLY_PAID)
-                                     | المدفوع: {{ toArabicDigits(number_format($invoice->total_paid_amount ?? 0, 2)) }} | المتبقي: {{ toArabicDigits(number_format($invoice->remaining_amount ?? 0, 2)) }} {{ $invoice->currency }}
+                                     | المدفوع: {{ toArabicDigitsGlobalAdminShow(number_format($invoice->total_paid_amount ?? 0, 2)) }} | المتبقي: {{ toArabicDigitsGlobalAdminShow(number_format($invoice->remaining_amount ?? 0, 2)) }} {{ $invoice->currency }}
                                 @endif
                             @else
                                 لم يتم إنشاء فاتورة بعد
@@ -163,7 +156,7 @@
                                 <div class="mb-3">
                                     <label for="status" class="form-label fw-bold">الحالة الجديدة:</label>
                                     <select name="status" id="status" class="form-select @error('status', 'updateStatus') is-invalid @enderror" required>
-                                        @foreach ($statuses as $value => $label)
+                                        @foreach ($statuses as $value => $label) {{-- $statuses هي الآن المصفوفة المفلترة --}}
                                             <option value="{{ $value }}" @selected(old('status', $booking->status) == $value)>
                                                 {{ $label }}
                                             </option>
@@ -182,45 +175,26 @@
 
                                 <div id="payment_confirmation_options" class="mb-3 border p-3 rounded bg-light" style="display: none;">
                                     <label class="form-label fw-bold">تأكيد استلام الدفعة:</label>
-                                    @isset($paymentConfirmationOptions)
+                                    @if(!empty($paymentConfirmationOptions)) {{-- تحقق مما إذا كانت هناك خيارات تم تمريرها --}}
                                         @php
+                                            // المتغيرات لحساب المبالغ والنصوص الديناميكية
                                             $currentInvoice = $booking->invoice;
-                                            $isPartiallyPaid = $currentInvoice?->status === \App\Models\Invoice::STATUS_PARTIALLY_PAID;
-                                            // إذا كانت الفاتورة مدفوعة جزئياً، المبلغ المتبقي هو المهم للعرض
-                                            // وإذا لم تكن مدفوعة جزئياً (مثلاً غير مدفوعة)، فمبلغ العربون هو المهم أو المبلغ الكامل
-                                            $amountForFullConfirmation = $isPartiallyPaid ? ($currentInvoice->remaining_amount ?? 0) : ($currentInvoice?->amount ?? 0);
-                                            $downPaymentAmountForBooking = $booking->down_payment_amount ?? ($currentInvoice ? round($currentInvoice->amount / 2, 2) : 0);
-                                            
-                                            $currency = $currentInvoice?->currency ?: 'SAR';
-                                            $currentBookingStatus = $booking->status;
-                                            $confirmedBookingStatusValueConstant = \App\Models\Booking::STATUS_CONFIRMED;
-                                            $depositValueConstant = 'deposit';
-                                            $fullValueConstant = 'full';
+                                            $invoiceAmountForJS = $currentInvoice?->amount ?? 0;
+                                            $downPaymentForBookingJS = $booking->down_payment_amount ?? ($currentInvoice ? round($currentInvoice->amount / 2, 2) : 0);
+                                            $currencyForJS = $currentInvoice?->currency ?: 'SAR';
                                         @endphp
 
                                         @foreach($paymentConfirmationOptions as $value => $label)
-                                            {{-- لا تعرض خيار العربون إذا كان الحجز مؤكدًا بالفعل أو الفاتورة مدفوعة جزئيًا --}}
-                                            @if($value === $depositValueConstant && ($isPartiallyPaid || $currentBookingStatus === $confirmedBookingStatusValueConstant))
-                                                @continue
-                                            @endif
-
-                                            @php
-                                                $currentDisplayLabel = $label;
-                                                if ($value === $fullValueConstant) {
-                                                    $currentDisplayLabel = "تأكيد استلام المبلغ الكامل/المتبقي (" . toArabicDigits(number_format($amountForFullConfirmation, 2)) . " $currency)";
-                                                } elseif ($value === $depositValueConstant) {
-                                                    $currentDisplayLabel = "تأكيد استلام العربون فقط (" . toArabicDigits(number_format($downPaymentAmountForBooking, 2)) . " $currency)";
-                                                }
-                                            @endphp
                                             <div class="form-check">
                                                 <input class="form-check-input" type="radio" name="payment_confirmation_type" id="confirm_{{ $value }}" value="{{ $value }}">
                                                 <label class="form-check-label" for="confirm_{{ $value }}">
-                                                    {{ $currentDisplayLabel }}
+                                                    {{-- سيتم تحديث هذا النص بواسطة JavaScript --}}
+                                                    {{ $label }} 
                                                 </label>
                                             </div>
                                         @endforeach
                                     @else
-                                        <p class="text-danger small mb-0">خطأ: لم يتم تمرير خيارات تأكيد الدفع من المتحكم.</p>
+                                        <p class="text-info small mb-0">لا توجد إجراءات دفع مطلوبة لهذه الحالة أو الفاتورة مدفوعة.</p>
                                     @endisset
                                     @error('payment_confirmation_type', 'updateStatus') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
                                 </div>
@@ -255,10 +229,10 @@
                                                 @else <i class="fas fa-dollar-sign text-muted me-1"></i> {{ $payment->payment_gateway_label ?? ($payment->payment_gateway ?: 'غير محدد') }}
                                                 @endif
                                             </h6>
-                                            <span class="badge bg-success-soft text-success rounded-pill">{{ toArabicDigits(number_format($payment->amount, 2)) }} {{ $payment->currency }}</span>
+                                            <span class="badge bg-success-soft text-success rounded-pill">{{ toArabicDigitsGlobalAdminShow(number_format($payment->amount, 2)) }} {{ $payment->currency }}</span>
                                         </div>
                                         <small class="text-muted d-block">
-                                            <i class="far fa-clock"></i> {{ toArabicDigits($payment->created_at->translatedFormat('d M Y, H:i')) }}
+                                            <i class="far fa-clock"></i> {{ toArabicDigitsGlobalAdminShow($payment->created_at->translatedFormat('d M Y, H:i')) }}
                                             @if($payment->transaction_id) | <i class="fas fa-receipt"></i> {{ Str::limit($payment->transaction_id, 20) }} @endif
                                             @if($payment->payment_details && (isset($payment->payment_details['confirmed_by_admin_id']) || isset($payment->payment_details['admin_name'])))
                                                 | <i class="fas fa-user-edit"></i> 
@@ -320,10 +294,22 @@ document.addEventListener('DOMContentLoaded', function () {
     const depositAmountError = document.getElementById('deposit_amount_error');
     const updateStatusForm = document.getElementById('updateBookingStatusForm');
 
-    const cancellationStatusesRequiringReasonJS = @json(\App\Models\Booking::getCancellationStatusesRequiringReason());
+    const cancellationStatusesRequiringReasonJS = @json($booking->getCancellationStatusesRequiringReason()); // استخدام الدالة من الموديل مباشرة
     const confirmedBookingStatusValueJS = '{{ \App\Models\Booking::STATUS_CONFIRMED }}';
-    const depositPaymentValueJS = 'deposit'; // القيمة المستخدمة في الـ radio button لخيار العربون
-    const fullPaymentValueJS = 'full'; // القيمة المستخدمة في الـ radio button لخيار الدفع الكامل
+    const depositPaymentValueJS = 'deposit';
+    const fullPaymentValueJS = 'full';
+
+    // دالة لتحويل الأرقام إلى العربية إذا لم تكن معرفة بشكل عام
+    function toArabicDigitsJSLocal(str) {
+        if (str === null || str === undefined) return '';
+        const western = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.'];
+        const eastern = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩', '٫'];
+        let numStr = String(str);
+        western.forEach((digit, index) => {
+            numStr = numStr.replace(new RegExp(digit.replace('.', '\\.'), "g"), eastern[index]);
+        });
+        return numStr;
+    }
 
     function toggleCancellationReasonField() {
         if (!statusSelect || !cancellationReasonSection || !cancellationReasonTextarea) return;
@@ -334,57 +320,105 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             cancellationReasonSection.style.display = 'none';
             cancellationReasonTextarea.removeAttribute('required');
-             cancellationReasonTextarea.value = ''; // إفراغ الحقل عند الإخفاء
+            cancellationReasonTextarea.value = '';
         }
     }
 
     function togglePaymentConfirmationOptions() {
         if (!statusSelect || !paymentConfirmationDiv) return;
-        const showOptions = statusSelect.value === confirmedBookingStatusValueJS;
+
+        const selectedBookingStatus = statusSelect.value;
+        const paymentOptionsAvailablePHP = {{ !empty($paymentConfirmationOptions) ? 'true' : 'false' }};
+        
+        const showOptions = selectedBookingStatus === confirmedBookingStatusValueJS && paymentOptionsAvailablePHP;
+        
         paymentConfirmationDiv.style.display = showOptions ? 'block' : 'none';
 
         if(showOptions) {
-            const invoiceStatusJS = '{{ $booking->invoice?->status }}';
-            const isInvoicePartiallyPaidJS = invoiceStatusJS === '{{ \App\Models\Invoice::STATUS_PARTIALLY_PAID }}';
-            const currentBookingStatusJS = '{{ $booking->status }}';
-            
+            const currentInvoice = @json($booking->invoice);
+            const isInvoicePartiallyPaidJS = currentInvoice && currentInvoice.status === '{{ \App\Models\Invoice::STATUS_PARTIALLY_PAID }}';
+            const invoiceAmountJS = currentInvoice ? parseFloat(currentInvoice.amount) : 0;
+            let remainingAmountJS = 0;
+            if (currentInvoice) {
+                let totalPaid = 0;
+                if (currentInvoice.payments && currentInvoice.payments.length > 0) {
+                    currentInvoice.payments.forEach(payment => {
+                        if (payment.status === '{{ \App\Models\Payment::STATUS_COMPLETED }}') {
+                            totalPaid += parseFloat(payment.amount);
+                        }
+                    });
+                }
+                remainingAmountJS = Math.max(0, invoiceAmountJS - totalPaid);
+            }
+
+            const currencyJS = currentInvoice?.currency || 'SAR';
             const radios = paymentConfirmationDiv.querySelectorAll('input[name="payment_confirmation_type"]');
             let firstVisibleRadioToSelect = null;
             
+            // إخفاء جميع الخيارات في البداية ثم إظهار المتاح منها فقط
             radios.forEach(radio => {
                 const radioContainer = radio.closest('.form-check');
-                // إخفاء خيار العربون إذا كان الحجز مؤكدًا بالفعل أو الفاتورة مدفوعة جزئيًا
-                if (radio.value === depositPaymentValueJS && (isInvoicePartiallyPaidJS || currentBookingStatusJS === confirmedBookingStatusValueJS)) {
-                    radioContainer.style.display = 'none';
-                    if (radio.checked) radio.checked = false; 
-                } else {
-                    radioContainer.style.display = 'block';
-                    if (!firstVisibleRadioToSelect && !paymentConfirmationDiv.querySelector('input[name="payment_confirmation_type"]:checked')) {
-                        firstVisibleRadioToSelect = radio;
+                if(radioContainer) radioContainer.style.display = 'none'; // إخفاء مبدئي
+            });
+
+            // الآن، بناءً على $paymentConfirmationOptions الممررة من المتحكم، أظهر الخيارات
+            @foreach($paymentConfirmationOptions as $value => $label)
+                const radio_{{ $value }} = document.getElementById('confirm_{{ $value }}');
+                if (radio_{{ $value }}) {
+                    const container_{{ $value }} = radio_{{ $value }}.closest('.form-check');
+                    if (container_{{ $value }}) {
+                        container_{{ $value }}.style.display = 'block'; // إظهار الخيار المتاح
+                        if (!firstVisibleRadioToSelect) firstVisibleRadioToSelect = radio_{{ $value }};
+
+                        const labelElement_{{ $value }} = container_{{ $value }}.querySelector('label');
+                        if (labelElement_{{ $value }}) {
+                            if ('{{ $value }}' === fullPaymentValueJS) {
+                                if (isInvoicePartiallyPaidJS && remainingAmountJS > 0.009) {
+                                    labelElement_{{ $value }}.textContent = `تأكيد استلام المبلغ المتبقي (${toArabicDigitsJSLocal(remainingAmountJS.toFixed(2))} ${currencyJS})`;
+                                } else if (!isInvoicePartiallyPaidJS && invoiceAmountJS > 0.009) {
+                                    labelElement_{{ $value }}.textContent = `تأكيد استلام المبلغ الكامل (${toArabicDigitsJSLocal(invoiceAmountJS.toFixed(2))} ${currencyJS})`;
+                                } else {
+                                    labelElement_{{ $value }}.textContent = '{{ $label }}'; // النص الأصلي من المتحكم
+                                    if (invoiceAmountJS <= 0.009) container_{{ $value }}.style.display = 'none';
+                                }
+                            } else if ('{{ $value }}' === depositPaymentValueJS) {
+                                 const downPaymentForBookingJS = parseFloat('{{ $booking->down_payment_amount ?? ($booking->invoice ? round($booking->invoice->amount / 2, 2) : 0) }}');
+                                 if(downPaymentForBookingJS > 0.009 && !isInvoicePartiallyPaidJS){
+                                    labelElement_{{ $value }}.textContent = `تأكيد استلام العربون فقط (${toArabicDigitsJSLocal(downPaymentForBookingJS.toFixed(2))} ${currencyJS})`;
+                                 } else {
+                                     container_{{ $value }}.style.display = 'none';
+                                 }
+                            } else {
+                                labelElement_{{ $value }}.textContent = '{{ $label }}'; // للخيار 'none' إذا أضيف
+                            }
+                        }
                     }
                 }
-            });
+            @endforeach
             
-            // تحديد خيار افتراضي إذا لم يكن هناك شيء محدد وكان القسم ظاهرًا
-            if (!paymentConfirmationDiv.querySelector('input[name="payment_confirmation_type"]:checked')) {
-                if (isInvoicePartiallyPaidJS) { // إذا كانت مدفوعة جزئيا، الافتراضي هو الدفع الكامل للمتبقي
-                    const fullPayRadio = paymentConfirmationDiv.querySelector('input[value="' + fullPaymentValueJS + '"]');
-                    if (fullPayRadio && fullPayRadio.closest('.form-check').style.display !== 'none') fullPayRadio.checked = true;
-                } else if (firstVisibleRadioToSelect) { // وإلا، حدد أول خيار ظاهر
-                    firstVisibleRadioToSelect.checked = true;
+            if (!paymentConfirmationDiv.querySelector('input[name="payment_confirmation_type"]:checked') && firstVisibleRadioToSelect) {
+                if (firstVisibleRadioToSelect.closest('.form-check').style.display !== 'none') {
+                     firstVisibleRadioToSelect.checked = true;
+                } else {
+                    const visibleRadios = Array.from(radios).filter(r => r.closest('.form-check').style.display !== 'none');
+                    if (visibleRadios.length > 0) {
+                        visibleRadios[0].checked = true;
+                    }
                 }
             }
         }
     }
 
     if (statusSelect) {
-        togglePaymentConfirmationOptions(); // استدعاء عند التحميل
+        togglePaymentConfirmationOptions();
         statusSelect.addEventListener('change', togglePaymentConfirmationOptions);
-        toggleCancellationReasonField(); // استدعاء عند التحميل
+        toggleCancellationReasonField();
         statusSelect.addEventListener('change', toggleCancellationReasonField);
     }
 
-    if(updateStatusForm && statusSelect && depositModalElement) { // استخدام depositModalElement للتحقق الأولي
+    if(updateStatusForm && statusSelect && depositModalElement) {
+        const depositModalInstance = new bootstrap.Modal(depositModalElement);
+
         updateStatusForm.addEventListener('submit', function (event) {
             const selectedStatus = statusSelect.value;
             const paymentOptionsDiv = document.getElementById('payment_confirmation_options');
@@ -396,25 +430,20 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (selectedPaymentTypeRadio) {
                     selectedPaymentType = selectedPaymentTypeRadio.value;
                 } else {
-                    // إذا كان القسم ظاهرًا ولكن لا يوجد خيار محدد
-                    // هذا لا يجب أن يحدث إذا كان منطق التحديد الافتراضي يعمل
-                    console.warn('Payment confirmation options visible, but NO payment type is selected.');
-                    // event.preventDefault(); // منع الإرسال في هذه الحالة
-                    // alert('يرجى تحديد نوع تأكيد الدفع.');
-                    // return; 
+                    // إذا لم يتم تحديد أي شيء وكان القسم ظاهرًا، وهذا لا يجب أن يحدث إذا عمل التحديد الافتراضي
+                     if (Array.from(paymentOptionsDiv.querySelectorAll('input[name="payment_confirmation_type"]')).filter(r=>r.closest('.form-check').style.display !== 'none').length > 0) {
+                        console.warn('Payment confirmation options visible, but NO payment type is selected. This indicates an issue with default selection logic.');
+                        // event.preventDefault(); // قد ترغب في منع الإرسال
+                        // alert('يرجى تحديد خيار تأكيد الدفع.');
+                        // return;
+                     }
                 }
             }
             
             const depositRadioElement = document.getElementById('confirm_deposit');
             const depositRadioContainer = depositRadioElement ? depositRadioElement.closest('.form-check') : null;
             
-            console.debug("Form Submit Check:", {
-                selectedStatus,
-                confirmedBookingStatusValueJS,
-                selectedPaymentType,
-                depositPaymentValueJS,
-                depositRadioContainerVisible: depositRadioContainer ? depositRadioContainer.style.display !== 'none' : false
-            });
+            console.debug("Form Submit Check:", { selectedStatus, confirmedBookingStatusValueJS, selectedPaymentType, depositPaymentValueJS, depositRadioContainerVisible: depositRadioContainer ? depositRadioContainer.style.display !== 'none' : false });
 
             if (selectedStatus === confirmedBookingStatusValueJS && 
                 selectedPaymentType === depositPaymentValueJS && 
@@ -438,7 +467,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     alert('حدث خطأ في تهيئة نافذة إدخال العربون. يرجى تحديث الصفحة والمحاولة مرة أخرى.');
                 }
             } else {
-                if(modalDepositAmountHiddenInput) modalDepositAmountHiddenInput.value = ''; // مسح قيمة العربون إذا لم يكن مطلوباً
+                if(modalDepositAmountHiddenInput) modalDepositAmountHiddenInput.value = '';
                 console.debug('Proceeding with normal form submission. Modal not required.');
             }
         });
@@ -469,7 +498,6 @@ document.addEventListener('DOMContentLoaded', function () {
             submitDepositModalBtn.disabled = true;
             submitDepositModalBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> جاري...';
             
-            // لا حاجة لتحديد الراديو هنا مرة أخرى، فقط أرسل الفورم
             updateStatusForm.submit();
         });
     }
@@ -478,8 +506,7 @@ document.addEventListener('DOMContentLoaded', function () {
        depositModalElement.addEventListener('hidden.bs.modal', function () {
            depositAmountInput.classList.remove('is-invalid');
            if(depositAmountError) depositAmountError.textContent = '';
-           if(modalDepositAmountHiddenInput) modalDepositAmountHiddenInput.value = ''; // إفراغ عند إغلاق المودال
-           // إعادة تفعيل زر المودال إذا تم تعطيله
+           if(modalDepositAmountHiddenInput) modalDepositAmountHiddenInput.value = '';
            if(submitDepositModalBtn) {
                submitDepositModalBtn.disabled = false;
                submitDepositModalBtn.innerHTML = 'تأكيد العربون وتحديث الحالة';
