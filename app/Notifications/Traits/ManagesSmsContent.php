@@ -12,17 +12,19 @@ use Carbon\Carbon;
 trait ManagesSmsContent
 {
     /**
-     * Formats the recipient's phone number to an international format if necessary.
-     *
-     * @param string|null $number
-     * @return string|null
+     * Formats the recipient's phone number.
      */
     protected function formatSmsRecipient(?string $number): ?string
     {
         if (empty($number)) {
             return null;
         }
-
+        // ... (منطق تنسيق رقم الهاتف كما هو لديك)
+        // للتأكد من أنه يعمل بشكل صحيح، يمكنك إضافة تسجيل هنا:
+        // Log::debug("formatSmsRecipient: Input='{$number}', Output='{$formatted_number_after_logic}'");
+        // return $formatted_number_after_logic;
+        // الكود الحالي يبدو معقولاً، لكن اختبره إذا كنت تشك فيه.
+        $originalNumber = $number; // للاحتفاظ بالرقم الأصلي للتسجيل
         $number = preg_replace('/[^\d+]/', '', $number);
         
         if (substr_count($number, '+') > 1) {
@@ -32,40 +34,37 @@ trait ManagesSmsContent
         }
 
         if (preg_match('/^(009665|9665|\+9665|05|5)([0-9]{8})$/', $number, $matches)) {
-            return '+9665' . $matches[2];
+            $formattedNumber = '+9665' . $matches[2];
+            Log::info("Formatted SMS Recipient: Original='{$originalNumber}', Formatted='{$formattedNumber}' using Saudi rule.");
+            return $formattedNumber;
         }
         
+        // قواعد إضافية إذا لم يتطابق مع القاعدة السعودية المباشرة
         if (str_starts_with($number, '00') && !str_starts_with($number, '00966')) {
-            $number = '+' . substr($number, 2);
-        }
-        elseif (str_starts_with($number, '0') && !str_starts_with($number, '05')) {
-            $number = '+' . substr($number, 1);
+             $number = '+' . substr($number, 2);
+        } elseif (str_starts_with($number, '0') && !str_starts_with($number, '05')) { // تأكد أن هذه لا تتعارض مع 05 السعودية
+            // هذه القاعدة قد تكون واسعة جدًا، قد تحتاج لتخصيصها إذا كانت الأرقام غير السعودية تتطلب معاملة خاصة
+             $number = '+' . substr($number, 1); 
         }
 
+        // إذا لم يبدأ بـ + ولكن يمكن أن يكون رقمًا دوليًا
         if (!str_starts_with($number, '+') && strlen($number) > 9 && !preg_match('/^5[0-9]{8}$/', $number) && !preg_match('/^05[0-9]{8}$/', $number) ) {
-            $number = '+' . $number;
+             $number = '+' . $number;
         }
-
-        if (str_starts_with($number, '+') && (strlen($number) < 10 || strlen($number) > 15)) {
-            Log::warning('ManagesSmsContent: Potentially invalid international phone number length.', ['number' => $number]);
+        
+        // التحقق النهائي من الطول بعد التنسيق
+        if (str_starts_with($number, '+') && (strlen($number) < 10 || strlen($number) > 16)) { // زدت الحد الأقصى قليلاً
+             Log::warning('ManagesSmsContent: Potentially invalid international phone number length after formatting.', ['original' => $originalNumber, 'formatted_number' => $number]);
         }
         
         if (empty($number)){
+             Log::warning("ManagesSmsContent: Number became empty after formatting.", ['original' => $originalNumber]);
             return null;
         }
-
+        Log::info("Formatted SMS Recipient (Final Fallback): Original='{$originalNumber}', Formatted='{$number}'");
         return $number;
     }
 
-    /**
-     * Retrieves and processes the SMS message content from a template.
-     *
-     * @param string $templateIdentifier The final identifier for the template (e.g., 'booking_request_customer' or 'booking_request_admin')
-     * @param object $notifiable The entity being notified.
-     * @param array $additionalReplacements Specific replacements for this notification.
-     * @param Booking|null $bookingContext The booking associated with this notification, if any.
-     * @return string The processed message content, or an empty string if no suitable message could be generated.
-     */
     protected function getSmsMessageContent(string $templateIdentifier, object $notifiable, array $additionalReplacements = [], ?Booking $bookingContext = null): string
     {
         $currentBooking = $bookingContext;
@@ -75,60 +74,126 @@ trait ManagesSmsContent
             $currentBooking = $this->invoice->booking;
         }
 
-        // --- START: التعديل الرئيسي هنا ---
-        // $templateIdentifier الذي تم تمريره هو المفتاح الصحيح والمكتمل. لا حاجة لإضافة لواحق.
-        $templateKeyToSearchInDb = $templateIdentifier;
-        // --- END: التعديل الرئيسي هنا ---
+        $logContextBase = [
+            'notification_class' => class_basename($this),
+            'booking_id' => $currentBooking?->id ?? 'N/A',
+            'notifiable_id' => $notifiable->id ?? 'N/A',
+            'template_identifier_searched' => $templateIdentifier,
+        ];
 
-        // يمكنك استخدام الكاش هنا مع $templateKeyToSearchInDb
-        // ملاحظة: Cache::rememberForever قد لا يكون مناسبًا إذا كنت تريد تحديث القوالب بشكل متكرر دون مسح الكاش يدويًا.
-        // فكر في استخدام Cache::remember مع مدة صلاحية أقصر.
-        $template = Cache::remember('sms_template_active_' . $templateKeyToSearchInDb, now()->addMinutes(60), function () use ($templateKeyToSearchInDb) {
-            return SmsTemplate::where('notification_type', $templateKeyToSearchInDb) // <-- استخدام المفتاح الصحيح للبحث
+        Log::debug("ManagesSmsContent: Getting SMS content.", $logContextBase + ['specific_replacements_passed' => $additionalReplacements]);
+
+        // استخدام مفتاح كاش متسق مع ما قد يتم مسحه في SmsTemplateController
+        $cacheKey = 'sms_template_content_' . $templateIdentifier; 
+        
+        // --- تعطيل الكاش مؤقتًا للاختبار ---
+        // Log::debug("ManagesSmsContent: Attempting to get template from DB (cache disabled for test).", $logContextBase);
+        // $templateModel = SmsTemplate::where('notification_type', $templateIdentifier)
+        //                           ->where('is_active', true)
+        //                           ->first();
+        // --- نهاية تعطيل الكاش ---
+
+        // --- استخدام الكاش (أعد تفعيله بعد الاختبار) ---
+        $templateModel = Cache::remember($cacheKey, now()->addMinutes(10), function () use ($templateIdentifier, $logContextBase) {
+            Log::debug("ManagesSmsContent: Cache miss for '{$templateIdentifier}'. Fetching from DB.", $logContextBase);
+            return SmsTemplate::where('notification_type', $templateIdentifier)
                               ->where('is_active', true)
                               ->first();
         });
+        // --- نهاية استخدام الكاش ---
+
 
         $message = '';
-        $logContext = [
-            'booking_id' => $currentBooking->id ?? 'N/A',
-            'invoice_id' => isset($this->invoice) && $this->invoice ? $this->invoice->id : 'N/A',
-            'template_key_used_for_search' => $templateKeyToSearchInDb, // للتسجيل والتحقق
-        ];
 
-        if ($template && !empty(trim($template->template_content))) {
-            $message = $template->template_content;
-            $logContext['template_source'] = 'database';
+        if ($templateModel && !empty(trim($templateModel->template_content))) {
+            $message = $templateModel->template_content;
+            Log::info("ManagesSmsContent: Template '{$templateIdentifier}' loaded from " . (Cache::has($cacheKey) ? "cache" : "DB") . ".", $logContextBase + ['template_id' => $templateModel->id]);
+            Log::debug("ManagesSmsContent: Original template content:", $logContextBase + ['content' => $message]);
         } else {
-            Log::warning("ManagesSmsContent: SMS template '{$templateKeyToSearchInDb}' not found, not active, or empty in DB. Using default message or skipping.", $logContext);
+            Log::error("ManagesSmsContent: SMS Template '{$templateIdentifier}' NOT FOUND, inactive, or empty. Defaulting message.", $logContextBase);
+            // رسالة افتراضية إذا لم يتم العثور على القالب
             $defaultBase = "تنبيه من المصورة فاطمة";
             if ($currentBooking) {
-                $defaultBase .= " بخصوص حجزك رقم [booking_id]";
+                $defaultBase .= " بخصوص حجزك رقم " . ($currentBooking->id ?? '');
             }
-            $message = $defaultBase . ". يرجى مراجعة حسابك لمزيد من التفاصيل.";
-            $logContext['template_source'] = 'default_generic';
+            $message = $defaultBase . ". يرجى مراجعة حسابك أو البريد الإلكتروني لمزيد من التفاصيل.";
+            // لا تقم بإرجاع سلسلة فارغة هنا مباشرة، دع عملية الاستبدال تحاول العمل على الرسالة الافتراضية
         }
 
-        $baseReplacements = [
-            '[photographer_name]' => config('app.photographer_name', 'المصورة فاطمة'),
-            '[customer_name]' => $currentBooking->user->name ?? ($notifiable->name ?? 'العميل'),
-            '[customer_name_short]' => $currentBooking->user ? Str::limit($currentBooking->user->name, 10) : ($notifiable->name ? Str::limit($notifiable->name, 10) : "عميل"),
-            '[booking_id]' => $currentBooking->id ?? 'غير متوفر',
-            '[service_name]' => $currentBooking && $currentBooking->service ? Str::limit($currentBooking->service->name_ar, 20) : 'الخدمة',
-            '[service_name_short]' => $currentBooking && $currentBooking->service ? Str::limit($currentBooking->service->name_ar, 12, '') : "تصوير",
-            '[booking_date]' => isset($currentBooking->booking_datetime) ? Carbon::parse($currentBooking->booking_datetime)->translatedFormat('d M') : '-',
-            '[booking_time]' => isset($currentBooking->booking_datetime) ? Carbon::parse($currentBooking->booking_datetime)->translatedFormat('h:i A') : '-',
-            '[booking_date_time_short]' => isset($currentBooking->booking_datetime) ? Carbon::parse($currentBooking->booking_datetime)->translatedFormat('d-m H:i') : '-',
-        ];
-
-        $allReplacements = array_merge($baseReplacements, $additionalReplacements);
-        $processedMessage = str_replace(array_keys($allReplacements), array_values($allReplacements), $message);
-
-        $finalMessage = preg_replace('/\[[^\]]+\]/', '', $processedMessage);
-        $finalMessage = trim(preg_replace('/\s+/', ' ', $finalMessage));
+        // بناء مصفوفة الاستبدالات الأساسية
+        $baseReplacements = [];
+        $baseReplacements['[photographer_name]'] = config('app.photographer_name', 'المصورة فاطمة');
         
-        $logContext['final_content_preview'] = Str::limit($finalMessage, 50);
-        Log::debug("ManagesSmsContent: SMS content processed.", $logContext);
+        if (isset($notifiable->name)) {
+            $baseReplacements['[customer_name]'] = $notifiable->name;
+            $baseReplacements['[user_name]'] = $notifiable->name; // اسم عام
+            $baseReplacements['[customer_name_short]'] = Str::limit($notifiable->name, 10, '');
+        } else {
+            $baseReplacements['[customer_name]'] = 'عميلنا العزيز';
+            $baseReplacements['[user_name]'] = 'المستخدم';
+            $baseReplacements['[customer_name_short]'] = 'عميلنا';
+        }
+
+        if ($currentBooking) {
+            $baseReplacements['[booking_id]'] = $currentBooking->id;
+            $baseReplacements['[event_location]'] = $currentBooking->event_location ?? '-';
+            
+            if ($currentBooking->service) {
+                $serviceName = $currentBooking->service->name_ar ?? $currentBooking->service->name_en ?? 'الخدمة';
+                $baseReplacements['[service_name]'] = $serviceName;
+                $baseReplacements['[service_name_short]'] = Str::limit($serviceName, 15, ''); // اسم خدمة مختصر
+            } else {
+                $baseReplacements['[service_name]'] = 'الخدمة المختارة';
+                $baseReplacements['[service_name_short]'] = 'خدمة';
+            }
+
+            if ($currentBooking->booking_datetime instanceof Carbon) {
+                $baseReplacements['[booking_date]'] = $currentBooking->booking_datetime->translatedFormat('Y/m/d');
+                $baseReplacements['[booking_time]'] = $currentBooking->booking_datetime->translatedFormat('h:ia');
+                $baseReplacements['[booking_date_time]'] = $currentBooking->booking_datetime->translatedFormat('Y/m/d h:ia');
+                // يمكنك إضافة تنسيقات أخرى إذا لزم الأمر
+                $baseReplacements['[booking_day_name]'] = $currentBooking->booking_datetime->translatedFormat('l'); // اسم اليوم
+            } else {
+                // إذا لم يكن booking_datetime موجودًا أو ليس Carbon، ضع قيمًا افتراضية أو فارغة
+                $baseReplacements['[booking_date]'] = '-';
+                $baseReplacements['[booking_time]'] = '-';
+                $baseReplacements['[booking_date_time]'] = '-';
+                $baseReplacements['[booking_day_name]'] = '-';
+                Log::warning("ManagesSmsContent: booking_datetime is not a Carbon instance or is null for template '{$templateIdentifier}'.", $logContextBase + ['booking_datetime_value' => $currentBooking->booking_datetime ?? 'null']);
+            }
+            // أضف حالة الحجز
+            $baseReplacements['[booking_status_label]'] = $currentBooking->status_label ?? $currentBooking->status ?? '-';
+        } else {
+            // قيم افتراضية إذا لم يكن هناك حجز مرتبط (قد لا يكون هذا السيناريو شائعًا للإشعارات التي تعتمد على الحجز)
+            Log::warning("ManagesSmsContent: No \$currentBooking object available for template '{$templateIdentifier}'. Some placeholders may not be replaced.", $logContextBase);
+            $placeholdersToEmpty = ['[booking_id]', '[service_name]', '[service_name_short]', '[event_location]', '[booking_date]', '[booking_time]', '[booking_date_time]', '[booking_day_name]', '[booking_status_label]'];
+            foreach($placeholdersToEmpty as $ph) $baseReplacements[$ph] = '';
+        }
+
+        // دمج المتغيرات الأساسية مع الممررة، مع إعطاء الأولوية للمتغيرات الممررة
+        $allReplacements = array_merge($baseReplacements, $additionalReplacements);
+        
+        Log::debug("ManagesSmsContent: Preparing to replace placeholders for '{$templateIdentifier}'.", $logContextBase + ['all_replacements_map' => $allReplacements]);
+
+        $processedMessage = $message; // ابدأ بمحتوى القالب (أو الرسالة الافتراضية)
+        foreach ($allReplacements as $placeholder => $value) {
+            $count = 0; // لتتبع عدد مرات الاستبدال
+            $processedMessage = str_replace($placeholder, (string)$value, $processedMessage, $count);
+            if ($count > 0) {
+                Log::debug("ManagesSmsContent: Replaced '{$placeholder}' with '{$value}' ({$count} time(s)).", $logContextBase);
+            } elseif (Str::startsWith($placeholder, '[booking_date') || Str::startsWith($placeholder, '[booking_time')) { 
+                // سجل فقط إذا لم يتم العثور على متغيرات التاريخ والوقت المهمة
+                 Log::warning("ManagesSmsContent: Placeholder '{$placeholder}' NOT FOUND in template or default message for '{$templateIdentifier}'.", $logContextBase);
+            }
+        }
+        
+        // إزالة أي متغيرات متبقية لم يتم استبدالها (اختياري)
+        // $finalMessage = preg_replace('/\[[^\]]+\]/', '', $processedMessage);
+        $finalMessage = $processedMessage; // إذا كنت تفضل رؤية المتغيرات غير المستبدلة في الرسالة للاختبار
+        
+        $finalMessage = trim(preg_replace('/\s+/', ' ', $finalMessage)); // إزالة المسافات الزائدة
+        
+        Log::info("ManagesSmsContent: Final SMS content for '{$templateIdentifier}'.", $logContextBase + ['final_content_preview' => Str::limit($finalMessage, 100)]);
 
         return $finalMessage;
     }
