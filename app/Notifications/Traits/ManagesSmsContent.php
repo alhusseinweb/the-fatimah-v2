@@ -4,6 +4,7 @@ namespace App\Notifications\Traits;
 
 use App\Models\Booking;
 use App\Models\SmsTemplate;
+use App\Models\Setting;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
