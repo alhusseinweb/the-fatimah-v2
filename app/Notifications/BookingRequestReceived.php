@@ -24,17 +24,23 @@ class BookingRequestReceived extends Notification implements ShouldQueue
 
     public Booking $booking;
     public string $paymentMethod;
+    public ?float $amountForNotification; // المبلغ الذي سيتم عرضه في الإشعار (قد يكون العربون أو الإجمالي)
+    public ?string $paymentOptionForNotification; // خيار الدفع (عربون أو كامل)
 
     /**
      * Create a new notification instance.
      *
      * @param \App\Models\Booking $booking
      * @param string $paymentMethod
+     * @param float|null $amountForNotification
+     * @param string|null $paymentOptionForNotification
      */
-    public function __construct(Booking $booking, string $paymentMethod)
+    public function __construct(Booking $booking, string $paymentMethod, ?float $amountForNotification = null, ?string $paymentOptionForNotification = null)
     {
         $this->booking = $booking;
         $this->paymentMethod = $paymentMethod;
+        $this->amountForNotification = $amountForNotification ?? $booking->invoice?->amount; // قيمة افتراضية هي إجمالي الفاتورة
+        $this->paymentOptionForNotification = $paymentOptionForNotification ?? $booking->invoice?->payment_option;
     }
 
     /**
@@ -46,18 +52,23 @@ class BookingRequestReceived extends Notification implements ShouldQueue
     public function via(object $notifiable): array
     {
         $channels = [];
+        $logContext = [
+            'notification' => class_basename($this),
+            'notifiable_id' => $notifiable->id,
+            'notifiable_type' => get_class($notifiable),
+            'is_admin' => $notifiable->is_admin ?? 'N/A', // التأكد من أن الخاصية is_admin موجودة
+            'booking_id' => $this->booking->id
+        ];
 
-        // إرسال بريد إلكتروني دائمًا إذا كان البريد متوفرًا
         if (isset($notifiable->email) && filter_var($notifiable->email, FILTER_VALIDATE_EMAIL)) {
             $channels[] = 'mail';
+            Log::info(class_basename($this) . ": Mail channel ADDED.", $logContext + ['email' => $notifiable->email]);
         } else {
-            Log::warning("BookingRequestReceived: Email not sent to notifiable ID {$notifiable->id} because email is missing or invalid.", ['booking_id' => $this->booking->id]);
+            Log::warning(class_basename($this) . ": Mail channel SKIPPED (email missing or invalid).", $logContext + ['email_provided' => $notifiable->email ?? 'N/A']);
         }
 
-        // إرسال SMS إذا كان رقم الجوال متوفرًا وهناك قالب نشط
         if (isset($notifiable->mobile_number) && !empty($notifiable->mobile_number)) {
-            $templateKey = $notifiable->is_admin ? 'booking_request_admin' : 'booking_request_customer';
-            // يمكنك استخدام الكاش هنا كما فعلت، أو التحقق مباشرة إذا كنت تفضل ذلك عند كل مرة لضمان الحداثة
+            $templateKey = ($notifiable->is_admin ?? false) ? 'booking_request_admin' : 'booking_request_customer';
             $templateExists = Cache::remember('sms_template_active_exists_' . $templateKey, now()->addMinutes(60), function () use ($templateKey) {
                  return SmsTemplate::where('notification_type', $templateKey)
                                    ->where('is_active', true)
@@ -66,17 +77,18 @@ class BookingRequestReceived extends Notification implements ShouldQueue
 
             if ($templateExists) {
                 $channels[] = HttpSmsChannel::class;
+                Log::info(class_basename($this) . ": HttpSmsChannel ADDED.", $logContext + ['template_key' => $templateKey]);
             } else {
-                Log::warning("BookingRequestReceived: SMS template '{$templateKey}' for notifiable ID {$notifiable->id} not found, not active, or empty in DB. SMS channel skipped.", ['booking_id' => $this->booking->id]);
-                // يمكنك إضافة منطق لإرسال رسالة SMS افتراضية هنا إذا أردت، كما كان في NewBookingReceived
-                // ولكن الأفضل هو التأكد من وجود القوالب.
+                Log::warning(class_basename($this) . ": HttpSmsChannel SKIPPED (template '{$templateKey}' not found or inactive).", $logContext);
             }
         } else {
-            Log::warning("BookingRequestReceived: SMS not sent to notifiable ID {$notifiable->id} because mobile_number is missing.", ['booking_id' => $this->booking->id]);
+            Log::warning(class_basename($this) . ": HttpSmsChannel SKIPPED (mobile_number missing).", $logContext);
         }
         
         if(empty($channels)){
-            Log::error("BookingRequestReceived: No channels determined for notifiable ID {$notifiable->id}. Check email/mobile and templates.", ['booking_id' => $this->booking->id, 'is_admin' => $notifiable->is_admin ?? 'N/A']);
+            Log::error(class_basename($this) . ": No channels determined.", $logContext);
+        } else {
+            Log::info(class_basename($this) . ": Channels determined.", $logContext + ['channels' => $channels]);
         }
         return $channels;
     }
@@ -89,7 +101,7 @@ class BookingRequestReceived extends Notification implements ShouldQueue
      */
     public function toMail(object $notifiable): MailMessage
     {
-        $serviceName = $this->booking->service ? $this->booking->service->name_ar : 'الخدمة المختارة';
+        $serviceName = $this->booking->service ? ($this->booking->service->name_ar ?? $this->booking->service->name_en) : 'الخدمة المختارة';
         $bookingDateTime = Carbon::parse($this->booking->booking_datetime)->translatedFormat('l، d F Y - الساعة h:i A');
         $customerUser = $this->booking->user; // هذا هو العميل صاحب الحجز
         $mailMessage = (new MailMessage);
@@ -97,11 +109,23 @@ class BookingRequestReceived extends Notification implements ShouldQueue
         $paymentMethodReadable = match ($this->paymentMethod) {
             'bank_transfer' => 'تحويل بنكي',
             'tamara' => 'تمارا',
-            'cash_on_delivery' => 'الدفع عند الاستلام', // افترض أن هذا قد يكون خيارًا
+            'manual_confirmation_due_to_no_gateway' => 'بانتظار التأكيد اليدوي',
             default => Str::title(str_replace('_', ' ', $this->paymentMethod)),
         };
 
-        if ($notifiable->is_admin) {
+        $amountToDisplay = $this->amountForNotification ?? $this->booking->invoice?->amount ?? 0;
+        $currencyDisplay = $this->booking->invoice?->currency ?: 'SAR';
+        $formattedAmount = number_format($amountToDisplay, 2) . ' ' . $currencyDisplay;
+
+        $paymentOptionText = '';
+        if($this->paymentOptionForNotification === 'down_payment'){
+            $paymentOptionText = " (عربون: {$formattedAmount})";
+        } elseif($this->paymentOptionForNotification === 'full'){
+            $paymentOptionText = " (المبلغ كاملاً: {$formattedAmount})";
+        }
+
+
+        if ($notifiable->is_admin ?? false) {
             $mailMessage->subject("تنبيه إداري: طلب حجز جديد رقم #{$this->booking->id} من {$customerUser->name}")
                         ->greeting("مرحباً أيها المدير،")
                         ->line("تم استلام طلب حجز جديد من العميل: **{$customerUser->name}** (جوال: {$customerUser->mobile_number}).")
@@ -109,10 +133,10 @@ class BookingRequestReceived extends Notification implements ShouldQueue
                         ->line("- الخدمة: {$serviceName}")
                         ->line("- الموعد المطلوب: {$bookingDateTime}")
                         ->line("- رقم الطلب: {$this->booking->id}")
-                        ->line("- طريقة الدفع المختارة: {$paymentMethodReadable}");
+                        ->line("- طريقة الدفع المختارة: {$paymentMethodReadable}{$paymentOptionText}");
 
             if ($this->paymentMethod === 'bank_transfer') {
-                $mailMessage->line(new HtmlString("- حالة الدفعة: بانتظار تأكيد استلام العربون/المبلغ من العميل."));
+                $mailMessage->line(new HtmlString("يرجى متابعة العميل لتأكيد استلام الدفعة."));
             }
 
             $mailMessage->lineIf($this->booking->event_location, "- مكان الحدث: {$this->booking->event_location}")
@@ -120,7 +144,7 @@ class BookingRequestReceived extends Notification implements ShouldQueue
                         ->action('مراجعة الطلب في لوحة التحكم', route('admin.bookings.show', $this->booking->id))
                         ->line('يرجى متابعة الطلب واتخاذ الإجراء اللازم.');
         } else { // للعميل
-            $bookingUrl = route('booking.pending', $this->booking->id); // أو customer.bookings.show
+            $bookingUrl = route('booking.pending', $this->booking->id); 
             $mailMessage->subject("تم استلام طلب حجزك رقم #{$this->booking->id} لدى المصورة فاطمة")
                         ->greeting("مرحباً {$notifiable->name}،")
                         ->line("شكراً لك! لقد استلمنا طلب حجزك بنجاح لدى المصورة فاطمة.")
@@ -129,11 +153,12 @@ class BookingRequestReceived extends Notification implements ShouldQueue
                         ->line(new HtmlString("- رقم الطلب: <strong>{$this->booking->id}</strong>"))
                         ->line(new HtmlString("- الخدمة: <strong>{$serviceName}</strong>"))
                         ->line(new HtmlString("- التاريخ والوقت: <strong>{$bookingDateTime}</strong>"))
-                        ->line(new HtmlString("- طريقة الدفع: <strong>{$paymentMethodReadable}</strong>"));
+                        ->line(new HtmlString("- طريقة الدفع: <strong>{$paymentMethodReadable}{$paymentOptionText}</strong>"));
 
             if ($this->paymentMethod === 'bank_transfer') {
-                $mailMessage->line(new HtmlString("لتأكيد حجزك، يرجى القيام بتحويل مبلغ العربون المطلوب. ستجد تفاصيل الحساب البنكي وقيمة العربون عند متابعة حالة الطلب."));
-                // يمكنك أيضًا تضمين تفاصيل الحساب البنكي مباشرة هنا إذا كانت ثابتة ومناسبة
+                $mailMessage->line(new HtmlString("لتأكيد حجزك، يرجى القيام بتحويل المبلغ المطلوب. ستجد تفاصيل الحساب البنكي وقيمة الدفعة عند متابعة حالة الطلب."));
+            } elseif ($this->paymentMethod === 'manual_confirmation_due_to_no_gateway') {
+                 $mailMessage->line(new HtmlString("سيتم التواصل معك قريباً من قبل فريقنا لتأكيد الحجز وترتيب عملية الدفع."));
             }
             $mailMessage->line("يمكنك متابعة حالة طلبك، عرض تفاصيل الدفع، وإتمام العملية من خلال الرابط التالي:")
                         ->action('متابعة حالة الطلب / الدفع', $bookingUrl)
@@ -152,52 +177,64 @@ class BookingRequestReceived extends Notification implements ShouldQueue
     {
         $recipientPhoneNumber = $this->formatSmsRecipient($notifiable->mobile_number);
         if (!$recipientPhoneNumber) {
-            Log::warning('BookingRequestReceived (toHttpSms): Recipient mobile number could not be determined for notifiable ID ' . $notifiable->id, ['booking_id' => $this->booking->id]);
+            Log::warning(class_basename($this) . ' (toHttpSms): Recipient mobile number could not be determined for notifiable ID ' . $notifiable->id, ['booking_id' => $this->booking->id]);
             return [];
         }
 
-        // **التعديل الهام: استخدام مفتاح قالب ديناميكي**
-        $templateIdentifier = $notifiable->is_admin ? 'booking_request_admin' : 'booking_request_customer';
+        $templateIdentifier = ($notifiable->is_admin ?? false) ? 'booking_request_admin' : 'booking_request_customer';
 
         $paymentMethodText = match ($this->paymentMethod) {
             'bank_transfer' => 'تحويل بنكي',
             'tamara' => 'تمارا',
+            'manual_confirmation_due_to_no_gateway' => 'سيتم التواصل معك',
             default => Str::title(str_replace('_', ' ', $this->paymentMethod)),
         };
 
+        $bookingDateFormatted = Carbon::parse($this->booking->booking_datetime)->translatedFormat('Y/m/d');
+        $bookingTimeFormatted = Carbon::parse($this->booking->booking_datetime)->translatedFormat('h:ia');
+        $amountToDisplaySms = $this->amountForNotification ?? $this->booking->invoice?->amount ?? 0;
+        $currencySms = $this->booking->invoice?->currency ?: 'ر.س';
+        $formattedAmountSms = number_format($amountToDisplaySms, 0) . ' ' . $currencySms; // بدون كسور عشرية للرسائل القصيرة
+
+        $paymentOptionTextSms = '';
+        if ($this->paymentOptionForNotification === 'down_payment') {
+            $paymentOptionTextSms = "عربون {$formattedAmountSms}";
+        } elseif ($this->paymentOptionForNotification === 'full') {
+            $paymentOptionTextSms = "كامل {$formattedAmountSms}";
+        }
+
+
         $specificReplacements = [
             '[payment_method]' => $paymentMethodText,
-            // هذا المتغير خاص بالعميل إذا كان الدفع بنكيًا
             '[payment_details_prompt]' => (!$notifiable->is_admin && $this->paymentMethod === 'bank_transfer') ? " يرجى دفع العربون لتأكيد الحجز." : "",
-            // يمكنك إضافة المزيد من المتغيرات المشتركة هنا إذا لزم الأمر
-            // '[booking_date]' => Carbon::parse($this->booking->booking_datetime)->translatedFormat('d M Y'),
-            // '[booking_time]' => Carbon::parse($this->booking->booking_datetime)->translatedFormat('h:i A'),
+            '[booking_date]' => $bookingDateFormatted,
+            '[booking_time]' => $bookingTimeFormatted,
+            '[booking_date_time]' => $bookingDateFormatted . ' ' . $bookingTimeFormatted,
+            '[service_name_short]' => Str::limit($this->booking->service?->name_ar, 20), // اسم خدمة مختصر
+            '[amount_due]' => $formattedAmountSms, // المبلغ المطلوب دفعه الآن
+            '[payment_option_details]' => $paymentOptionTextSms, // تفاصيل خيار الدفع
         ];
 
-        // تم استخدام $templateIdentifier هنا
         $messageContent = $this->getSmsMessageContent($templateIdentifier, $notifiable, $specificReplacements, $this->booking);
 
         if (empty($messageContent)) {
-            // السجل من قبل كان يظهر template_key_used خاطئ بسبب مشكلة في ManagesSmsContent أو NewBookingReceived
-            // الآن يجب أن يظهر المفتاح الصحيح المستخدم
-            Log::warning("BookingRequestReceived (toHttpSms): SMS message content is empty after processing template for notifiable ID {$notifiable->id}.", [
-                'booking_id' => $this->booking->id,
+            Log::warning(class_basename($this) . " (toHttpSms): SMS message content is empty after processing template for notifiable ID {$notifiable->id}.", [
+                'booking_id' => $this->booking->id, 
                 'template_identifier_used' => $templateIdentifier,
-                'is_admin_recipient' => $notifiable->is_admin
+                'is_admin_recipient' => $notifiable->is_admin ?? 'N/A'
             ]);
-            // قد ترغب في إرسال رسالة SMS افتراضية هنا كحل احتياطي إذا فشل تحميل القالب
-            // if (!$notifiable->is_admin && $templateIdentifier === 'booking_request_customer') {
-            //     $messageContent = "طلب حجزك رقم {$this->booking->id} قيد المعالجة. لتفاصيل دفع العربون، يرجى مراجعة بريدك أو حسابك.";
-            // } elseif ($notifiable->is_admin && $templateIdentifier === 'booking_request_admin') {
-            //     $messageContent = "تنبيه إداري: طلب حجز جديد رقم {$this->booking->id}.";
-            // }
+            // رسالة SMS افتراضية إذا فشل القالب
+            if (!$notifiable->is_admin && $templateIdentifier === 'booking_request_customer') {
+                $messageContent = "طلب حجزك رقم {$this->booking->id} لدى المصورة فاطمة قيد المعالجة. طريقة الدفع: {$paymentMethodText}.";
+                if ($this->paymentMethod === 'bank_transfer') {
+                    $messageContent .= " يرجى دفع العربون.";
+                }
+            } elseif (($notifiable->is_admin ?? false) && $templateIdentifier === 'booking_request_admin') {
+                $messageContent = "تنبيه إداري: طلب حجز جديد #{$this->booking->id} للعميل {$this->booking->user?->name}.";
+            }
+            if (empty($messageContent)) return [];
         }
         
-        // تأكد من أن الرسالة ليست فارغة قبل إرسالها
-        if (empty($messageContent)) {
-            return [];
-        }
-
         return [
             'to' => $recipientPhoneNumber,
             'content' => $messageContent,
@@ -215,9 +252,11 @@ class BookingRequestReceived extends Notification implements ShouldQueue
         return [
             'booking_id' => $this->booking->id,
             'recipient_id' => $notifiable->id,
-            'recipient_type' => $notifiable->is_admin ? 'admin' : 'customer',
-            'event' => 'booking_request_received', // اسم مميز لهذا الإشعار
+            'recipient_type' => ($notifiable->is_admin ?? false) ? 'admin' : 'customer',
+            'event' => 'booking_request_received',
             'payment_method' => $this->paymentMethod,
+            'amount_for_notification' => $this->amountForNotification,
+            'payment_option_for_notification' => $this->paymentOptionForNotification,
             'channels_used' => $this->via($notifiable),
         ];
     }
