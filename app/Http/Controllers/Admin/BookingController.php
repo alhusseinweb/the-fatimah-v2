@@ -8,19 +8,19 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Http\RedirectResponse; // إضافة نوع الإرجاع
-use Illuminate\View\View; // إضافة نوع الإرجاع
+use Illuminate\Http\RedirectResponse;
+use Illuminate\View\View;
 use Illuminate\Validation\Rule;
-use App\Notifications\BookingConfirmedNotification; // تأكد من وجود هذا الإشعار
+use App\Notifications\BookingConfirmedNotification;
 use App\Notifications\BookingStatusChangedNotification;
-use App\Notifications\PaymentSuccessNotification; // تأكد من وجود هذا الإشعار
+use App\Notifications\PaymentSuccessNotification;
 use App\Notifications\BookingCancelledNotification;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException; // لاستخدامها في catch
-use Illuminate\Support\Facades\Validator; // لاستخدام Validator بشكل صريح
+use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
 class BookingController extends Controller
@@ -31,7 +31,7 @@ class BookingController extends Controller
     public function index(Request $request): View
     {
         $statuses = Booking::getStatusesWithOptions();
-        $query = Booking::with(['user:id,name,mobile_number,email', 'service:id,name_ar'])->latest('booking_datetime'); // الترتيب بالأحدث حسب تاريخ الحجز
+        $query = Booking::with(['user:id,name,mobile_number,email', 'service:id,name_ar'])->latest('booking_datetime');
 
         if ($request->filled('status') && array_key_exists($request->status, $statuses)) {
             $query->where('status', $request->status);
@@ -73,7 +73,6 @@ class BookingController extends Controller
             }
         }
 
-
         $bookings = $query->paginate(15)->withQueryString();
         return view('admin.bookings.index', compact('bookings', 'statuses'));
     }
@@ -81,84 +80,77 @@ class BookingController extends Controller
     /**
      * Display the specified booking details.
      */
-public function show(Booking $booking): View
-{
-    $booking->load(['user', 'service', 'discountCode', 'invoice.payments']);
+    public function show(Booking $booking): View
+    {
+        $booking->load(['user', 'service', 'discountCode', 'invoice.payments']);
 
-    // جلب جميع الحالات الأصلية
-    $allBookingStatuses = Booking::getStatusesWithOptions(); // استخدام اسم مميز
+        $allBookingStatuses = Booking::getStatusesWithOptions();
 
-    // تحديد الحالات التي لا نريد عرضها في القائمة المنسدلة
-    $statusesToRemove = [
-        Booking::STATUS_NO_SHOW,
-        Booking::STATUS_RESCHEDULED_BY_ADMIN,
-        Booking::STATUS_RESCHEDULED_BY_USER,
-    ];
+        $statusesToRemove = [
+            Booking::STATUS_NO_SHOW,
+            Booking::STATUS_RESCHEDULED_BY_ADMIN,
+            Booking::STATUS_RESCHEDULED_BY_USER,
+        ];
 
-    // تصفية الحالات وتخزينها في المتغير 'statuses' الذي سيتم تمريره للـ view
-    $statuses = array_filter($allBookingStatuses, function ($key) use ($statusesToRemove) {
-        return !in_array($key, $statusesToRemove, true);
-    }, ARRAY_FILTER_USE_KEY);
-    
-    // خيارات تأكيد الدفع (تستخدم في JavaScript لإظهار/إخفاء الحقول)
-    $paymentConfirmationOptions = [
-        'deposit' => 'تأكيد استلام العربون فقط',
-        'full'    => 'تأكيد استلام المبلغ الكامل/المتبقي',
-        // 'none' => 'لا تغيير على حالة الدفع (تأكيد الحجز فقط)' // يمكن إضافته إذا أردت تأكيد الحجز بدون تسجيل دفعة هنا
-    ];
+        $statuses = array_filter($allBookingStatuses, function ($key) use ($statusesToRemove) {
+            return !in_array($key, $statusesToRemove, true);
+        }, ARRAY_FILTER_USE_KEY);
+        
+        $paymentConfirmationOptions = [
+            'deposit' => 'تأكيد استلام العربون فقط',
+            'full'    => 'تأكيد استلام المبلغ الكامل/المتبقي',
+            // 'none' => 'لا تغيير على حالة الدفع (تأكيد الحجز فقط)' //  يمكن إضافته إذا لزم الأمر
+        ];
 
-    // جلب ترجمات حالات الفاتورة للعرض
-    if (method_exists(Invoice::class, 'getStatusesWithOptions')) {
-        $invoiceStatusTranslations = Invoice::getStatusesWithOptions();
-    } elseif (method_exists(Invoice::class, 'statuses')) { // كـ fallback
-        $invoiceStatusTranslations = Invoice::statuses();
-    } else {
-        $invoiceStatusTranslations = []; 
+        if (method_exists(Invoice::class, 'getStatusesWithOptions')) {
+            $invoiceStatusTranslations = Invoice::getStatusesWithOptions();
+        } elseif (method_exists(Invoice::class, 'statuses')) {
+            $invoiceStatusTranslations = Invoice::statuses();
+        } else {
+            $invoiceStatusTranslations = []; 
+        }
+
+        return view('admin.bookings.show', compact(
+            'booking', 
+            'statuses', 
+            'invoiceStatusTranslations', 
+            'paymentConfirmationOptions'
+        ));
     }
-
-    // هذا هو السطر 118 المشار إليه في الخطأ أو قريب منه
-    return view('admin.bookings.show', compact(
-        'booking', 
-        'statuses', // المتغير $statuses الآن مُعرف ويحمل القيم المفلترة
-        'invoiceStatusTranslations', 
-        'paymentConfirmationOptions'
-    ));
-}
 
     /**
      * Update the status of the specified booking.
      */
     public function updateStatus(Request $request, Booking $booking): RedirectResponse
     {
-        $definedBookingStatuses = Booking::getStatusesWithOptions(); // الحالات المتاحة بشكل عام
+        $definedBookingStatuses = Booking::getStatusesWithOptions();
         $confirmedStatusValue = Booking::STATUS_CONFIRMED;
-        $cancellationStatusesRequiringReason = Booking::getCancellationStatusesRequiringReason(); // الحالات التي تتطلب سبب إلغاء
-        $allCancellationStatusValues = [ // جميع حالات الإلغاء لتحديث الفاتورة
+        $cancellationStatusesRequiringReason = Booking::getCancellationStatusesRequiringReason();
+        $allCancellationStatusValues = [
             Booking::STATUS_CANCELLED_BY_ADMIN,
             Booking::STATUS_CANCELLED_BY_USER,
         ];
 
-        // قواعد التحقق الأساسية
         $rules = [
             'status' => ['required', Rule::in(array_keys($definedBookingStatuses))],
             'payment_confirmation_type' => [
                 Rule::requiredIf(fn () => $request->input('status') === $confirmedStatusValue),
-                'nullable', // اسمح بأن يكون فارغًا إذا لم يكن مطلوبًا
-                Rule::in(['full', 'deposit', 'none']) // أضفت 'none' كخيار محتمل
+                'nullable',
+                Rule::in(['full', 'deposit', 'none']) 
             ],
             'cancellation_reason' => [
                 Rule::requiredIf(fn() => in_array($request->input('status'), $cancellationStatusesRequiringReason)),
-                'nullable', // اسمح بأن يكون فارغًا إذا لم يكن مطلوبًا
+                'nullable',
                 'string', 'min:5', 'max:1000'
             ],
-            'deposit_amount' => [ // التحقق من مبلغ العربون
+            'deposit_amount' => [
                 Rule::requiredIf(function () use ($request, $confirmedStatusValue) {
                     return $request->input('status') === $confirmedStatusValue &&
                            $request->input('payment_confirmation_type') === 'deposit';
                 }),
                 'nullable',
                 'numeric',
-                'min:0.01' // يجب أن يكون أكبر من صفر
+                'min:0.01'
             ],
         ];
 
@@ -178,11 +170,11 @@ public function show(Booking $booking): View
 
         if ($validator->fails()) {
             return redirect()->route('admin.bookings.show', $booking->id)
-                             ->withErrors($validator, 'updateStatus') // استخدام اسم محدد للـ error bag
+                             ->withErrors($validator, 'updateStatus')
                              ->withInput();
         }
 
-        $validated = $validator->validated(); // الحصول على البيانات المتحقق منها فقط
+        $validated = $validator->validated();
 
         $newStatus = $validated['status'];
         $oldStatus = $booking->status;
@@ -190,21 +182,22 @@ public function show(Booking $booking): View
         $depositAmountFromRequest = isset($validated['deposit_amount']) ? (float) $validated['deposit_amount'] : null;
         $cancellationReason = $validated['cancellation_reason'] ?? null;
 
-        $successMessages = []; // لتجميع رسائل النجاح
-        $notificationsToSend = []; // لتجميع الإشعارات
+        $successMessages = [];
+        $notificationsToSend = [];
 
         try {
             DB::beginTransaction();
 
             $bookingStatusActuallyChanged = false;
-            $invoice = $booking->loadMissing('invoice.payments')->invoice; // تأكد من تحميل الدفعات مع الفاتورة
+            $invoice = $booking->loadMissing('invoice.payments')->invoice; 
+            $paymentRecordedThisAction = false;
+            $amountPaidThisTransaction = 0.0; // لتعقب المبلغ المدفوع في هذا الإجراء للإشعار
 
-            // 1. تحديث حالة الحجز وسبب الإلغاء (إذا تغيرت)
             if ($newStatus !== $oldStatus || ($cancellationReason && $booking->cancellation_reason !== $cancellationReason) || (in_array($newStatus, $cancellationStatusesRequiringReason) && $cancellationReason !== $booking->cancellation_reason )) {
                 $booking->status = $newStatus;
                 if (in_array($newStatus, $cancellationStatusesRequiringReason) && $cancellationReason) {
                     $booking->cancellation_reason = $cancellationReason;
-                } elseif (!in_array($newStatus, $cancellationStatusesRequiringReason)) { // مسح السبب إذا لم تعد الحالة إلغاء يتطلب سبب
+                } elseif (!in_array($newStatus, $cancellationStatusesRequiringReason)) {
                     $booking->cancellation_reason = null;
                 }
                 $booking->save();
@@ -213,7 +206,6 @@ public function show(Booking $booking): View
                 Log::info("Booking ID {$booking->id} status changed from '{$oldStatus}' to '{$newStatus}' by Admin ID: " . Auth::id());
             }
 
-            // 2. تحديث حالة الفاتورة إذا تم إلغاء الحجز
             if ($invoice && in_array($newStatus, $allCancellationStatusValues)) {
                 if (!in_array($invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED])) {
                     $invoice->status = Invoice::STATUS_CANCELLED;
@@ -223,64 +215,69 @@ public function show(Booking $booking): View
                 }
             }
 
-            // 3. التعامل مع تأكيد الدفع إذا تم تأكيد الحجز
-            $paymentRecordedThisAction = false;
             if ($newStatus === $confirmedStatusValue && $paymentConfirmationType && $invoice) {
-                $newInvoiceStatus = $invoice->status; // الحالة الافتراضية للفاتورة هي حالتها الحالية
-                $amountPaidThisTransaction = 0.0;
-                $paymentGatewayType = 'manual_admin'; // نوع بوابة الدفع الافتراضي
+                if ($paymentConfirmationType !== 'none') { // فقط إذا كان الخيار ليس "لا تغيير"
+                    $newInvoiceStatus = $invoice->status; 
+                    $paymentGatewayType = 'manual_admin';
 
-                if ($paymentConfirmationType === 'deposit' && $depositAmountFromRequest !== null && $depositAmountFromRequest > 0) {
-                    // التحقق من أن مبلغ العربون لا يتجاوز المبلغ المتبقي أو الإجمالي
-                    $maxAllowedForDeposit = $invoice->remaining_amount > 0 ? $invoice->remaining_amount : $invoice->amount;
-                    if ($depositAmountFromRequest >= $maxAllowedForDeposit && $maxAllowedForDeposit > 0.009) {
-                        DB::rollBack();
-                        return back()->withErrors(['deposit_amount' => "مبلغ العربون (${depositAmountFromRequest}) لا يمكن أن يكون مساوياً أو أكبر من المبلغ المطلوب للفاتورة (${maxAllowedForDeposit}). اختر 'تأكيد استلام المبلغ الكامل' بدلاً من ذلك."], 'updateStatus')->withInput();
+                    if ($paymentConfirmationType === 'deposit' && $depositAmountFromRequest !== null && $depositAmountFromRequest > 0) {
+                        $maxAllowedForDeposit = $invoice->remaining_amount > 0 ? $invoice->remaining_amount : $invoice->amount;
+                        if ($depositAmountFromRequest >= $maxAllowedForDeposit && $maxAllowedForDeposit > 0.009) {
+                            DB::rollBack();
+                            return back()->withErrors(['deposit_amount' => "مبلغ العربون ({$depositAmountFromRequest}) لا يمكن أن يتجاوز أو يساوي المبلغ المطلوب للفاتورة ({$maxAllowedForDeposit}). اختر 'تأكيد استلام المبلغ الكامل' بدلاً من ذلك."], 'updateStatus')->withInput();
+                        }
+                        $amountPaidThisTransaction = $depositAmountFromRequest;
+                        $newInvoiceStatus = Invoice::STATUS_PARTIALLY_PAID;
+                        $paymentGatewayType = 'manual_admin_deposit';
+                        $successMessages[] = 'تم تسجيل دفعة العربون بنجاح.';
+
+                    } elseif ($paymentConfirmationType === 'full') {
+                        $amountPaidThisTransaction = $invoice->remaining_amount > 0.009 ? $invoice->remaining_amount : $invoice->amount;
+                        if ($amountPaidThisTransaction > 0.009 || $invoice->status !== Invoice::STATUS_PAID) {
+                            $newInvoiceStatus = Invoice::STATUS_PAID;
+                            $paymentGatewayType = 'manual_admin_full';
+                            $successMessages[] = 'تم تسجيل المبلغ الكامل/المتبقي بنجاح.';
+                        } else if ($invoice->status === Invoice::STATUS_PAID) {
+                            Log::info("Invoice {$invoice->id} already PAID. No payment recorded for 'full' confirmation.");
+                        }
                     }
-                    $amountPaidThisTransaction = $depositAmountFromRequest;
-                    $newInvoiceStatus = Invoice::STATUS_PARTIALLY_PAID;
-                    $paymentGatewayType = 'manual_admin_deposit';
-                    $successMessages[] = 'تم تسجيل دفعة العربون بنجاح.';
 
-                } elseif ($paymentConfirmationType === 'full') {
-                    // الدفع الكامل يعني دفع المبلغ المتبقي، أو المبلغ الكلي إذا لم يكن هناك شيء مدفوع
-                    $amountPaidThisTransaction = $invoice->remaining_amount > 0.009 ? $invoice->remaining_amount : $invoice->amount;
-                    if ($amountPaidThisTransaction > 0.009 || $invoice->status !== Invoice::STATUS_PAID) { // سجل دفعة فقط إذا كان هناك مبلغ للدفع أو الفاتورة ليست مدفوعة بالفعل
-                        $newInvoiceStatus = Invoice::STATUS_PAID;
-                        $paymentGatewayType = 'manual_admin_full';
-                        $successMessages[] = 'تم تسجيل المبلغ الكامل/المتبقي بنجاح.';
-                    } else if ($invoice->status === Invoice::STATUS_PAID) {
-                        Log::info("Invoice {$invoice->id} already PAID. No payment recorded for 'full' confirmation.");
-                        // لا تقم بتغيير رسالة النجاح إذا كانت الفاتورة مدفوعة بالفعل ولم يتغير شيء آخر
+                    if ($amountPaidThisTransaction > 0.009) {
+                        Payment::create([
+                            'invoice_id' => $invoice->id,
+                            'amount' => $amountPaidThisTransaction,
+                            'currency' => $invoice->currency ?: 'SAR',
+                            'status' => Payment::STATUS_COMPLETED,
+                            'payment_gateway' => $paymentGatewayType,
+                            'payment_details' => json_encode(['confirmed_by_admin_id' => Auth::id(), 'admin_name' => Auth::user()?->name, 'confirmed_at' => now()->toDateTimeString()])
+                        ]);
+                        $paymentRecordedThisAction = true;
+                        Log::info("Admin manual payment recorded for invoice {$invoice->id}.", ['amount' => $amountPaidThisTransaction]);
                     }
-                }
-                // elseif ($paymentConfirmationType === 'none') { // إذا أضفت هذا الخيار
-                //     Log::info("Booking {$booking->id} confirmed without changing payment status for invoice {$invoice->id}.");
-                // }
 
+                    if ($invoice->status !== $newInvoiceStatus || ($paymentRecordedThisAction && is_null($invoice->paid_at))) {
+                        // أعد حساب إجمالي المدفوعات بعد إضافة الدفعة الجديدة
+                        $currentTotalPaid = $invoice->payments()->where('status', Payment::STATUS_COMPLETED)->sum('amount');
+                        if ($paymentRecordedThisAction) { // إذا تم تسجيل دفعة جديدة، أضفها للحساب الحالي
+                             $currentTotalPaid += $amountPaidThisTransaction;
+                        }
 
-                // إنشاء سجل دفع فقط إذا كان هناك مبلغ فعلي تم "دفعه" في هذا الإجراء
-                if ($amountPaidThisTransaction > 0.009) {
-                    $payment = Payment::create([
-                        'invoice_id' => $invoice->id,
-                        'amount' => $amountPaidThisTransaction,
-                        'currency' => $invoice->currency ?: 'SAR',
-                        'status' => Payment::STATUS_COMPLETED,
-                        'payment_gateway' => $paymentGatewayType,
-                        'payment_details' => json_encode(['confirmed_by_admin_id' => Auth::id(), 'admin_name' => Auth::user()?->name, 'confirmed_at' => now()->toDateTimeString()])
-                    ]);
-                    $paymentRecordedThisAction = true;
-                    Log::info("Admin manual payment recorded for invoice {$invoice->id}.", ['payment_id' => $payment->id, 'amount' => $amountPaidThisTransaction]);
-                }
-
-                // تحديث حالة الفاتورة إذا تغيرت أو إذا تم تسجيل دفعة جديدة
-                if ($invoice->status !== $newInvoiceStatus || ($paymentRecordedThisAction && is_null($invoice->paid_at))) {
-                    $invoice->status = $newInvoiceStatus;
-                    if (($newInvoiceStatus === Invoice::STATUS_PAID || $newInvoiceStatus === Invoice::STATUS_PARTIALLY_PAID) && is_null($invoice->paid_at) && $amountPaidThisTransaction > 0.009) {
-                        $invoice->paid_at = now();
+                        if ($currentTotalPaid >= ($invoice->amount - 0.01)) { // استخدام هامش صغير
+                            $invoice->status = Invoice::STATUS_PAID;
+                        } elseif ($currentTotalPaid > 0.009) {
+                            $invoice->status = Invoice::STATUS_PARTIALLY_PAID;
+                        } else {
+                            $invoice->status = Invoice::STATUS_UNPAID; // إذا أصبح الإجمالي صفرًا بعد عكس دفعة مثلاً
+                        }
+                        
+                        if (($invoice->status === Invoice::STATUS_PAID || $invoice->status === Invoice::STATUS_PARTIALLY_PAID) && is_null($invoice->paid_at) && $currentTotalPaid > 0.009) {
+                            $invoice->paid_at = now();
+                        }
+                        $invoice->save();
+                        Log::info("Invoice {$invoice->id} status updated to '{$invoice->status}' by admin action.", ['booking_id' => $booking->id]);
                     }
-                    $invoice->save();
-                    Log::info("Invoice {$invoice->id} status updated to '{$newInvoiceStatus}' by admin action.", ['booking_id' => $booking->id]);
+                } else {
+                     Log::info("Booking {$booking->id} confirmed (status: {$newStatus}). Payment confirmation type was 'none' or not applicable. Invoice status remains '{$invoice->status}'.");
                 }
             } elseif ($newStatus === $confirmedStatusValue && !$invoice) {
                 Log::warning("Booking ID {$booking->id} confirmed by admin, but no associated invoice found to record payment.");
@@ -289,40 +286,72 @@ public function show(Booking $booking): View
             
             DB::commit();
 
-            // إرسال الإشعارات بعد نجاح كل العمليات
             $customer = $booking->user;
-            $actor = Auth::user(); // المدير الذي قام بالتغيير
+            $actor = Auth::user();
 
-            if ($bookingStatusActuallyChanged && $customer) {
-                if ($newStatus === Booking::STATUS_CONFIRMED && !$paymentRecordedThisAction) { // إشعار تأكيد الحجز إذا لم يتم إرسال إشعار دفع
-                    $notificationsToSend[] = new BookingConfirmedNotification($booking);
-                } elseif (in_array($newStatus, $allCancellationStatusValues)) {
-                    $notificationsToSend[] = new BookingCancelledNotification($booking, $actor, $booking->cancellation_reason);
-                } elseif ($newStatus !== Booking::STATUS_CONFIRMED) { // إشعار عام بتغيير الحالة إذا لم يكن إلغاء أو تأكيد بدون دفع
-                    $notificationsToSend[] = new BookingStatusChangedNotification($booking, $oldStatus, $newStatus);
+            if ($customer) {
+                if ($bookingStatusActuallyChanged) {
+                    if ($newStatus === Booking::STATUS_CONFIRMED) {
+                        $notificationsToSend[] = new BookingConfirmedNotification($booking);
+                    } elseif (in_array($newStatus, $allCancellationStatusValues)) {
+                        $notificationsToSend[] = new BookingCancelledNotification($booking, $actor, $booking->cancellation_reason);
+                    } else { 
+                        $notificationsToSend[] = new BookingStatusChangedNotification($booking, $oldStatus, $newStatus);
+                    }
+                }
+                
+                if ($paymentRecordedThisAction && $invoice && $amountPaidThisTransaction > 0.009) {
+                    // تأكد من عدم إرسال إشعار دفع إذا كان إشعار تأكيد الحجز سيغطي ذلك (حسب منطق عملك)
+                    // حاليًا، سيتم إرسال كليهما إذا تحقق الشرطان
+                    $notificationsToSend[] = new PaymentSuccessNotification($invoice, $amountPaidThisTransaction, $invoice->currency ?: 'SAR');
+                }
+
+                // إزالة الإشعارات المكررة إذا أمكن (على سبيل المثال، إذا كان كلاهما BookingConfirmed)
+                $uniqueNotifications = [];
+                $notificationClassNames = [];
+                foreach($notificationsToSend as $notification) {
+                    $className = get_class($notification);
+                    if(!in_array($className, $notificationClassNames)){
+                        $uniqueNotifications[] = $notification;
+                        $notificationClassNames[] = $className;
+                    } elseif ($className === PaymentSuccessNotification::class && $newStatus === Booking::STATUS_CONFIRMED) {
+                        // إذا كان هناك تأكيد حجز ونجاح دفع، قد تكتفي بواحد أو تعدل المحتوى
+                        // حاليًا، سيتم إرسال كليهما إذا كانا مختلفين
+                         $uniqueNotifications[] = $notification; // أضفه إذا أردت إرسال الاثنين
+                    }
+                }
+                $notificationsToSend = $uniqueNotifications;
+
+
+                foreach ($notificationsToSend as $notification) {
+                    try {
+                        $customer->notify($notification);
+                        Log::info("Notification " . class_basename($notification) . " queued for CUSTOMER {$customer->id} for booking {$booking->id}.");
+                    } catch (\Exception $e) {
+                        Log::error("Failed to queue notification " . class_basename($notification) . " to CUSTOMER for booking {$booking->id}.", ['error' => $e->getMessage()]);
+                    }
+                }
+
+                // إرسال للمدراء الآخرين
+                $adminUsersForNotification = User::where('is_admin', true)->where('id', '!=', Auth::id())->get();
+                foreach ($adminUsersForNotification as $adminUser) {
+                    foreach ($notificationsToSend as $notification) {
+                         try {
+                            $adminUser->notify(clone $notification);
+                            Log::info("Notification " . class_basename($notification) . " queued for ADMIN {$adminUser->id} for booking {$booking->id}.");
+                        } catch (\Exception $e) {
+                            Log::error("Failed to queue notification " . class_basename($notification) . " to ADMIN {$adminUser->id} for booking {$booking->id}.", ['error' => $e->getMessage()]);
+                        }
+                    }
                 }
             }
-            if ($paymentRecordedThisAction && $customer && $invoice && $amountPaidThisTransaction > 0.009) {
-                $notificationsToSend[] = new PaymentSuccessNotification($invoice, $amountPaidThisTransaction, $invoice->currency ?: 'SAR');
-            }
 
-            foreach ($notificationsToSend as $notification) {
-                try {
-                    $customer->notify($notification);
-                    Log::info("Notification " . class_basename($notification) . " queued for customer {$customer->id} for booking {$booking->id}.");
-                } catch (\Exception $e) {
-                    Log::error("Failed to queue notification " . class_basename($notification) . " to customer for booking {$booking->id}.", ['error' => $e->getMessage()]);
-                }
-            }
-            // يمكنك إضافة إشعارات للمدراء الآخرين هنا إذا أردت
-
-
-            if (empty($successMessages)) {
-                $successMessages[] = 'لم يتم إجراء أي تغييرات على حالة الحجز أو الدفع.';
+            if (empty($successMessages) && !$bookingStatusActuallyChanged && !$paymentRecordedThisAction) {
+                $successMessages[] = 'لم يتم إجراء أي تغييرات.';
             }
             return redirect()->route('admin.bookings.show', $booking->id)->with('update_status_success', implode(' ', $successMessages));
 
-        } catch (ValidationException $e) { // يجب أن يكون هذا قبل Exception العامة
+        } catch (ValidationException $e) {
             DB::rollBack();
             Log::warning("AdminBookingController@updateStatus: Validation failed.", ['booking_id' => $booking->id, 'errors' => $e->errors()]);
             return redirect()->route('admin.bookings.show', $booking->id)->withErrors($e->validator, 'updateStatus')->withInput();
@@ -344,21 +373,13 @@ public function show(Booking $booking): View
             $bookingId = $booking->id;
             $invoice = $booking->invoice;
 
-            // يمكنك إضافة منطق أكثر تفصيلاً هنا، مثلاً هل يمكن حذف حجز مؤكد ومدفوع؟
-            // حاليًا، سيتم حذف الحجز وإلغاء الفاتورة إذا لم تكن مدفوعة بالكامل أو مسترجعة
-
             if ($invoice && !in_array($invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED, Invoice::STATUS_CANCELLED])) {
                 $invoice->status = Invoice::STATUS_CANCELLED;
                 $invoice->save();
                 Log::info("Invoice ID {$invoice->id} status set to CANCELLED due to booking deletion.", ['booking_id' => $bookingId]);
             }
             
-            // حذف الدفعات المرتبطة بالحجز (أو الفاتورة) إذا أردت ذلك
-            // if($invoice) {
-            //     $invoice->payments()->delete();
-            // }
-
-            $booking->delete(); // سيؤدي أيضًا إلى حذف أي علاقات معرفة مع onDelete('cascade')
+            $booking->delete();
             Log::info("Booking ID {$bookingId} deleted by admin ID: " . Auth::id());
             DB::commit();
             return redirect()->route('admin.bookings.index')
