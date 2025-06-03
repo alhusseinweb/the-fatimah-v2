@@ -9,9 +9,6 @@
     $displayWhatsapp = filter_var($settingsHomepage['display_whatsapp_contact'] ?? true, FILTER_VALIDATE_BOOLEAN);
     $displayInstagram = filter_var($settingsHomepage['display_instagram_contact'] ?? true, FILTER_VALIDATE_BOOLEAN);
     
-    // شعار الرأس من الإعدادات
-    // بما أننا سنزيل الشعار من النافبار، قد لا نحتاج هذا المتغير هنا إلا إذا كان يستخدم في مكان آخر
-    $headerLogoPath = $settingsHomepage['logo_path_dark'] ?? asset('images/logo_w.png'); 
     $modalLogoPath = $settingsHomepage['logo_path_light'] ?? asset('images/logo.png'); // شعار فاتح للمودال
 
     // صور السلايدر من الإعدادات
@@ -48,11 +45,14 @@
                 }
                 return ltrim($cleanedNumberForUrl, '+'); 
             }
+            // افترض أن دالة toArabicDigits معرفة بشكل عام أو في helper
             return function_exists('toArabicDigits') ? toArabicDigits($number) : $number;
         }
     }
     $whatsappUrlNumber = formatWhatsappNumberHomepage($contactWhatsappNumber, true);
     $whatsappDisplayNumber = formatWhatsappNumberHomepage($contactWhatsappNumber, false);
+    $sliderHeaderLogoPath = $settingsHomepage['logo_path_dark'] ?? asset('images/logo_w.png');
+
 
 @endphp
 <!DOCTYPE html>
@@ -65,8 +65,8 @@
     <title>{{ $settingsHomepage['site_name_' . app()->getLocale()] ?? ($settingsHomepage['site_name_ar'] ?? config('app.name', 'Fatimah Booking')) }}</title>
 
     @if(isset($settingsHomepage['favicon_path']) && $settingsHomepage['favicon_path'])
-    <link rel="icon" href="{{ asset($settingsHomepage['favicon_path']) }}" type="image/x-icon">
-    <link rel="shortcut icon" href="{{ asset($settingsHomepage['favicon_path']) }}" type="image/x-icon">
+    <link rel="icon" href="{{ asset(e($settingsHomepage['favicon_path'])) }}" type="image/x-icon">
+    <link rel="shortcut icon" href="{{ asset(e($settingsHomepage['favicon_path'])) }}" type="image/x-icon">
     @endif
 
     <link rel="preconnect" href="https://fonts.bunny.net">
@@ -86,8 +86,6 @@
 
         .navbar-overlay { position: absolute; top: 0; left: 0; right: 0; width: 100%; z-index: 1030; background-color: transparent !important; box-shadow: none !important; padding-top: 1rem; padding-bottom: 1rem; transition: background-color 0.3s ease-in-out, padding-top 0.3s ease-in-out, padding-bottom 0.3s ease-in-out; }
         .navbar-overlay.scrolled { background-color: rgba(0, 0, 0, 0.7) !important; padding-top: 0.5rem; padding-bottom: 0.5rem; }
-        /* .navbar-overlay .navbar-brand img { max-height: 40px; transition: max-height 0.3s ease-in-out; filter: brightness(0) invert(1); } */ /* تم التعليق على هذا السطر الخاص بالشعار */
-        /* .navbar-overlay.scrolled .navbar-brand img { max-height: 35px; } */ /* تم التعليق على هذا السطر الخاص بالشعار */
         .navbar-overlay .navbar-nav { background-color: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 50px; padding: 0.3rem 1rem; margin-top: 0.5rem; }
         .navbar-overlay.scrolled .navbar-nav { background-color: rgba(255, 255, 255, 0.1); }
         .navbar-overlay .nav-item { margin-left: 0.2rem; margin-right: 0.2rem; }
@@ -121,7 +119,7 @@
         .services-section .btn-outline-primary { color: #555; border-color: #555; font-weight: 600; padding: 10px 25px; border-radius: 50px; }
         .services-section .btn-outline-primary:hover { background-color: #555; color: #ffffff; }
 
-        .contact-background { background: url('{{ asset($settingsHomepage['contact_bg_image_path'] ?? 'images/contact-background.jpg') }}') no-repeat center center; background-size: cover; position: relative; padding-top: 5rem; padding-bottom: 5rem; width: 100%; margin: 0; padding-left: 0; padding-right: 0; z-index: 1; }
+        .contact-background { background: url('{{ asset(e($settingsHomepage['contact_bg_image_path'] ?? 'images/contact-background.jpg')) }}') no-repeat center center; background-size: cover; position: relative; padding-top: 5rem; padding-bottom: 5rem; width: 100%; margin: 0; padding-left: 0; padding-right: 0; z-index: 1; }
         .contact-content-overlay { background-color: rgba(255, 255, 255, 0.9); z-index: 2; position: relative; border-radius: 0.75rem; box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.15); }
         .contact-section .btn-success, .contact-section .btn-light { font-weight: 600; padding: 12px 25px; font-size: 1.1rem; border-radius: 50px; display: inline-flex; align-items: center; justify-content: center; }
         .contact-section .btn-success i, .contact-section .btn-light img { transition: transform 0.2s ease-in-out; }
@@ -129,7 +127,10 @@
 
         .footer { width: 100%; margin: 0; padding: 25px 0; background-color: #343a40; color: #adb5bd; position: relative; z-index: 1; border-top: 1px solid #495057; }
         .footer .container { text-align: center; }
-        .footer p { margin-bottom: 0; font-size: 0.9rem; }
+        .footer p { margin-bottom: 0.5rem; font-size: 0.9rem; }
+        .payment-icons-footer { margin-top: 10px; }
+        .payment-icons-footer img { height: 28px; margin: 0 7px; opacity: 0.8; transition: opacity 0.2s; }
+        .payment-icons-footer img:hover { opacity: 1; }
 
         html[dir="rtl"] body { direction: rtl; text-align: right; }
         html[dir="rtl"] .navbar-nav { margin-right: auto !important; margin-left: 0 !important; }
@@ -155,8 +156,7 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark navbar-overlay fixed-top">
         <div class="container">
-            {{-- الشعار في النافبار - تم تحويله لتعليق لإزالته --}}
-            {{--
+            {{-- 
             <a class="navbar-brand" href="{{ url('/') }}">
                 <img src="{{ asset($headerLogoPath) }}" alt="{{ $settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo' }}">
             </a>
@@ -225,11 +225,10 @@
             @endif
             <div class="carousel-inner">
                 @forelse($sliderImages as $index => $imagePath)
-                <div class="carousel-item {{ $loop->first ? 'active' : '' }} hero-slide-item" style="background-image: url('{{ asset($imagePath) }}');">
+                <div class="carousel-item {{ $loop->first ? 'active' : '' }} hero-slide-item" style="background-image: url('{{ asset(e($imagePath)) }}');">
                     <div class="carousel-caption">
                         <div class="hero-caption-content">
-                            {{-- الشعار في السلايدر سيبقى إذا كان هذا هو المطلوب --}}
-                            <img src="{{ asset($settingsHomepage['logo_path_dark'] ?? asset('images/logo_w.png')) }}" alt="{{ $settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo' }}" class="img-fluid hero-logo-in-caption">
+                            <img src="{{ asset($sliderHeaderLogoPath) }}" alt="{{ $settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo' }}" class="img-fluid hero-logo-in-caption">
                             <a href="{{ route('services.index') }}" class="btn btn-outline-light btn-lg hero-book-now-btn">
                                 إحجز الأن
                             </a>
@@ -240,7 +239,7 @@
                 <div class="carousel-item active hero-slide-item" style="background-image: url('{{ asset('images/slider/slider_default.jpg') }}');">
                     <div class="carousel-caption">
                         <div class="hero-caption-content">
-                             <img src="{{ asset($settingsHomepage['logo_path_dark'] ?? asset('images/logo_w.png')) }}" alt="{{ $settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo' }}" class="img-fluid hero-logo-in-caption">
+                             <img src="{{ asset($sliderHeaderLogoPath) }}" alt="{{ $settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo' }}" class="img-fluid hero-logo-in-caption">
                             <a href="{{ route('services.index') }}" class="btn btn-outline-light btn-lg hero-book-now-btn">
                                 إحجز الأن
                             </a>
@@ -329,6 +328,15 @@
     <footer class="footer">
         <div class="container">
             <p>&copy; {{ date('Y') }} {{ $settingsHomepage['site_name_' . app()->getLocale()] ?? ($settingsHomepage['site_name_ar'] ?? 'Fatimah Ali Photography') }}. جميع الحقوق محفوظة.</p>
+            
+            <div class="payment-icons-footer">
+                {{-- تم إزالة أيقونة التحويل البنكي --}}
+                <img src="{{ asset('images/payment-icons/mada.png') }}" alt="مدى" title="مدى">
+                <img src="{{ asset('images/payment-icons/tamara_logo.png') }}" alt="تمارا" title="تمارا">
+                <img src="{{ asset('images/payment-icons/mastercard.png') }}" alt="ماستركارد" title="ماستركارد">
+                <img src="{{ asset('images/payment-icons/visa.png') }}" alt="فيزا" title="فيزا">
+                {{-- <img src="{{ asset('images/payment-icons/bank_transfer_icon.png') }}" alt="تحويل بنكي" title="التحويل البنكي"> --}}
+            </div>
         </div>
     </footer>
 
@@ -336,7 +344,7 @@
       <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content">
           <div class="modal-header">
-            <img src="{{ asset($modalLogoPath) }}" alt="{{ $settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo' }}" class="modal-header-logo">
+            <img src="{{ asset(e($modalLogoPath)) }}" alt="{{ e($settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo') }}" class="modal-header-logo">
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body">
@@ -358,7 +366,7 @@
     <script>
         window.addEventListener('scroll', function() {
             const navbar = document.querySelector('.navbar-overlay');
-            if (navbar) { // التأكد من أن العنصر موجود
+            if (navbar) {
                 if (window.scrollY > 50) {
                     navbar.classList.add('scrolled');
                 } else {
