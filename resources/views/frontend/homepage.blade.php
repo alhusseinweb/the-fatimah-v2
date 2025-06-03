@@ -1,7 +1,6 @@
 {{-- resources/views/frontend/homepage.blade.php --}}
 @php
-    // جلب الإعدادات. من الأفضل تمرير هذه من المتحكم الخاص بالصفحة الرئيسية.
-    // لأغراض العرض هنا، سنجلبها مباشرة.
+    // ... (جميع متغيرات @php التي عرفناها سابقًا تبقى كما هي) ...
     $settingsHomepage = \App\Models\Setting::pluck('value', 'key')->all();
 
     $contactWhatsappNumber = $settingsHomepage['contact_whatsapp'] ?? '';
@@ -9,13 +8,9 @@
     $displayWhatsapp = filter_var($settingsHomepage['display_whatsapp_contact'] ?? true, FILTER_VALIDATE_BOOLEAN);
     $displayInstagram = filter_var($settingsHomepage['display_instagram_contact'] ?? true, FILTER_VALIDATE_BOOLEAN);
     
-    $modalLogoPath = $settingsHomepage['logo_path_light'] ?? asset('images/logo.png'); // شعار فاتح للمودال
-
-    // صور السلايدر من الإعدادات
+    $modalLogoPath = $settingsHomepage['logo_path_light'] ?? asset('images/logo.png');
     $sliderImages = !empty($settingsHomepage['homepage_slider_images']) ? json_decode($settingsHomepage['homepage_slider_images'], true) : [];
-    $sliderImages = is_array($sliderImages) ? array_filter($sliderImages) : []; // تأكد أنها مصفوفة وصالحة
-
-    // Fallback default slider images if none are set in admin
+    $sliderImages = is_array($sliderImages) ? array_filter($sliderImages) : [];
     $defaultSliderImages = [
         asset('images/slider/slider1.jpg'),
         asset('images/slider/slider2.jpg'),
@@ -24,19 +19,15 @@
     if (empty($sliderImages)) {
         $sliderImages = $defaultSliderImages;
     }
-
-    // سياسات الحجز
     $bookingPolicyAr = $settingsHomepage['policy_ar'] ?? '';
     $bookingPolicyEn = $settingsHomepage['policy_en'] ?? '';
 
-
-    // دالة لتنسيق رقم الواتساب للرابط والعرض
-    if (!function_exists('formatWhatsappNumberHomepage')) { // اسم فريد للدالة
+    if (!function_exists('formatWhatsappNumberHomepage')) { 
         function formatWhatsappNumberHomepage($number, $forUrl = false) {
             if (empty($number)) return '';
-            $cleanedNumber = preg_replace('/[^0-9+]/', '', $number); // السماح بـ + في البداية
+            $cleanedNumber = preg_replace('/[^0-9+]/', '', $number); 
             if ($forUrl) {
-                $cleanedNumberForUrl = preg_replace('/[^0-9]/', '', $cleanedNumber); // إزالة كل شيء ما عدا الأرقام للـ URL
+                $cleanedNumberForUrl = preg_replace('/[^0-9]/', '', $cleanedNumber); 
                 if (strpos($cleanedNumberForUrl, '00') === 0) { 
                     return substr($cleanedNumberForUrl, 2);
                 }
@@ -45,14 +36,12 @@
                 }
                 return ltrim($cleanedNumberForUrl, '+'); 
             }
-            // افترض أن دالة toArabicDigits معرفة بشكل عام أو في helper
             return function_exists('toArabicDigits') ? toArabicDigits($number) : $number;
         }
     }
     $whatsappUrlNumber = formatWhatsappNumberHomepage($contactWhatsappNumber, true);
     $whatsappDisplayNumber = formatWhatsappNumberHomepage($contactWhatsappNumber, false);
     $sliderHeaderLogoPath = $settingsHomepage['logo_path_dark'] ?? asset('images/logo_w.png');
-
 
 @endphp
 <!DOCTYPE html>
@@ -103,8 +92,31 @@
         .hero-section-carousel .carousel-caption { bottom: 0; left: 0; right: 0; top: 0; padding: 0; display: flex; align-items: center; justify-content: center; z-index: 5; color: #fff; background-color: transparent; }
         .hero-caption-content { display: flex; flex-direction: column; align-items: center; padding: 20px; border-radius: 10px; text-align: center;}
         .hero-caption-content .hero-logo-in-caption { max-width: 200px; height: auto; margin-bottom: 25px; z-index: 1; filter: drop-shadow(2px 2px 5px rgba(0,0,0,0.5)); }
-        .hero-book-now-btn { border-width: 2px; font-weight: 700; text-transform: uppercase; transition: all 0.3s ease; z-index: 1; padding: 12px 30px; font-size: 1.1rem; border-radius: 50px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
-        .hero-book-now-btn:hover { background-color: #ffffff; color: #333; border-color: #ffffff; transform: translateY(-2px); box-shadow: 0 6px 15px rgba(0,0,0,0.3); }
+        
+        /* --- START: تعديل زر "إحجز الأن" --- */
+        .hero-book-now-btn {
+            border-width: 2px !important; /* استخدام !important لضمان الأولوية */
+            font-weight: 700;
+            text-transform: uppercase;
+            transition: all 0.3s ease;
+            z-index: 1;
+            padding: 12px 30px;
+            font-size: 1.1rem;
+            border-radius: 50px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            color: #ffffff !important; /* لون النص أبيض */
+            border-color: rgba(255, 255, 255, 0.4) !important; /* أبيض بشفافية 40%، عدل 0.4 حسب رغبتك */
+            background-color: transparent !important; /* تأكيد أن الخلفية شفافة */
+        }
+        .hero-book-now-btn:hover {
+            background-color: #ffffff !important;
+            color: #333 !important;
+            border-color: #ffffff !important; 
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(0,0,0,0.3);
+        }
+        /* --- END: تعديل زر "إحجز الأن" --- */
+
         .carousel-indicators button { width: 12px; height: 12px; border-radius: 50%; background-color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.7); margin: 0 5px; }
         .carousel-indicators .active { background-color: #fff; }
         .carousel-control-prev-icon, .carousel-control-next-icon { background-color: rgba(0,0,0,0.3); border-radius: 50%; padding: 1.5rem; background-size: 50% 50%; }
@@ -156,11 +168,7 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark navbar-overlay fixed-top">
         <div class="container">
-            {{-- 
-            <a class="navbar-brand" href="{{ url('/') }}">
-                <img src="{{ asset($headerLogoPath) }}" alt="{{ $settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo' }}">
-            </a>
-            --}}
+            {{-- الشعار في النافبار - تم إزالته بناءً على طلب سابق --}}
             <button class="navbar-toggler ms-auto" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -228,7 +236,8 @@
                 <div class="carousel-item {{ $loop->first ? 'active' : '' }} hero-slide-item" style="background-image: url('{{ asset(e($imagePath)) }}');">
                     <div class="carousel-caption">
                         <div class="hero-caption-content">
-                            <img src="{{ asset($sliderHeaderLogoPath) }}" alt="{{ $settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo' }}" class="img-fluid hero-logo-in-caption">
+                            <img src="{{ asset($sliderHeaderLogoPath) }}" alt="{{ e($settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo') }}" class="img-fluid hero-logo-in-caption">
+                            {{-- الزر الذي سيتم تعديل حدوده --}}
                             <a href="{{ route('services.index') }}" class="btn btn-outline-light btn-lg hero-book-now-btn">
                                 إحجز الأن
                             </a>
@@ -239,7 +248,7 @@
                 <div class="carousel-item active hero-slide-item" style="background-image: url('{{ asset('images/slider/slider_default.jpg') }}');">
                     <div class="carousel-caption">
                         <div class="hero-caption-content">
-                             <img src="{{ asset($sliderHeaderLogoPath) }}" alt="{{ $settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo' }}" class="img-fluid hero-logo-in-caption">
+                             <img src="{{ asset($sliderHeaderLogoPath) }}" alt="{{ e($settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo') }}" class="img-fluid hero-logo-in-caption">
                             <a href="{{ route('services.index') }}" class="btn btn-outline-light btn-lg hero-book-now-btn">
                                 إحجز الأن
                             </a>
@@ -330,12 +339,10 @@
             <p>&copy; {{ date('Y') }} {{ $settingsHomepage['site_name_' . app()->getLocale()] ?? ($settingsHomepage['site_name_ar'] ?? 'Fatimah Ali Photography') }}. جميع الحقوق محفوظة.</p>
             
             <div class="payment-icons-footer">
-                {{-- تم إزالة أيقونة التحويل البنكي --}}
                 <img src="{{ asset('images/payment-icons/mada.png') }}" alt="مدى" title="مدى">
                 <img src="{{ asset('images/payment-icons/tamara_logo.png') }}" alt="تمارا" title="تمارا">
                 <img src="{{ asset('images/payment-icons/mastercard.png') }}" alt="ماستركارد" title="ماستركارد">
                 <img src="{{ asset('images/payment-icons/visa.png') }}" alt="فيزا" title="فيزا">
-                {{-- <img src="{{ asset('images/payment-icons/bank_transfer_icon.png') }}" alt="تحويل بنكي" title="التحويل البنكي"> --}}
             </div>
         </div>
     </footer>
