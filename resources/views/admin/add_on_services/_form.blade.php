@@ -36,7 +36,7 @@
 </div>
 
 <div class="d-flex justify-content-end">
-    <a href="{{ route('admin.add_on_services.index') }}" class="btn btn-outline-secondary me-2">إلغاء</a>
+    <a href="{{ route('admin.add-on-services.index') }}" class="btn btn-outline-secondary me-2">إلغاء</a>
     <button type="submit" class="btn btn-primary">
         {{ isset($addOnService) ? 'تحديث الخدمة الإضافية' : 'إضافة الخدمة الإضافية' }}
     </button>
