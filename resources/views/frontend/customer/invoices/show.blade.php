@@ -14,13 +14,11 @@
             if (is_null($value)) return '-';
             $value = (float) $value;
             $roundedToTwoDecimals = round($value, 2);
-            // التأكد من أننا نعرض الفاصلة العشرية فقط إذا كان هناك جزء عشري حقيقي
             $hasSignificantFraction = (abs($roundedToTwoDecimals - floor($roundedToTwoDecimals)) > 0.0001);
             $formattedNumber = number_format($roundedToTwoDecimals, $hasSignificantFraction ? 2 : 0, '.', '');
             
             $result = toArabicDigitsGlobalSafeInvoiceShow($formattedNumber);
             if ($currency) {
-                // استخدام e() لـ escaping آمن للمتغير
                 $result = $result . ' ' . e($currency); 
             }
             return $result;
@@ -30,7 +28,6 @@
     $invoiceTitleNumberDisplay = $invoice->invoice_number ?: $invoice->id;
     $invoiceTitleNumberDisplay = toArabicDigitsGlobalSafeInvoiceShow((string)$invoiceTitleNumberDisplay);
 
-    // حساب قيمة المبلغ المتبقي هنا لتبسيط العرض
     $remainingAmount = $invoice->remaining_amount ?? 0; 
     if (!isset($invoice->remaining_amount) && $invoice) { 
         $totalPaidForInvoice = $invoice->payments()->where('status', 'completed')->sum('amount');
@@ -95,6 +92,12 @@
     .btn-tamara-pay img { height: 20px; margin-left: 8px; }
     html[dir="ltr"] .btn-tamara-pay img { margin-left: 0; margin-right: 8px; }
     .alert { border-radius: 8px; } 
+    /* --- MODIFICATION START: Styles for Add-on Services in Customer Invoice Show Page --- */
+    .add-on-services-details-list { list-style: none; padding-right: 1.5rem; margin-top: 0.5rem; margin-bottom: 0.5rem; }
+    .add-on-services-details-list li { display: flex; justify-content: space-between; font-size: 0.9rem; color: #444; padding: 3px 0; }
+    .add-on-services-details-list .add-on-name { color: #555; }
+    .add-on-services-details-list .add-on-price { font-weight: 500; color: #333; }
+    /* --- MODIFICATION END --- */
     @media (max-width: 767px) { .invoice-card-header { flex-direction: column; align-items: flex-start; } .invoice-card-title { margin-bottom: 10px; } .info-label { min-width: 100px; font-size: 0.9em; } .info-value { font-size: 0.9em; } .btn-action { padding: 6px 12px; font-size: 13px; } .invoice-actions { justify-content: center; } }
     @media (max-width: 576px) { .invoice-card-body { padding: 20px; } .info-row { flex-direction: column; align-items: flex-start; } .info-label { width: auto; margin-bottom: 4px; margin-left: 0;} html[dir="ltr"] .info-label { margin-right: 0; } .info-value { display: block; width: 100%; } .invoice-actions { flex-direction: column; align-items: stretch; } .invoice-actions .btn-action { width: 100%; margin-bottom: 10px; } .invoice-actions .btn-action:last-child { margin-bottom: 0; } }
 </style>
@@ -117,14 +120,11 @@
                 $alertClass = '';
                 $alertText = '';
                 $allowTamaraPayment = false;
-                // جلب الإعدادات مرة واحدة إذا لم تكن موجودة بالفعل
                 if (!isset($settings)) {
                     $settings = App\Models\Setting::pluck('value', 'key')->all();
                 }
                 $isTamaraGenerallyEnabled = filter_var($settings['tamara_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
                 
-                // $remainingAmount تم حسابه في بداية الملف
-
                 switch ($invoice->status) {
                     case \App\Models\Invoice::STATUS_PAID:
                         $alertClass = 'alert-success';
@@ -260,7 +260,7 @@
             <div class="invoice-divider"></div>
 
             @if ($booking = $invoice->booking)
-                @php $booking->loadMissing('service'); @endphp
+                @php $booking->loadMissing(['service', 'addOnServices']); @endphp {{-- MODIFICATION: Eager load addOnServices --}}
                 <div class="invoice-section">
                     <h2 class="invoice-section-title">معلومات الحجز المرتبط</h2>
                     <div class="row">
@@ -268,15 +268,13 @@
                             <div class="info-row">
                                 <span class="info-label">رقم الحجز:</span>
                                 <span class="info-value">
-                                    {{-- تعديل: يشير إلى قائمة حجوزات العميل. --}}
-                                    {{-- إذا كان لديك مسار لعرض تفاصيل حجز واحد، استخدمه بدلاً من 'customer.bookings.index' --}}
                                     <a href="{{ route('customer.bookings.index') }}">#{{ toArabicDigitsGlobalSafeInvoiceShow($booking->id) }}</a>
                                 </span>
                             </div>
                         </div>
                         @if ($booking->service)
                             <div class="col-md-6">
-                                <div class="info-row"> <span class="info-label">الخدمة:</span> <span class="info-value">{{ $booking->service->name_ar ?? $booking->service->name_en }}</span> </div>
+                                <div class="info-row"> <span class="info-label">الخدمة الأساسية:</span> <span class="info-value">{{ $booking->service->name_ar ?? $booking->service->name_en }}</span> </div>
                             </div>
                         @endif
                         <div class="col-md-6">
@@ -309,6 +307,27 @@
                                 </span>
                             </div>
                          </div>
+                         {{-- --- MODIFICATION START: Display Add-on Services in Customer Invoice --- --}}
+                         @if($booking->addOnServices && $booking->addOnServices->isNotEmpty())
+                         <div class="col-12 mt-2">
+                             <div class="info-row">
+                                 <span class="info-label">الخدمات الإضافية:</span>
+                                 <span class="info-value">
+                                     <ul class="add-on-services-details-list">
+                                         @foreach($booking->addOnServices as $addOn)
+                                         <li>
+                                             <span class="add-on-name">{{ $addOn->getLocalizedNameAttribute() }}</span>
+                                             <span class="add-on-price">
+                                                 {{ formatAmountConditionallyGlobalSafeInvoiceShow($addOn->pivot->price_at_booking, $invoice->currency) }}
+                                             </span>
+                                         </li>
+                                         @endforeach
+                                     </ul>
+                                 </span>
+                             </div>
+                         </div>
+                         @endif
+                         {{-- --- MODIFICATION END --- --}}
                     </div>
                 </div>
             @endif
