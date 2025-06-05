@@ -53,7 +53,7 @@
                          <dt class="col-sm-4"><i class="fas fa-envelope fa-fw me-1 text-muted"></i>البريد الإلكتروني:</dt>
                         <dd class="col-sm-8">{{ $booking->user?->email ?? 'غير متوفر' }}</dd>
                         <hr class="my-3">
-                        <dt class="col-sm-4"><i class="fas fa-concierge-bell fa-fw me-1 text-muted"></i>الخدمة المطلوبة:</dt>
+                        <dt class="col-sm-4"><i class="fas fa-concierge-bell fa-fw me-1 text-muted"></i>الخدمة الأساسية:</dt>
                         <dd class="col-sm-8">{{ $booking->service?->name_ar ?? 'غير متوفر' }}</dd>
                         <dt class="col-sm-4"><i class="fas fa-clock fa-fw me-1 text-muted"></i>مدة الخدمة:</dt>
                         <dd class="col-sm-8">{{ toArabicDigitsGlobalAdminShow($booking->service?->duration_hours ?? 'N/A') }} ساعات</dd>
@@ -63,6 +63,21 @@
                             <dt class="col-sm-4"><i class="fas fa-info-circle fa-fw me-1 text-muted"></i>تشمل الخدمة:</dt>
                             <dd class="col-sm-8">{!! nl2br(e($booking->service->included_items_ar)) !!}</dd>
                         @endif
+
+                        {{-- --- MODIFICATION START: Display Add-on Services for Admin --- --}}
+                        @if($booking->addOnServices && $booking->addOnServices->isNotEmpty())
+                        <hr class="my-3">
+                        <dt class="col-sm-12 fw-bold text-info mb-2"><i class="fas fa-puzzle-piece fa-fw me-1"></i>الخدمات الإضافية المختارة:</dt>
+                            @foreach($booking->addOnServices as $addOn)
+                                <dt class="col-sm-4 ps-4"><i class="fas fa-circle fa-xs fa-fw me-1 text-muted"></i>{{ $addOn->getLocalizedNameAttribute() }}:</dt>
+                                <dd class="col-sm-8">{{ toArabicDigitsGlobalAdminShow(number_format($addOn->pivot->price_at_booking, 2)) }} ريال</dd>
+                            @endforeach
+                            @if($booking->total_add_on_services_price > 0)
+                                <dt class="col-sm-4 fw-bold border-top pt-2 mt-1">إجمالي الخدمات الإضافية:</dt>
+                                <dd class="col-sm-8 fw-bold border-top pt-2 mt-1">{{ toArabicDigitsGlobalAdminShow(number_format($booking->total_add_on_services_price, 2)) }} ريال</dd>
+                            @endif
+                        @endif
+                        {{-- --- MODIFICATION END --- --}}
                         
                         <hr class="my-3">
                         <dt class="col-sm-4"><i class="fas fa-map-marked-alt fa-fw me-1 text-muted"></i>منطقة التصوير:</dt>
@@ -177,10 +192,7 @@
                                     <label class="form-label fw-bold">تأكيد استلام الدفعة:</label>
                                     @if(!empty($paymentConfirmationOptions)) {{-- تحقق مما إذا كانت هناك خيارات تم تمريرها --}}
                                         @php
-                                            // المتغيرات لحساب المبالغ والنصوص الديناميكية
                                             $currentInvoice = $booking->invoice;
-                                            $invoiceAmountForJS = $currentInvoice?->amount ?? 0;
-                                            $downPaymentForBookingJS = $booking->down_payment_amount ?? ($currentInvoice ? round($currentInvoice->amount / 2, 2) : 0);
                                             $currencyForJS = $currentInvoice?->currency ?: 'SAR';
                                         @endphp
 
@@ -188,7 +200,6 @@
                                             <div class="form-check">
                                                 <input class="form-check-input" type="radio" name="payment_confirmation_type" id="confirm_{{ $value }}" value="{{ $value }}">
                                                 <label class="form-check-label" for="confirm_{{ $value }}">
-                                                    {{-- سيتم تحديث هذا النص بواسطة JavaScript --}}
                                                     {{ $label }} 
                                                 </label>
                                             </div>
@@ -299,7 +310,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const depositPaymentValueJS = 'deposit';
     const fullPaymentValueJS = 'full';
 
-    // دالة لتحويل الأرقام إلى العربية إذا لم تكن معرفة بشكل عام
     function toArabicDigitsJSLocal(str) {
         if (str === null || str === undefined) return '';
         const western = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.'];
@@ -320,7 +330,8 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             cancellationReasonSection.style.display = 'none';
             cancellationReasonTextarea.removeAttribute('required');
-            cancellationReasonTextarea.value = '';
+            // لا تمسح القيمة هنا إذا كان سبب الإلغاء موجودًا بالفعل للحجز، فقد يرغب المدير في تعديله
+            // cancellationReasonTextarea.value = ''; 
         }
     }
 
@@ -335,7 +346,7 @@ document.addEventListener('DOMContentLoaded', function () {
         paymentConfirmationDiv.style.display = showOptions ? 'block' : 'none';
 
         if(showOptions) {
-            const currentInvoice = @json($booking->invoice);
+            const currentInvoice = @json($booking->invoice); // تأكد أن الفاتورة محملة
             const isInvoicePartiallyPaidJS = currentInvoice && currentInvoice.status === '{{ \App\Models\Invoice::STATUS_PARTIALLY_PAID }}';
             const invoiceAmountJS = currentInvoice ? parseFloat(currentInvoice.amount) : 0;
             let remainingAmountJS = 0;
@@ -355,19 +366,17 @@ document.addEventListener('DOMContentLoaded', function () {
             const radios = paymentConfirmationDiv.querySelectorAll('input[name="payment_confirmation_type"]');
             let firstVisibleRadioToSelect = null;
             
-            // إخفاء جميع الخيارات في البداية ثم إظهار المتاح منها فقط
             radios.forEach(radio => {
                 const radioContainer = radio.closest('.form-check');
-                if(radioContainer) radioContainer.style.display = 'none'; // إخفاء مبدئي
+                if(radioContainer) radioContainer.style.display = 'none'; 
             });
 
-            // الآن، بناءً على $paymentConfirmationOptions الممررة من المتحكم، أظهر الخيارات
             @foreach($paymentConfirmationOptions as $value => $label)
                 const radio_{{ $value }} = document.getElementById('confirm_{{ $value }}');
                 if (radio_{{ $value }}) {
                     const container_{{ $value }} = radio_{{ $value }}.closest('.form-check');
                     if (container_{{ $value }}) {
-                        container_{{ $value }}.style.display = 'block'; // إظهار الخيار المتاح
+                        container_{{ $value }}.style.display = 'block'; 
                         if (!firstVisibleRadioToSelect) firstVisibleRadioToSelect = radio_{{ $value }};
 
                         const labelElement_{{ $value }} = container_{{ $value }}.querySelector('label');
@@ -378,7 +387,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                 } else if (!isInvoicePartiallyPaidJS && invoiceAmountJS > 0.009) {
                                     labelElement_{{ $value }}.textContent = `تأكيد استلام المبلغ الكامل (${toArabicDigitsJSLocal(invoiceAmountJS.toFixed(2))} ${currencyJS})`;
                                 } else {
-                                    labelElement_{{ $value }}.textContent = '{{ $label }}'; // النص الأصلي من المتحكم
+                                    labelElement_{{ $value }}.textContent = '{{ $label }}'; 
                                     if (invoiceAmountJS <= 0.009) container_{{ $value }}.style.display = 'none';
                                 }
                             } else if ('{{ $value }}' === depositPaymentValueJS) {
@@ -388,16 +397,18 @@ document.addEventListener('DOMContentLoaded', function () {
                                  } else {
                                      container_{{ $value }}.style.display = 'none';
                                  }
-                            } else {
-                                labelElement_{{ $value }}.textContent = '{{ $label }}'; // للخيار 'none' إذا أضيف
+                            } else { // For 'none' option
+                                labelElement_{{ $value }}.textContent = '{{ $label }}'; 
                             }
                         }
                     }
                 }
             @endforeach
             
-            if (!paymentConfirmationDiv.querySelector('input[name="payment_confirmation_type"]:checked') && firstVisibleRadioToSelect) {
-                if (firstVisibleRadioToSelect.closest('.form-check').style.display !== 'none') {
+            // Default selection logic
+            const currentlySelectedRadio = paymentConfirmationDiv.querySelector('input[name="payment_confirmation_type"]:checked');
+            if (!currentlySelectedRadio || currentlySelectedRadio.closest('.form-check').style.display === 'none') {
+                if (firstVisibleRadioToSelect && firstVisibleRadioToSelect.closest('.form-check').style.display !== 'none') {
                      firstVisibleRadioToSelect.checked = true;
                 } else {
                     const visibleRadios = Array.from(radios).filter(r => r.closest('.form-check').style.display !== 'none');
@@ -417,7 +428,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     if(updateStatusForm && statusSelect && depositModalElement) {
-        const depositModalInstance = new bootstrap.Modal(depositModalElement);
+        const depositModalBootstrapInstance = depositModalInstance; // Renamed to avoid conflict
 
         updateStatusForm.addEventListener('submit', function (event) {
             const selectedStatus = statusSelect.value;
@@ -429,22 +440,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 selectedPaymentTypeRadio = paymentOptionsDiv.querySelector('input[name="payment_confirmation_type"]:checked');
                 if (selectedPaymentTypeRadio) {
                     selectedPaymentType = selectedPaymentTypeRadio.value;
-                } else {
-                    // إذا لم يتم تحديد أي شيء وكان القسم ظاهرًا، وهذا لا يجب أن يحدث إذا عمل التحديد الافتراضي
-                     if (Array.from(paymentOptionsDiv.querySelectorAll('input[name="payment_confirmation_type"]')).filter(r=>r.closest('.form-check').style.display !== 'none').length > 0) {
-                        console.warn('Payment confirmation options visible, but NO payment type is selected. This indicates an issue with default selection logic.');
-                        // event.preventDefault(); // قد ترغب في منع الإرسال
-                        // alert('يرجى تحديد خيار تأكيد الدفع.');
-                        // return;
-                     }
                 }
             }
             
             const depositRadioElement = document.getElementById('confirm_deposit');
             const depositRadioContainer = depositRadioElement ? depositRadioElement.closest('.form-check') : null;
             
-            console.debug("Form Submit Check:", { selectedStatus, confirmedBookingStatusValueJS, selectedPaymentType, depositPaymentValueJS, depositRadioContainerVisible: depositRadioContainer ? depositRadioContainer.style.display !== 'none' : false });
-
             if (selectedStatus === confirmedBookingStatusValueJS && 
                 selectedPaymentType === depositPaymentValueJS && 
                 depositRadioContainer && 
@@ -452,7 +453,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 
                 event.preventDefault(); 
                 
-                if(depositAmountInput && depositAmountError && depositModalInstance) {
+                if(depositAmountInput && depositAmountError && depositModalBootstrapInstance) {
                     depositAmountInput.classList.remove('is-invalid');
                     if(depositAmountError) depositAmountError.textContent = '';
                     depositAmountInput.value = ''; 
@@ -461,14 +462,13 @@ document.addEventListener('DOMContentLoaded', function () {
                     depositAmountInput.placeholder = `مثلاً: ${downPaymentForBooking > 0 ? downPaymentForBooking.toFixed(2) : 'أدخل مبلغ العربون'}`;
                     
                     if(modalDepositAmountHiddenInput) modalDepositAmountHiddenInput.value = '';
-                    depositModalInstance.show();
+                    depositModalBootstrapInstance.show();
                 } else {
                     console.error('Modal elements for deposit amount are not found or depositModalInstance is null!');
                     alert('حدث خطأ في تهيئة نافذة إدخال العربون. يرجى تحديث الصفحة والمحاولة مرة أخرى.');
                 }
             } else {
                 if(modalDepositAmountHiddenInput) modalDepositAmountHiddenInput.value = '';
-                console.debug('Proceeding with normal form submission. Modal not required.');
             }
         });
     }
@@ -477,7 +477,15 @@ document.addEventListener('DOMContentLoaded', function () {
         submitDepositModalBtn.addEventListener('click', function() {
             let depositAmountStr = depositAmountInput.value.trim().replace(',', '.');
             let depositAmount = parseFloat(depositAmountStr);
-            const maxAmount = parseFloat('{{ $booking->invoice?->amount ?? 0 }}'); 
+            // Using remaining_amount from invoice if partially paid, else full invoice amount for validation upper bound
+            const invoiceForMax = @json($booking->invoice);
+            let maxAmountForDeposit = 0;
+            if (invoiceForMax) {
+                 maxAmountForDeposit = (invoiceForMax.status === '{{ \App\Models\Invoice::STATUS_PARTIALLY_PAID }}') 
+                                     ? parseFloat(invoiceForMax.remaining_amount || 0)
+                                     : parseFloat(invoiceForMax.amount || 0);
+            }
+
 
             if(depositAmountError) depositAmountError.textContent = '';
             depositAmountInput.classList.remove('is-invalid');
@@ -487,9 +495,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 if(depositAmountError) depositAmountError.textContent = 'الرجاء إدخال مبلغ صحيح للعربون (أكبر من صفر).';
                 return;
             }
-            if (maxAmount > 0 && depositAmount >= maxAmount) {
+            if (maxAmountForDeposit > 0 && depositAmount >= maxAmountForDeposit) {
                 depositAmountInput.classList.add('is-invalid');
-                if(depositAmountError) depositAmountError.textContent = 'مبلغ العربون لا يمكن أن يكون مساوياً أو أكبر من المبلغ الإجمالي للفاتورة.';
+                if(depositAmountError) depositAmountError.textContent = 'مبلغ العربون لا يمكن أن يكون مساوياً أو أكبر من المبلغ الإجمالي المطلوب للفاتورة. اختر "تأكيد المبلغ الكامل" بدلاً من ذلك.';
                 return;
             }
 
