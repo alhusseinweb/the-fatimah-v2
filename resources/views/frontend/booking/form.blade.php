@@ -4,13 +4,10 @@
     $bookingPolicyEn = $bookingPolicyEn ?? '';
     $bankAccounts = $bankAccounts ?? collect();
 
-    // --- START: FETCH OUTSIDE AHSA FEE FROM SETTINGS ---
     if (!isset($settingsHomepage)) {
         $settingsHomepage = \App\Models\Setting::pluck('value', 'key')->all();
     }
     $outsideAhsaFeeFromSettings = (float)($settingsHomepage['outside_ahsa_fee'] ?? 300.00);
-    // --- END: FETCH OUTSIDE AHSA FEE FROM SETTINGS ---
-
     $baseServicePrice = $service->price_sar ?? 0;
 
     $outsideAhsaCities = [
@@ -22,7 +19,6 @@
     ];
 
     $addOnServices = $addOnServices ?? collect();
-
     $downPaymentAmountBasedOnService = round($baseServicePrice / 2, 2);
 
     if (!function_exists('formatAmountConditionallyBookingForm')) {
@@ -31,7 +27,7 @@
             $roundedToTwoDecimals = floor($value * 100) / 100;
             $hasSignificantFraction = (($roundedToTwoDecimals - floor($roundedToTwoDecimals)) > 0.001);
             $formattedNumber = number_format($roundedToTwoDecimals, $hasSignificantFraction ? 2 : 0, '.', '');
-            if (function_exists('toArabicDigits')) { // افترض وجود دالة toArabicDigits عامة
+            if (function_exists('toArabicDigits')) {
                 return toArabicDigits($formattedNumber);
             }
             return $formattedNumber;
@@ -41,8 +37,16 @@
     $downPaymentAmountBasedOnServiceFormatted = formatAmountConditionallyBookingForm($downPaymentAmountBasedOnService);
     $outsideAhsaFeeFormatted = formatAmountConditionallyBookingForm($outsideAhsaFeeFromSettings);
 
-    $isTamaraEnabled = $isTamaraEnabled ?? false;
-    $isBankTransferEnabled = $isBankTransferEnabled ?? false;
+    $isTamaraEnabled = $isTamaraEnabled ?? ($settingsHomepage['tamara_enabled'] ?? false);
+    $isBankTransferEnabled = $isBankTransferEnabled ?? ($settingsHomepage['enable_bank_transfer'] ?? false);
+
+    // --- MODIFICATION START: Get Bank Transfer Discount Settings ---
+    $enableBankTransferDiscountPopup = filter_var($settingsHomepage['enable_bank_transfer_discount_popup'] ?? '0', FILTER_VALIDATE_BOOLEAN);
+    $bankTransferDiscountCode = $settingsHomepage['bank_transfer_discount_code'] ?? '';
+    $bankTransferPopupMessage = (app()->getLocale() == 'en' && !empty($settingsHomepage['bank_transfer_discount_popup_message_en']))
+                                ? $settingsHomepage['bank_transfer_discount_popup_message_en']
+                                : ($settingsHomepage['bank_transfer_discount_popup_message_ar'] ?? 'لا تفوت الفرصة! خصم خاص عند الدفع بالتحويل البنكي.');
+    // --- MODIFICATION END ---
 
 @endphp
 
@@ -129,12 +133,20 @@
     html[dir="ltr"] .add-on-service-item .form-check-input { margin-left: 0; margin-right: 10px;}
     .add-on-service-item label { font-weight: 500; cursor: pointer; flex-grow: 1; margin-bottom: 0; }
     .add-on-service-price { font-weight: 600; color: #495057; margin-right: auto; white-space: nowrap; }
+    /* --- MODIFICATION START: Styles for Bank Transfer Discount Modal --- */
+    .modal-header .btn-close { margin: -0.5rem -0.5rem -0.5rem auto;}
+    .discount-popup-icon { font-size: 2rem; color: #198754; margin-left: 1rem; }
+    html[dir="ltr"] .discount-popup-icon { margin-left: 0; margin-right: 1rem; }
+    .btn-apply-discount-modal { background-color: #28a745; color: white; }
+    .btn-apply-discount-modal:hover { background-color: #218838; }
+    /* --- MODIFICATION END --- */
 </style>
 @endsection
 
 @section('content')
 <div class="booking-form-wrapper">
     <div class="container booking-container">
+        {{-- ... (الكود السابق للـ header والـ summary) ... --}}
         <div class="booking-header">
             <h1 class="mb-2">تأكيد تفاصيل الحجز</h1>
             <p class="text-muted">يرجى تعبئة جميع البيانات المطلوبة لإتمام الحجز</p>
@@ -159,7 +171,6 @@
                  الرجاء التأكد من صحة اختيار الخدمات الإضافية.
             </div>
         @endif
-
 
         <div class="booking-card mb-4">
             <div class="card-header primary-header">
@@ -186,6 +197,7 @@
             <input type="hidden" name="time" id="booking_time_hidden_input" value="{{ $selectedTime }}">
             <input type="hidden" name="payment_option" id="payment_option_input" value="full">
 
+            {{-- ... (قسم اختيار منطقة التصوير) ... --}}
             <div class="booking-card mb-4">
                 <div class="card-header"> <h5 class="mb-0"> اختر منطقة التصوير <span class="text-danger">*</span> </h5> </div>
                 <div class="card-body">
@@ -213,6 +225,7 @@
                 </div>
             </div>
 
+            {{-- ... (قسم الخدمات الإضافية) ... --}}
             @if($addOnServices && $addOnServices->count() > 0)
             <div class="booking-card mb-4">
                 <div class="card-header"><h5 class="mb-0">خدمات إضافية (اختياري)</h5></div>
@@ -228,6 +241,7 @@
             </div>
             @endif
 
+            {{-- ... (قسم المعلومات الإضافية) ... --}}
             <div class="booking-card mb-4">
                 <div class="card-header"> <h5 class="mb-0">معلومات إضافية</h5> </div>
                 <div class="card-body">
@@ -273,7 +287,8 @@
                 </div>
             </div>
 
-            <div class="booking-card mb-4">
+            {{-- ... (قسم خيار الدفع وسياسة الحجز) ... --}}
+             <div class="booking-card mb-4">
                 <div class="card-header"> <h5 class="mb-0"> اختر خيار الدفع <span class="text-danger">*</span> </h5> </div>
                 <div class="card-body">
                     @error('payment_option') <div class="alert alert-danger py-2 small">{{ $message }}</div> @enderror
@@ -367,9 +382,7 @@
                                         </div>
                                         <div class="bank-item-detail">
                                             <span class="bank-item-detail-label">رقم الحساب:</span>
-                                            {{-- --- MODIFICATION START: Display account_number as is (LTR for Western numerals) --- --}}
                                             <span dir="ltr" class="d-inline-block user-select-all" style="text-align: left;">{{ $account->account_number ?? '-' }}</span>
-                                            {{-- --- MODIFICATION END --- --}}
                                         </div>
                                         <div class="bank-item-detail">
                                             <span class="bank-item-detail-label">رقم IBAN:</span>
@@ -400,10 +413,38 @@
         </form>
     </div>
 </div>
+
+{{-- --- MODIFICATION START: Bank Transfer Discount Modal --- --}}
+@if($isBankTransferEnabled && $enableBankTransferDiscountPopup && !empty($bankTransferDiscountCode))
+<div class="modal fade" id="bankTransferDiscountModal" tabindex="-1" aria-labelledby="bankTransferDiscountModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
+            <div class="modal-header bg-light border-0 align-items-center" style="border-top-left-radius: 15px; border-top-right-radius: 15px;">
+                <h5 class="modal-title w-100 text-center" id="bankTransferDiscountModalLabel">
+                    <i class="fas fa-tags text-success me-2"></i> فرصة خصم خاصة!
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center p-4">
+                <p class="lead mb-3">{!! nl2br(e($bankTransferPopupMessage)) !!}</p>
+                <p class="mb-3">رمز الخصم: <strong class="text-primary" dir="ltr">{{ $bankTransferDiscountCode }}</strong></p>
+                <button type="button" class="btn btn-success btn-lg w-100 btn-apply-discount-modal" id="applyBankDiscountBtn">
+                    <i class="fas fa-check-circle me-2"></i> نعم، قم بتطبيق الخصم!
+                </button>
+            </div>
+            <div class="modal-footer border-0 justify-content-center pt-0 pb-3">
+                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">لا شكراً، المتابعة بدون خصم</button>
+            </div>
+        </div>
+    </div>
+</div>
+@endif
+{{-- --- MODIFICATION END --- --}}
 @endsection
 
 @section('scripts')
 <script>
+    // ... (دالة toArabicDigitsJS وباقي متغيرات JavaScript كما هي) ...
     function toArabicDigitsJS(str) {
         if (str === null || str === undefined) return '';
         const western = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.'];
@@ -444,8 +485,16 @@
     const regionOptionItemsEl = document.querySelectorAll('.region-option-item');
     const outsideAhsaCityGroupEl = document.getElementById('outside_ahs_city_group');
     const outsideAhsaCitySelectEl = document.getElementById('outside_ahs_city');
-
     const addOnCheckboxes = document.querySelectorAll('.add-on-checkbox');
+
+    // --- MODIFICATION START: Variables and elements for Bank Transfer Discount Modal ---
+    const enableBankTransferDiscountPopupJS = {{ $enableBankTransferDiscountPopup ? 'true' : 'false' }};
+    const bankTransferDiscountCodeJS = "{{ $bankTransferDiscountCode ?? '' }}";
+    let bankTransferDiscountModalInstance = null;
+    const bankTransferDiscountModalEl = document.getElementById('bankTransferDiscountModal');
+    const applyBankDiscountBtn = document.getElementById('applyBankDiscountBtn');
+    let bankDiscountModalShownOnce = false; // لمنع ظهور المودال أكثر من مرة في نفس الجلسة
+    // --- MODIFICATION END ---
 
     function formatDisplayAmountJS(value) {
         const numValue = parseFloat(value);
@@ -509,31 +558,46 @@
             }
         }
         if(bankDetailsDivEl) bankDetailsDivEl.style.display = (methodValue === 'bank_transfer') ? 'block' : 'none';
+        
+        // --- MODIFICATION START: Show Bank Transfer Discount Modal ---
+        if (methodValue === 'bank_transfer' && enableBankTransferDiscountPopupJS && bankTransferDiscountCodeJS && bankTransferDiscountModalInstance && !bankDiscountModalShownOnce && !isDiscountAppliedJS) {
+            bankTransferDiscountModalInstance.show();
+            bankDiscountModalShownOnce = true; // لمنع ظهوره مرة أخرى في هذه الجلسة بعد الإغلاق
+        }
+        // --- MODIFICATION END ---
+        
         if (isDiscountAppliedJS && discountInputEl && discountInputEl.value.trim() !== '') {
-            // resetDiscountStateJS(); 
-            // if(discountResultDivEl) discountResultDivEl.innerHTML = '<span class="text-info">تم تغيير طريقة الدفع، قد تحتاج لإعادة التحقق من كود الخصم.</span>';
+            // Consider re-checking or resetting discount if payment method changes discount applicability
+            // For now, we keep it simple and don't auto-reset unless user changes discount code field
         }
     }
     
-    function resetDiscountStateJS() {
+    function resetDiscountStateJS(showDiscountAppliedMessage = false) { // إضافة معامل جديد
+        const wasDiscountApplied = isDiscountAppliedJS;
         isDiscountAppliedJS = false;
         priceAfterDiscountJS = baseServicePriceJS; 
         currentDiscountValueRawJS = 0;
         updateDisplayedPricesJS(); 
-        if(discountResultDivEl) discountResultDivEl.innerHTML = '';
+        if(discountResultDivEl && !showDiscountAppliedMessage) discountResultDivEl.innerHTML = ''; // لا تمسح إذا أردنا عرض رسالة "تم التطبيق"
         if(discountInputEl) {
             discountInputEl.classList.remove('is-invalid');
-            discountInputEl.readOnly = false;
+            if(!showDiscountAppliedMessage) { // لا تجعله قابل للكتابة إذا كان الخصم مطبق للتو
+                 discountInputEl.readOnly = false;
+            }
         }
         if(checkDiscountBtnEl) {
-            checkDiscountBtnEl.disabled = false;
-            checkDiscountBtnEl.innerHTML = 'التحقق';
+            if(!showDiscountAppliedMessage){ // لا تغير النص إذا كان الخصم مطبق للتو
+                checkDiscountBtnEl.disabled = false;
+                checkDiscountBtnEl.innerHTML = 'التحقق';
+            }
         }
+        if(wasDiscountApplied && !showDiscountAppliedMessage && discountInputEl) discountInputEl.value = ''; // مسح الكود إذا تم إعادة التعيين ولم يكن بسبب تطبيق خصم البنك
     }
     
-    function checkDiscountFunctionalityJS(code) {
+    function checkDiscountFunctionalityJS(code, fromModal = false) { // إضافة معامل fromModal
         if (!code) {
             if(discountResultDivEl) discountResultDivEl.innerHTML = '<span class="text-danger">الرجاء إدخال كود الخصم أولاً.</span>';
+            if (fromModal && bankTransferDiscountModalInstance) bankTransferDiscountModalInstance.hide();
             return;
         }
         if(discountResultDivEl) discountResultDivEl.innerHTML = `<div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">جاري التحقق...</span></div>`;
@@ -565,12 +629,20 @@
                 if(discountResultDivEl) discountResultDivEl.innerHTML = `<span class="text-success">${body.message}. تم خصم: ${formattedDiscountTaken} ${body.currency || 'ريال'}</span>`;
                 if(checkDiscountBtnEl) { checkDiscountBtnEl.innerHTML = 'تم تطبيق الخصم'; checkDiscountBtnEl.disabled = true; }
                 if(discountInputEl) discountInputEl.readOnly = true;
+
+                if (fromModal && bankTransferDiscountModalInstance) {
+                    bankTransferDiscountModalInstance.hide();
+                }
             } else {
                 resetDiscountStateJS(); 
                 const errorMessage = body.message || 'كود الخصم غير صالح أو حدث خطأ.';
                 if(discountResultDivEl) discountResultDivEl.innerHTML = `<span class="text-danger">${errorMessage}</span>`;
                 if (discountInputEl) discountInputEl.classList.add('is-invalid');
                 if(checkDiscountBtnEl) checkDiscountBtnEl.innerHTML = 'التحقق';
+                if (fromModal && bankTransferDiscountModalInstance) {
+                    // ربما لا تريد إخفاء المودال إذا فشل الكود من المودال مباشرة
+                    // bankTransferDiscountModalInstance.hide(); 
+                }
             }
         })
         .catch(error => {
@@ -578,6 +650,7 @@
             resetDiscountStateJS();
             if(discountResultDivEl) discountResultDivEl.innerHTML = '<span class="text-danger">حدث خطأ في الشبكة. يرجى المحاولة مرة أخرى.</span>';
             if(checkDiscountBtnEl) { checkDiscountBtnEl.disabled = false; checkDiscountBtnEl.innerHTML = 'التحقق';}
+            if (fromModal && bankTransferDiscountModalInstance) bankTransferDiscountModalInstance.hide();
         });
     }
     
@@ -609,10 +682,39 @@
     }
 
     document.addEventListener('DOMContentLoaded', function() {
+        // --- MODIFICATION START: Initialize Bank Transfer Discount Modal ---
+        if (bankTransferDiscountModalEl && typeof bootstrap !== 'undefined') {
+            bankTransferDiscountModalInstance = new bootstrap.Modal(bankTransferDiscountModalEl);
+        }
+        if (applyBankDiscountBtn && discountInputEl && bankTransferDiscountCodeJS) {
+            applyBankDiscountBtn.addEventListener('click', function() {
+                if (isDiscountAppliedJS && discountInputEl.value === bankTransferDiscountCodeJS) {
+                    // إذا كان نفس الكود مطبقًا بالفعل، فقط أغلق المودال
+                     if (bankTransferDiscountModalInstance) bankTransferDiscountModalInstance.hide();
+                    return;
+                }
+                resetDiscountStateJS(); // أعد تعيين أي خصم سابق
+                discountInputEl.value = bankTransferDiscountCodeJS;
+                // استدعاء دالة التحقق من الخصم، مع إشارة أنها من المودال
+                checkDiscountFunctionalityJS(bankTransferDiscountCodeJS, true);
+            });
+        }
+        // --- MODIFICATION END ---
+
         paymentOptionItemsEl.forEach(item => { item.addEventListener('click', function() { selectPaymentOptionJS(this.dataset.value); }); });
         paymentMethodItemsEl.forEach(item => { item.addEventListener('click', function() { selectPaymentMethodJS(this.dataset.value); }); });
         if (checkDiscountBtnEl && discountInputEl) { checkDiscountBtnEl.addEventListener('click', function() { checkDiscountFunctionalityJS(discountInputEl.value.trim()); }); }
-        if(discountInputEl) { discountInputEl.addEventListener('input', function() { if (isDiscountAppliedJS || discountInputEl.classList.contains('is-invalid')) { resetDiscountStateJS(); } }); }
+        if(discountInputEl) { 
+            discountInputEl.addEventListener('input', function() { 
+                if (isDiscountAppliedJS || discountInputEl.classList.contains('is-invalid')) { 
+                    // لا تعيد التعيين إذا كان الكود المدخل هو نفسه كود خصم البنك وكان مطبقًا
+                    if(isDiscountAppliedJS && discountInputEl.value === bankTransferDiscountCodeJS && bankTransferDiscountCodeJS !== ''){
+                        return;
+                    }
+                    resetDiscountStateJS(); 
+                } 
+            }); 
+        }
         
         regionOptionItemsEl.forEach(item => {
             item.addEventListener('click', function() {
@@ -655,7 +757,9 @@
             if ({{ $isTamaraEnabled ? 'true' : 'false' }}) { defaultInitialMethod = 'tamara'; } 
             else if ({{ $isBankTransferEnabled ? 'true' : 'false' }}) { defaultInitialMethod = 'bank_transfer'; }
         }
-        if (defaultInitialMethod) { selectPaymentMethodJS(defaultInitialMethod); } 
+        if (defaultInitialMethod) { 
+            selectPaymentMethodJS(defaultInitialMethod); // هذا سيقوم بإظهار المودال إذا كانت الشروط متحققة عند التحميل
+        } 
         else { if(submitBookingBtnEl && !{{ $isTamaraEnabled ? 'true' : 'false' }} && !{{ $isBankTransferEnabled ? 'true' : 'false' }}){ /* handle no payment methods available */ } }
         
         updateDisplayedPricesJS(); 
