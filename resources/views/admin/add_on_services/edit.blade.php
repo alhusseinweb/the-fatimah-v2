@@ -9,9 +9,9 @@
 
     <div class="card shadow-sm border-0">
         <div class="card-body">
-            <form action="{{ route('admin.add-on-services.update', $addOnService->id) }}" method="POST">
+            <form action="{{ route('admin.add_on_services.update', $addOnService->id) }}" method="POST">
                 @method('PUT')
-                @include('admin.add-on-services._form', ['addOnService' => $addOnService])
+                @include('admin.add_on_services._form', ['addOnService' => $addOnService])
             </form>
         </div>
     </div>
