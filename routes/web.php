@@ -147,7 +147,17 @@ Route::middleware(['auth', EnsureUserIsAdmin::class])
         Route::get('settings/sms', [SmsSettingController::class, 'edit'])->name('settings.sms.edit');
         Route::patch('settings/sms', [SmsSettingController::class, 'update'])->name('settings.sms.update');
         // --- MODIFICATION START: Add Routes for Add-on Services ---
-        Route::resource('add-on-services', \App\Http\Controllers\Admin\AddOnServiceController::class)->except(['show']);       
+     Route::resource('add-on-services', \App\Http\Controllers\Admin\AddOnServiceController::class, [
+    'except' => ['show'],
+    'names' => [
+        'index' => 'admin.add_on_services.index',
+        'create' => 'admin.add_on_services.create',
+        'store' => 'admin.add_on_services.store',
+        'edit' => 'admin.add_on_services.edit',
+        'update' => 'admin.add_on_services.update',
+        'destroy' => 'admin.add_on_services.destroy',
+    ]
+]);     
         // --- MODIFICATION END ---
         Route::post('data-management/delete-all-bookings', [DataManagementController::class, 'deleteAllBookingsAndRelatedData'])->name('data.delete_all_bookings');
 
