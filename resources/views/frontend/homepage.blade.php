@@ -276,7 +276,7 @@
             <div class="row justify-content-center">
                 <div class="col-md-4">
                     <div class="service-item">
-                        <img src="{{ asset('images/placeholder/service-1.jpg') }}" alt="تصوير الأعراس" class="img-fluid service-icon">
+                        <img src="{{ asset('images/placeholder/cr1.jpg') }}" alt="تصوير الأعراس" class="img-fluid service-icon">
                         <h3>تصوير الأعراس</h3>
                         <p class="text-muted px-3">نوثق أسعد لحظاتكم بتفاصيل فنية تبقى ذكرى خالدة.</p>
                         <a href="{{ route('services.index') }}" class="btn btn-outline-primary mt-2">عرض التفاصيل والحجز</a>
@@ -284,7 +284,7 @@
                 </div>
                 <div class="col-md-4">
                     <div class="service-item">
-                        <img src="{{ asset('images/placeholder/service-2.jpg') }}" alt="تصوير المودلز" class="img-fluid service-icon">
+                        <img src="{{ asset('images/placeholder/cr2.jpg') }}" alt="تصوير المودلز" class="img-fluid service-icon">
                         <h3>تصوير المنتجات والمودلز</h3>
                         <p class="text-muted px-3">نبرز جمال منتجاتكم وجاذبية موديلاتكم بصور احترافية.</p>
                         <a href="{{ route('services.index') }}" class="btn btn-outline-primary mt-2">عرض التفاصيل والحجز</a>
@@ -292,7 +292,7 @@
                 </div>
                 <div class="col-md-4">
                     <div class="service-item">
-                        <img src="{{ asset('images/placeholder/service-3.jpg') }}" alt="تصوير الحفلات والمناسبات" class="img-fluid service-icon">
+                        <img src="{{ asset('images/placeholder/cr3.jpg') }}" alt="تصوير الحفلات والمناسبات" class="img-fluid service-icon">
                         <h3>تصوير الحفلات والمناسبات</h3>
                         <p class="text-muted px-3">نلتقط روعة مناسباتكم الخاصة بحرفية عالية لتوثيق كل لحظة.</p>
                         <a href="{{ route('services.index') }}" class="btn btn-outline-primary mt-2">عرض التفاصيل والحجز</a>
