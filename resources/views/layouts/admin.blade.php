@@ -70,6 +70,13 @@
                              <i class="fas fa-fw fa-camera-retro"></i> <span>الخدمات</span>
                          </a>
                      </li>
+                     {{-- --- MODIFICATION START: Add Link for Add-on Services --- --}}
+                     <li class="nav-item">
+                         <a class="nav-link {{ request()->routeIs('admin.add_on_services.*') ? 'active' : '' }}" href="{{ route('admin.add_on_services.index') }}">
+                             <i class="fas fa-fw fa-puzzle-piece"></i> <span>الخدمات الإضافية</span>
+                         </a>
+                     </li>
+                     {{-- --- MODIFICATION END --- --}}
                      <li class="nav-item">
                          <a class="nav-link {{ request()->routeIs('admin.discount-codes.*') ? 'active' : '' }}" href="{{ route('admin.discount-codes.index') }}">
                              <i class="fas fa-fw fa-percent"></i> <span>أكواد الخصم</span>
@@ -116,13 +123,11 @@
                              <span>قوالب الرسائل النصية</span>
                          </a>
                      </li>
-                     {{-- --- MODIFICATION START: Add SMS Settings Link --- --}}
                      <li class="nav-item">
                         <a class="nav-link {{ request()->routeIs('admin.settings.sms.edit') ? 'active' : '' }}" href="{{ route('admin.settings.sms.edit') }}">
                             <i class="fas fa-fw fa-comment-dots"></i> <span>إعدادات رسائل SMS</span>
                         </a>
                      </li>
-                     {{-- --- MODIFICATION END --- --}}
                      <li class="nav-item">
                          <a class="nav-link {{ request()->routeIs('admin.settings.edit') ? 'active' : '' }}" href="{{ route('admin.settings.edit') }}">
                              <i class="fas fa-fw fa-cogs"></i> <span>الإعدادات العامة</span>
