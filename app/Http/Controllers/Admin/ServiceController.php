@@ -6,8 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Service;
 use App\Models\ServiceCategory;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log; // تم استيراده بالفعل، جيد!
-use Illuminate\Validation\Rule;    // لاستخدام قواعد التحقق المتقدمة مثل unique
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class ServiceController extends Controller
 {
@@ -16,7 +16,9 @@ class ServiceController extends Controller
      */
     public function index()
     {
-        $services = Service::with('serviceCategory')->latest()->get();
+        // --- MODIFICATION START: Change relationship name ---
+        $services = Service::with('category')->latest()->get(); // تم تغيير 'serviceCategory' إلى 'category'
+        // --- MODIFICATION END ---
         return view('admin.services.index', compact('services'));
     }
 
@@ -40,14 +42,14 @@ class ServiceController extends Controller
                 'required',
                 'string',
                 'max:255',
-                Rule::unique('services', 'name_ar') // التأكد من أن الاسم العربي فريد
+                Rule::unique('services', 'name_ar')
             ],
-            'name_en' => [ // <-- تم التعديل هنا
+            'name_en' => [
                 'nullable',
                 'string',
                 'max:255',
                 Rule::unique('services', 'name_en')->where(function ($query) use ($request) {
-                    return $request->name_en !== null && $request->name_en !== ''; // فريد فقط إذا تم إدخاله وليس فارغًا
+                    return $request->name_en !== null && $request->name_en !== '';
                 })
             ],
             'description_ar' => 'nullable|string',
@@ -56,13 +58,12 @@ class ServiceController extends Controller
             'price_sar' => 'required|numeric|min:0',
             'included_items_ar' => 'nullable|string',
             'included_items_en' => 'nullable|string',
-            'is_active' => 'nullable|boolean', // سيتعامل معه $request->has('is_active') لاحقًا
+            'is_active' => 'nullable|boolean',
         ],[
             'service_category_id.required' => 'الرجاء اختيار فئة الخدمة.',
             'service_category_id.exists' => 'الفئة المختارة غير صالحة.',
             'name_ar.required' => 'حقل الاسم بالعربية مطلوب.',
             'name_ar.unique'   => 'اسم الخدمة بالعربية مُستخدم بالفعل.',
-            // 'name_en.required' => 'حقل الاسم بالإنجليزية مطلوب.', // <-- تم حذف هذه الرسالة
             'name_en.unique'   => 'اسم الخدمة بالإنجليزية مُستخدم بالفعل.',
             'duration_hours.required' => 'حقل مدة الخدمة مطلوب.',
             'duration_hours.integer' => 'مدة الخدمة يجب أن تكون رقماً صحيحاً.',
@@ -72,7 +73,6 @@ class ServiceController extends Controller
             'price_sar.min' => 'السعر لا يمكن أن يكون سالباً.',
         ]);
 
-        // التعامل مع القيم الاختيارية الفارغة وحقل is_active
         $validatedData['name_en'] = $validatedData['name_en'] ?? null;
         $validatedData['description_ar'] = $validatedData['description_ar'] ?? null;
         $validatedData['description_en'] = $validatedData['description_en'] ?? null;
@@ -93,6 +93,8 @@ class ServiceController extends Controller
     {
         // $service يتم جلبها تلقائياً بفضل Route Model Binding
         // يمكن استخدامه لعرض صفحة تفاصيل للخدمة إذا لزم الأمر
+        // For now, redirect to edit or index if show is not implemented.
+        return redirect()->route('admin.services.edit', $service);
     }
 
     /**
@@ -100,8 +102,6 @@ class ServiceController extends Controller
      */
     public function edit(Service $service)
     {
-        // $service يتم جلبها تلقائياً
-        // نحتاج أيضاً لجلب الفئات لعرضها في قائمة منسدلة
         $categories = ServiceCategory::orderBy('name_ar')->get();
         return view('admin.services.edit', compact('service', 'categories'));
     }
@@ -111,23 +111,20 @@ class ServiceController extends Controller
      */
     public function update(Request $request, Service $service)
     {
-        // $service يتم جلبها تلقائياً
-
-        // 1. التحقق من صحة البيانات المدخلة
         $validatedData = $request->validate([
             'service_category_id' => 'required|exists:service_categories,id',
             'name_ar' => [
                 'required',
                 'string',
                 'max:255',
-                Rule::unique('services', 'name_ar')->ignore($service->id) // تجاهل السجل الحالي عند التحقق من التفرد
+                Rule::unique('services', 'name_ar')->ignore($service->id)
             ],
-            'name_en' => [ // <-- تم التعديل هنا
+            'name_en' => [
                 'nullable',
                 'string',
                 'max:255',
                 Rule::unique('services', 'name_en')->ignore($service->id)->where(function ($query) use ($request) {
-                    return $request->name_en !== null && $request->name_en !== ''; // فريد فقط إذا تم إدخاله وليس فارغًا
+                    return $request->name_en !== null && $request->name_en !== '';
                 })
             ],
             'description_ar' => 'nullable|string',
@@ -136,13 +133,12 @@ class ServiceController extends Controller
             'price_sar' => 'required|numeric|min:0',
             'included_items_ar' => 'nullable|string',
             'included_items_en' => 'nullable|string',
-            'is_active' => 'nullable|boolean', // سيتعامل معه $request->has('is_active') لاحقًا
+            'is_active' => 'nullable|boolean',
         ],[
             'service_category_id.required' => 'الرجاء اختيار فئة الخدمة.',
             'service_category_id.exists'   => 'الفئة المختارة غير صالحة.',
             'name_ar.required' => 'حقل اسم الخدمة بالعربية مطلوب.',
             'name_ar.unique'   => 'اسم الخدمة بالعربية مُستخدم بالفعل.',
-            // 'name_en.required' => 'حقل الاسم بالإنجليزية مطلوب.', // <-- تم حذف هذه الرسالة
             'name_en.unique'   => 'اسم الخدمة بالإنجليزية مُستخدم بالفعل.',
             'duration_hours.required' => 'حقل مدة الخدمة مطلوب.',
             'duration_hours.integer' => 'مدة الخدمة يجب أن تكون رقماً صحيحاً.',
@@ -152,7 +148,6 @@ class ServiceController extends Controller
             'price_sar.min' => 'السعر لا يمكن أن يكون سالباً.',
         ]);
 
-        // التعامل مع القيم الاختيارية الفارغة وحقل is_active
         $validatedData['name_en'] = $validatedData['name_en'] ?? null;
         $validatedData['description_ar'] = $validatedData['description_ar'] ?? null;
         $validatedData['description_en'] = $validatedData['description_en'] ?? null;
@@ -160,10 +155,8 @@ class ServiceController extends Controller
         $validatedData['included_items_en'] = $validatedData['included_items_en'] ?? null;
         $validatedData['is_active'] = $request->has('is_active');
 
-        // 3. تحديث بيانات الخدمة
         $service->update($validatedData);
 
-        // 4. إعادة التوجيه مع رسالة نجاح
         return redirect()->route('admin.services.index')
                          ->with('success', 'تم تحديث الخدمة بنجاح.');
     }
@@ -173,8 +166,12 @@ class ServiceController extends Controller
      */
     public function destroy(Service $service)
     {
-        // $service يتم جلبها تلقائياً
         try {
+            // يمكنك إضافة تحقق هنا إذا كانت الخدمة مرتبطة بحجوزات نشطة قبل الحذف
+            if ($service->bookings()->whereNotIn('status', [Booking::STATUS_COMPLETED, Booking::STATUS_CANCELLED_BY_ADMIN, Booking::STATUS_CANCELLED_BY_USER])->exists()) {
+                return redirect()->route('admin.services.index')
+                                 ->with('error', 'لا يمكن حذف الخدمة لأنها مرتبطة بحجوزات قائمة. يرجى إلغاء أو إكمال الحجوزات أولاً.');
+            }
             $service->delete();
             return redirect()->route('admin.services.index')
                              ->with('success', 'تم حذف الخدمة بنجاح.');
