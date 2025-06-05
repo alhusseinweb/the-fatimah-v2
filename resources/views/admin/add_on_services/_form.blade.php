@@ -30,6 +30,48 @@
     @error('description_en') <div class="invalid-feedback">{{ $message }}</div> @enderror
 </div>
 
+{{-- --- MODIFICATION START: Add Main Services Selection --- --}}
+@php
+    // افترض أنك ستقوم بتمرير $mainServices من المتحكم
+    // $mainServices = \App\Models\Service::where('is_active', true)->orderBy('name_ar')->get();
+    // من الأفضل تمريرها من المتحكم لتجنب الاستعلامات في الـ view
+
+    $selectedMainServices = collect(); // مجموعة فارغة بشكل افتراضي
+    if (isset($addOnService) && $addOnService->relationLoaded('applicableServices')) {
+        $selectedMainServices = $addOnService->applicableServices->pluck('id');
+    } elseif (old('main_services')) {
+        $selectedMainServices = collect(old('main_services'));
+    } elseif (isset($addOnService)) {
+        // إذا لم تكن العلاقة محملة، قم بتحميلها عند الحاجة (للتعديل)
+        $selectedMainServices = $addOnService->applicableServices()->pluck('services.id'); // services.id لتجنب الغموض
+    }
+@endphp
+
+@if(isset($mainServices) && $mainServices->count() > 0)
+<div class="mb-3">
+    <label class="form-label fw-bold">الخدمات الرئيسية التي تظهر معها هذه الخدمة الإضافية:</label>
+    <div class="row">
+        @foreach($mainServices as $mainService)
+            <div class="col-md-4">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="main_services[]" value="{{ $mainService->id }}" id="main_service_{{ $mainService->id }}"
+                           {{ $selectedMainServices->contains($mainService->id) ? 'checked' : '' }}>
+                    <label class="form-check-label" for="main_service_{{ $mainService->id }}">
+                        {{ $mainService->name_ar }}
+                    </label>
+                </div>
+            </div>
+        @endforeach
+    </div>
+    @error('main_services') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
+    @error('main_services.*') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
+</div>
+@else
+<div class="alert alert-info small">لا توجد خدمات رئيسية متاحة حالياً لربطها. يرجى إضافة خدمات رئيسية أولاً.</div>
+@endif
+{{-- --- MODIFICATION END --- --}}
+
+
 <div class="form-check form-switch mb-3">
     <input class="form-check-input" type="checkbox" role="switch" id="is_active" name="is_active" value="1" {{ old('is_active', $addOnService->is_active ?? true) ? 'checked' : '' }}>
     <label class="form-check-label" for="is_active">فعالة (ستظهر للعميل)</label>
