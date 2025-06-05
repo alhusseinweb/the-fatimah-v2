@@ -249,7 +249,6 @@
             </div>
 
             <div class="tab-pane fade" id="payment-settings" role="tabpanel" aria-labelledby="payment-settings-tab">
-                {{-- Payment Settings Content --}}
                 <div class="card shadow-sm mb-4">
                     <div class="card-header">
                         <h5><i class="fas fa-money-check-alt"></i> خيارات الدفع العامة</h5>
@@ -266,6 +265,44 @@
                         </div>
                     </div>
                 </div>
+
+                {{-- --- MODIFICATION START: Bank Transfer Discount Popup Settings --- --}}
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-piggy-bank me-1"></i> إعدادات نافذة خصم التحويل البنكي</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="enable_bank_transfer_discount_popup" name="enable_bank_transfer_discount_popup" value="1" {{ old('enable_bank_transfer_discount_popup', $settings['enable_bank_transfer_discount_popup'] ?? '0') == '1' ? 'checked' : '' }}>
+                                <label class="form-check-label" for="enable_bank_transfer_discount_popup">تفعيل ظهور نافذة خصم التحويل البنكي للعميل</label>
+                            </div>
+                            <small class="form-text text-muted">إذا تم تفعيل هذا الخيار، ستظهر نافذة منبثقة للعميل عند اختيار التحويل البنكي إذا كانت الرسالة وكود الخصم مُدخلين أدناه.</small>
+                            @error('enable_bank_transfer_discount_popup') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="bank_transfer_discount_code" class="form-label">كود الخصم الخاص بالتحويل البنكي</label>
+                            <input type="text" class="form-control @error('bank_transfer_discount_code') is-invalid @enderror" id="bank_transfer_discount_code" name="bank_transfer_discount_code" value="{{ old('bank_transfer_discount_code', $settings['bank_transfer_discount_code'] ?? '') }}" placeholder="مثال: BANKD15">
+                            <small class="form-text text-muted">أدخل كود الخصم الذي سيتم تطبيقه تلقائيًا. تأكد أن هذا الكود مُعرَّف وصالح في قسم "أكواد الخصم" وأن شروطه (مثل طريقة الدفع) تتوافق مع "تحويل بنكي".</small>
+                            @error('bank_transfer_discount_code') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="bank_transfer_discount_popup_message_ar" class="form-label">رسالة نافذة خصم التحويل البنكي (عربي)</label>
+                            <textarea class="form-control @error('bank_transfer_discount_popup_message_ar') is-invalid @enderror" id="bank_transfer_discount_popup_message_ar" name="bank_transfer_discount_popup_message_ar" rows="3">{{ old('bank_transfer_discount_popup_message_ar', $settings['bank_transfer_discount_popup_message_ar'] ?? 'لا تفوت الفرصة! استخدم كود الخصم الخاص بالتحويل البنكي.') }}</textarea>
+                            <small class="form-text text-muted">هذه الرسالة ستظهر للعميل في النافذة المنبثقة.</small>
+                            @error('bank_transfer_discount_popup_message_ar') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="bank_transfer_discount_popup_message_en" class="form-label">رسالة نافذة خصم التحويل البنكي (إنجليزي - اختياري)</label>
+                            <textarea class="form-control @error('bank_transfer_discount_popup_message_en') is-invalid @enderror" id="bank_transfer_discount_popup_message_en" name="bank_transfer_discount_popup_message_en" rows="3">{{ old('bank_transfer_discount_popup_message_en', $settings['bank_transfer_discount_popup_message_en'] ?? '') }}</textarea>
+                            @error('bank_transfer_discount_popup_message_en') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                        </div>
+                    </div>
+                </div>
+                {{-- --- MODIFICATION END --- --}}
 
                 <div class="card shadow-sm mb-4">
                     <div class="card-header">
@@ -311,7 +348,6 @@
             </div>
 
             <div class="tab-pane fade" id="data-management" role="tabpanel" aria-labelledby="data-management-tab">
-                {{-- Data Management Content --}}
                  <div class="card shadow-sm mb-4 border-danger">
                     <div class="card-header bg-danger text-white">
                         <h5 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>منطقة الخطر</h5>
@@ -360,7 +396,7 @@
                 deletedSliderImagesArray.push(imagePath);
             }
             if(deletedSliderImagesInput) {
-                deletedSliderImagesInput.name = 'deleted_slider_images_json';
+                deletedSliderImagesInput.name = 'deleted_slider_images_json'; // تأكد أن هذا الحقل مُرسل
                 deletedSliderImagesInput.value = JSON.stringify(deletedSliderImagesArray);
             }
         }
