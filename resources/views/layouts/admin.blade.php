@@ -72,7 +72,7 @@
                      </li>
                      {{-- --- MODIFICATION START: Add Link for Add-on Services --- --}}
                      <li class="nav-item">
-                         <a class="nav-link {{ request()->routeIs('admin.add_on_services.*') ? 'active' : '' }}" href="{{ route('admin.add-on-services.index') }}">
+                         <a class="nav-link {{ request()->routeIs('admin.add_on_services.*') ? 'active' : '' }}" href="{{ route('admin.add_on_services.index') }}">
                              <i class="fas fa-fw fa-puzzle-piece"></i> <span>الخدمات الإضافية</span>
                          </a>
                      </li>
