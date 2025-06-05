@@ -7,6 +7,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany; // --- MODIFICATION START: Import BelongsToMany ---
+
+// --- MODIFICATION END ---
 
 class Booking extends Model
 {
@@ -28,10 +31,10 @@ class Booking extends Model
         'status',
         'cancellation_reason', // [cite: 23]
         'event_location',
-        'groom_name_ar', // [cite: 31]
-        'groom_name_en', // [cite: 31]
-        'bride_name_ar', // [cite: 31]
-        'bride_name_en', // [cite: 31]
+        'groom_name_ar',
+        'groom_name_en',
+        'bride_name_ar',
+        'bride_name_en',
         'customer_notes',
         'agreed_to_policy',
         'invoice_id',
@@ -41,6 +44,7 @@ class Booking extends Model
         'shooting_area',
         'outside_location_city',
         'outside_location_fee_applied',
+        // لا نضيف حقول الخدمات الإضافية هنا لأنها ستُدار عبر جدول وسيط
     ];
 
     protected $casts = [
@@ -73,7 +77,36 @@ class Booking extends Model
         return $this->hasOne(Invoice::class, 'booking_id', 'id');
     }
 
-    public static function getStatusesWithOptions(): array // [cite: 15]
+    // --- MODIFICATION START: Add relationship and accessor for Add-on Services ---
+    /**
+     * The add-on services that belong to the booking.
+     */
+    public function addOnServices(): BelongsToMany
+    {
+        return $this->belongsToMany(AddOnService::class, 'booking_add_on_service')
+                    ->withPivot('price_at_booking');
+                    // ->withTimestamps(); // قم بإلغاء التعليق إذا أضفت timestamps لجدول الربط booking_add_on_service
+    }
+
+    /**
+     * Accessor to get the total price of all add-on services for this booking.
+     *
+     * @return float
+     */
+    public function getTotalAddOnServicesPriceAttribute(): float
+    {
+        if (!$this->relationLoaded('addOnServices')) {
+            $this->load('addOnServices');
+        }
+
+        return $this->addOnServices->sum(function ($addOnService) {
+            // نستخدم السعر المسجل وقت الحجز من جدول الربط
+            return (float) $addOnService->pivot->price_at_booking;
+        });
+    }
+    // --- MODIFICATION END ---
+
+    public static function getStatusesWithOptions(): array
     {
         return [
             self::STATUS_PENDING => 'قيد الانتظار/الدفع',
@@ -87,7 +120,7 @@ class Booking extends Model
         ];
     }
 
-    public static function getCancellationStatusesRequiringReason(): array // [cite: 23]
+    public static function getCancellationStatusesRequiringReason(): array
     {
         return [
             self::STATUS_CANCELLED_BY_ADMIN,
