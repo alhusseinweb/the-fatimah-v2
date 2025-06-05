@@ -421,7 +421,7 @@
         <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
             <div class="modal-header bg-light border-0 align-items-center" style="border-top-left-radius: 15px; border-top-right-radius: 15px;">
                 <h5 class="modal-title w-100 text-center" id="bankTransferDiscountModalLabel">
-                    <i class="fas fa-tags text-success me-2"></i> فرصة خصم خاصة!
+                     فرصة خصم خاصة!
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -429,7 +429,7 @@
                 <p class="lead mb-3">{!! nl2br(e($bankTransferPopupMessage)) !!}</p>
                 <p class="mb-3">رمز الخصم: <strong class="text-primary" dir="ltr">{{ $bankTransferDiscountCode }}</strong></p>
                 <button type="button" class="btn btn-success btn-lg w-100 btn-apply-discount-modal" id="applyBankDiscountBtn">
-                    <i class="fas fa-check-circle me-2"></i> نعم، قم بتطبيق الخصم!
+                     نعم، قم بتطبيق الخصم!
                 </button>
             </div>
             <div class="modal-footer border-0 justify-content-center pt-0 pb-3">
