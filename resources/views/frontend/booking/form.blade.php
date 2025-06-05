@@ -5,19 +5,14 @@
     $bankAccounts = $bankAccounts ?? collect();
 
     // --- START: FETCH OUTSIDE AHSA FEE FROM SETTINGS ---
-    // افترض أن $settingsHomepage تم جلبها بالفعل أو يمكنك جلبها هنا
-    // إذا لم تكن $settingsHomepage متاحة، قم بجلب الإعداد المطلوب مباشرة
     if (!isset($settingsHomepage)) {
-        // هذا السطر سيتم تشغيله إذا لم يتم تمرير $settingsHomepage من المتحكم
-        // من الأفضل دائمًا تمرير الإعدادات من المتحكم لتجنب استعلامات قاعدة البيانات في العرض
         $settingsHomepage = \App\Models\Setting::pluck('value', 'key')->all();
     }
-    $outsideAhsaFeeFromSettings = (float)($settingsHomepage['outside_ahsa_fee'] ?? 300.00); // قيمة افتراضية إذا لم يوجد الإعداد
+    $outsideAhsaFeeFromSettings = (float)($settingsHomepage['outside_ahsa_fee'] ?? 300.00);
     // --- END: FETCH OUTSIDE AHSA FEE FROM SETTINGS ---
 
-    $baseServicePrice = $service->price_sar ?? 0; // السعر الأساسي للخدمة
+    $baseServicePrice = $service->price_sar ?? 0;
 
-    // المدن المتاحة لخارج الأحساء
     $outsideAhsaCities = [
         'الخبر' => 'الخبر',
         'الظهران' => 'الظهران',
@@ -25,6 +20,10 @@
         'سيهات' => 'سيهات',
         'القطيف' => 'القطيف',
     ];
+
+    // --- MODIFICATION START: Define $addOnServices if not passed (for safety, better to pass from controller) ---
+    $addOnServices = $addOnServices ?? collect(); // افترض أنه سيتم تمريره من المتحكم
+    // --- MODIFICATION END ---
 
     $downPaymentAmountBasedOnService = round($baseServicePrice / 2, 2);
 
@@ -34,7 +33,7 @@
             $roundedToTwoDecimals = floor($value * 100) / 100;
             $hasSignificantFraction = (($roundedToTwoDecimals - floor($roundedToTwoDecimals)) > 0.001);
             $formattedNumber = number_format($roundedToTwoDecimals, $hasSignificantFraction ? 2 : 0, '.', '');
-            if (function_exists('toArabicDigits')) { // افترض وجود دالة toArabicDigits عامة
+            if (function_exists('toArabicDigits')) {
                 return toArabicDigits($formattedNumber);
             }
             return $formattedNumber;
@@ -125,6 +124,15 @@
     #discount_result .text-danger { color: #dc3545 !important; font-weight: 500; }
     #discount_result .spinner-border-sm { width: 1rem; height: 1rem; border-width: .2em; }
     #outside_ahs_city_group { display: none; margin-top: 15px; }
+    /* --- MODIFICATION START: Styles for Add-on Services --- */
+    .add-on-services-list { margin-top: 0; }
+    .add-on-service-item { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px dashed #eee; }
+    .add-on-service-item:last-child { border-bottom: none; }
+    .add-on-service-item .form-check-input { margin-left: 10px; margin-top: 0; }
+    html[dir="ltr"] .add-on-service-item .form-check-input { margin-left: 0; margin-right: 10px;}
+    .add-on-service-item label { font-weight: 500; cursor: pointer; flex-grow: 1; margin-bottom: 0; }
+    .add-on-service-price { font-weight: 600; color: #495057; margin-right: auto; white-space: nowrap; }
+    /* --- MODIFICATION END --- */
 </style>
 @endsection
 
@@ -150,6 +158,14 @@
                 </ul>
             </div>
         @endif
+        {{-- --- MODIFICATION START: Error display for add-on services --- --}}
+        @if ($errors->has('add_on_services') || $errors->has('add_on_services.*'))
+            <div class="alert alert-danger">
+                 الرجاء التأكد من صحة اختيار الخدمات الإضافية.
+            </div>
+        @endif
+        {{-- --- MODIFICATION END --- --}}
+
 
         <div class="booking-card mb-4">
             <div class="card-header primary-header">
@@ -203,10 +219,27 @@
                 </div>
             </div>
 
+            {{-- --- MODIFICATION START: Add-on Services Section --- --}}
+            @if($addOnServices && $addOnServices->count() > 0)
+            <div class="booking-card mb-4">
+                <div class="card-header"><h5 class="mb-0">خدمات إضافية (اختياري)</h5></div>
+                <div class="card-body add-on-services-list">
+                    @foreach($addOnServices as $addOn)
+                    <div class="add-on-service-item">
+                        <input class="form-check-input add-on-checkbox" type="checkbox" name="add_on_services[]" value="{{ $addOn->id }}" id="add_on_{{ $addOn->id }}" data-price="{{ $addOn->price }}" {{ is_array(old('add_on_services')) && in_array($addOn->id, old('add_on_services')) ? 'checked' : '' }}>
+                        <label for="add_on_{{ $addOn->id }}">{{ $addOn->getLocalizedNameAttribute() }}</label>
+                        <span class="add-on-service-price me-auto">{{ formatAmountConditionallyBookingForm($addOn->price) }} ريال</span>
+                    </div>
+                    @endforeach
+                </div>
+            </div>
+            @endif
+            {{-- --- MODIFICATION END --- --}}
+
             <div class="booking-card mb-4">
                 <div class="card-header"> <h5 class="mb-0">معلومات إضافية</h5> </div>
                 <div class="card-body">
-                    @if ($errors->any() && !$errors->has('payment_method') && !$errors->has('payment_option') && !$errors->has('discount_code') && !$errors->has('agreed_to_policy') && !$errors->has('shooting_area_option') && !$errors->has('outside_ahs_city'))
+                    @if ($errors->any() && !$errors->has('payment_method') && !$errors->has('payment_option') && !$errors->has('discount_code') && !$errors->has('agreed_to_policy') && !$errors->has('shooting_area_option') && !$errors->has('outside_ahs_city') && !$errors->has('add_on_services') && !$errors->has('add_on_services.*'))
                         <div class="alert alert-danger"><ul class="mb-0">@foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>
                     @endif
                     <div class="row">
@@ -394,6 +427,9 @@
     let currentDiscountValueRawJS = 0;
     let currentShootingAreaFeeJS = 0; 
     let isDiscountAppliedJS = false;
+    // --- MODIFICATION START: Variable for total add-on price ---
+    let totalAddOnServicesPriceJS = 0;
+    // --- MODIFICATION END ---
 
     const totalAmountDisplayEl = document.getElementById('total_amount_display');
     const amountToPayDisplayEl = document.getElementById('amount_to_pay_display');
@@ -417,6 +453,10 @@
     const outsideAhsaCityGroupEl = document.getElementById('outside_ahs_city_group');
     const outsideAhsaCitySelectEl = document.getElementById('outside_ahs_city');
 
+    // --- MODIFICATION START: Get add-on checkboxes ---
+    const addOnCheckboxes = document.querySelectorAll('.add-on-checkbox');
+    // --- MODIFICATION END ---
+
     function formatDisplayAmountJS(value) {
         const numValue = parseFloat(value);
         const roundedToTwoDecimals = Math.round(numValue * 100) / 100;
@@ -425,7 +465,9 @@
     }
 
     function calculateFinalTotalJS() {
-        return priceAfterDiscountJS + currentShootingAreaFeeJS;
+        // --- MODIFICATION START: Include add-on services price in total ---
+        return priceAfterDiscountJS + currentShootingAreaFeeJS + totalAddOnServicesPriceJS;
+        // --- MODIFICATION END ---
     }
 
     function updateDisplayedPricesJS() {
@@ -459,7 +501,7 @@
     function selectPaymentMethodJS(methodValue) {
         let methodFoundAndSelected = false;
         paymentMethodItemsEl.forEach(item => {
-            const radio = item.querySelector('input[name="payment_method"]'); // Select by name
+            const radio = item.querySelector('input[name="payment_method"]');
             if (item.dataset.value === methodValue) {
                 item.classList.add('selected');
                 if (radio) radio.checked = true;
@@ -480,15 +522,18 @@
         }
         if(bankDetailsDivEl) bankDetailsDivEl.style.display = (methodValue === 'bank_transfer') ? 'block' : 'none';
         if (isDiscountAppliedJS && discountInputEl && discountInputEl.value.trim() !== '') {
-            // Consider re-checking or resetting discount
-            // resetDiscountStateJS();
+            // resetDiscountStateJS(); // Consider re-checking or resetting discount
             // if(discountResultDivEl) discountResultDivEl.innerHTML = '<span class="text-info">تم تغيير طريقة الدفع، قد تحتاج لإعادة التحقق من كود الخصم.</span>';
         }
     }
     
     function resetDiscountStateJS() {
         isDiscountAppliedJS = false;
+        // --- MODIFICATION START: When resetting discount, price after discount should be base service price ---
+        // priceAfterDiscountJS should be baseServicePriceJS when no discount is applied.
+        // The add-ons and area fees are separate.
         priceAfterDiscountJS = baseServicePriceJS; 
+        // --- MODIFICATION END ---
         currentDiscountValueRawJS = 0;
         updateDisplayedPricesJS(); 
         if(discountResultDivEl) discountResultDivEl.innerHTML = '';
@@ -513,11 +558,26 @@
 
         const selectedPaymentMethodValue = document.querySelector('input[name="payment_method"]:checked')?.value || null;
 
+        // --- MODIFICATION START: Discount should apply to base service price only initially ---
+        // The actual price the discount is applied to on the server might be more complex (e.g., service + add-ons)
+        // For client-side display, we usually show discount on base or current total before this discount.
+        // Let's assume for now discount applies to service_price on server, which means 'baseServicePriceJS' here
+        // when checking the discount for the first time.
+        // For simplicity in JS, we'll let the server decide the final `new_price_raw` based on its logic.
+        // The JS part `priceAfterDiscountJS` will store the price of the service *after* this discount,
+        // before adding add-ons or area fees.
+        // --- MODIFICATION END ---
+
         const payload = {
             discount_code: code,
             service_id: serviceIdForDiscountJS,
             booking_time: bookingTimeForDiscountJS, 
-            selected_payment_method: selectedPaymentMethodValue
+            selected_payment_method: selectedPaymentMethodValue,
+            // --- MODIFICATION START: Send current total of service + add-ons if discount applies to that ---
+            // For now, the server-side `DiscountController` will likely only consider the service price.
+            // If it needs to consider add-ons, the API and server logic need to be updated.
+            // current_total_for_discount: baseServicePriceJS + totalAddOnServicesPriceJS // Example if needed
+            // --- MODIFICATION END ---
         };
 
         fetch('{{ route("api.discount.check") }}', {
@@ -531,7 +591,9 @@
             if (status >= 200 && status < 300 && body.valid) {
                 isDiscountAppliedJS = true;
                 currentDiscountValueRawJS = parseFloat(body.discount_value_raw || 0);
+                // --- MODIFICATION START: The new_price_raw from server is the service price AFTER discount ---
                 priceAfterDiscountJS = parseFloat(body.new_price_raw || baseServicePriceJS); 
+                // --- MODIFICATION END ---
                 updateDisplayedPricesJS();
                 const formattedDiscountTaken = formatDisplayAmountJS(currentDiscountValueRawJS);
                 if(discountResultDivEl) discountResultDivEl.innerHTML = `<span class="text-success">${body.message}. تم خصم: ${formattedDiscountTaken} ${body.currency || 'ريال'}</span>`;
@@ -570,6 +632,27 @@
         updateDisplayedPricesJS();
     }
 
+    // --- MODIFICATION START: Function to update total based on add-on services ---
+    function handleAddOnServiceChangeJS() {
+        totalAddOnServicesPriceJS = 0;
+        addOnCheckboxes.forEach(checkbox => {
+            if (checkbox.checked) {
+                totalAddOnServicesPriceJS += parseFloat(checkbox.dataset.price || 0);
+            }
+        });
+        // If a discount is applied, its effective value might change if it's percentage-based
+        // and applies to service+addons. For now, we assume discount applies to base service price
+        // and then add-ons are added. If discount controller re-evaluates, this might not be needed here.
+        // Simpler approach: reset discount if add-ons change, requiring re-check.
+        if (isDiscountAppliedJS && discountInputEl && discountInputEl.value.trim() !== '') {
+            // console.warn("Add-on changed, discount might need re-evaluation. Resetting discount for now.");
+            // resetDiscountStateJS(); 
+            // if(discountResultDivEl) discountResultDivEl.innerHTML = '<span class="text-info">تم تغيير الخدمات الإضافية، قد تحتاج لإعادة التحقق من كود الخصم إذا كان ينطبق عليها.</span>';
+        }
+        updateDisplayedPricesJS();
+    }
+    // --- MODIFICATION END ---
+
     document.addEventListener('DOMContentLoaded', function() {
         paymentOptionItemsEl.forEach(item => { item.addEventListener('click', function() { selectPaymentOptionJS(this.dataset.value); }); });
         paymentMethodItemsEl.forEach(item => { item.addEventListener('click', function() { selectPaymentMethodJS(this.dataset.value); }); });
@@ -584,19 +667,25 @@
             });
         });
         
+        // --- MODIFICATION START: Add event listeners for add-on checkboxes ---
+        addOnCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', handleAddOnServiceChangeJS);
+        });
+        // Initialize add-on prices on load
+        handleAddOnServiceChangeJS();
+        // --- MODIFICATION END ---
+        
         const initialRegionOption = document.querySelector('input[name="shooting_area_option"]:checked')?.value || 'inside_ahsa';
-        if (initialRegionOption === 'outside_ahsa') { // تأكد من تحديث الرسوم إذا كانت القيمة القديمة خارج الأحساء
+        if (initialRegionOption === 'outside_ahsa') { 
             currentShootingAreaFeeJS = outsideAhsaFeeConstJS;
             if(outsideAhsaCityGroupEl) outsideAhsaCityGroupEl.style.display = 'block';
             if(outsideAhsaCitySelectEl) outsideAhsaCitySelectEl.required = true;
         } else {
             currentShootingAreaFeeJS = 0;
         }
-        // تطبيق الحالة الأولية لعناصر الراديو للمنطقة
         regionOptionItemsEl.forEach(item => {
             item.classList.toggle('selected', item.dataset.value === initialRegionOption);
         });
-
 
         const initialPaymentOption = "{{ old('payment_option', 'full') }}";
         selectPaymentOptionJS(initialPaymentOption);
@@ -617,7 +706,7 @@
         if (defaultInitialMethod) { selectPaymentMethodJS(defaultInitialMethod); } 
         else { if(submitBookingBtnEl && !{{ $isTamaraEnabled ? 'true' : 'false' }} && !{{ $isBankTransferEnabled ? 'true' : 'false' }}){ /* handle no payment methods available */ } }
         
-        updateDisplayedPricesJS();
+        updateDisplayedPricesJS(); // Final call to ensure all prices are correct on load
     });
 </script>
 @endsection
