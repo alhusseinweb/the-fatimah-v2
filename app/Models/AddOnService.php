@@ -30,26 +30,25 @@ class AddOnService extends Model
     public function bookings(): BelongsToMany
     {
         return $this->belongsToMany(Booking::class, 'booking_add_on_service')
-                    ->withPivot('price_at_booking')
-                    ->withTimestamps(); // إذا أضفت timestamps لجدول الربط
+                    ->withPivot('price_at_booking');
+                    // ->withTimestamps(); // إذا أضفت timestamps لجدول الربط booking_add_on_service
     }
 
+    // --- MODIFICATION START: Add relationship to main Services ---
     /**
-     * Scope a query to only include active add-on services.
-     *
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @return \Illuminate\Database\Eloquent\Builder
+     * The main services that this add-on service can be applied to.
      */
+    public function applicableServices(): BelongsToMany
+    {
+        return $this->belongsToMany(Service::class, 'add_on_service_service', 'add_on_service_id', 'service_id');
+    }
+    // --- MODIFICATION END ---
+
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
     }
 
-    /**
-     * Get the name of the add-on service based on the current locale.
-     *
-     * @return string
-     */
     public function getLocalizedNameAttribute(): string
     {
         $locale = app()->getLocale();
@@ -59,11 +58,6 @@ class AddOnService extends Model
         return $this->name_ar;
     }
 
-    /**
-     * Get the description of the add-on service based on the current locale.
-     *
-     * @return string|null
-     */
     public function getLocalizedDescriptionAttribute(): ?string
     {
         $locale = app()->getLocale();
