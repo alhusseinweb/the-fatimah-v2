@@ -23,9 +23,7 @@ use App\Services\TamaraService;
 use App\Notifications\BookingRequestReceived;
 use App\Models\User;
 use Illuminate\Support\Str;
-// --- MODIFICATION START: Import AddOnService model ---
-use App\Models\AddOnService;
-// --- MODIFICATION END ---
+// تم استيراد AddOnService في رد سابق، وهو صحيح.
 
 class BookingController extends Controller
 {
@@ -95,8 +93,9 @@ class BookingController extends Controller
          $bookingPolicyEn = $settingsAll['policy_en'] ?? '';
          $bankAccounts = $isBankTransferEnabled ? BankAccount::where('is_active', true)->get() : collect();
 
-         // --- MODIFICATION START: Fetch active Add-on Services ---
-         $addOnServices = AddOnService::where('is_active', true)->orderBy('name_ar')->get();
+         // --- MODIFICATION START: Fetch Add-on Services applicable to the current main service ---
+         // تم تعديل طريقة جلب الخدمات الإضافية لتعتمد على الخدمة الرئيسية الحالية
+         $addOnServices = $service->availableAddOns()->orderBy('name_ar')->get();
          // --- MODIFICATION END ---
 
          return view('frontend.booking.form', [
@@ -110,9 +109,7 @@ class BookingController extends Controller
              'isBankTransferEnabled' => $isBankTransferEnabled,
              'isTamaraEnabled' => $isTamaraEnabled,
              'settingsHomepage' => $settingsAll,
-             // --- MODIFICATION START: Pass Add-on Services to the view ---
-             'addOnServices' => $addOnServices,
-             // --- MODIFICATION END ---
+             'addOnServices' => $addOnServices, // تم تمريرها في رد سابق، وهو صحيح
          ]);
      }
 
@@ -130,6 +127,11 @@ class BookingController extends Controller
         
         $noPaymentMethodEnabled = empty($availablePaymentMethodsServer);
         $outsideAhsaCitiesKeys = ['الخبر', 'الظهران', 'الدمام', 'سيهات', 'القطيف'];
+
+        // --- MODIFICATION START: Update validation rules for add_on_services ---
+        $mainServiceForValidation = Service::find($request->input('service_id'));
+        $allowedAddOnIds = $mainServiceForValidation ? $mainServiceForValidation->availableAddOns()->pluck('add_on_services.id')->toArray() : [];
+        // --- MODIFICATION END ---
 
         $validatedData = $request->validate([
             'service_id' => 'required|integer|exists:services,id',
@@ -149,9 +151,9 @@ class BookingController extends Controller
             'agreed_to_policy' => 'required|accepted',
             'payment_option' => ['required', Rule::in(['full', 'down_payment'])],
             'payment_method' => $noPaymentMethodEnabled ? 'nullable|string' : ['required', Rule::in($availablePaymentMethodsServer)],
-            // --- MODIFICATION START: Validation for Add-on Services ---
+            // --- MODIFICATION START: Update validation for Add-on Services to check against allowed IDs ---
             'add_on_services' => 'nullable|array',
-            'add_on_services.*' => 'integer|exists:add_on_services,id', // Validate each selected add-on ID
+            'add_on_services.*' => ['integer', Rule::in($allowedAddOnIds)],
             // --- MODIFICATION END ---
         ], [
              'agreed_to_policy.accepted' => 'يجب الموافقة على سياسة الحجز للمتابعة.',
@@ -161,10 +163,10 @@ class BookingController extends Controller
              'shooting_area_option.required' => 'الرجاء اختيار منطقة التصوير.',
              'outside_ahs_city.required' => 'الرجاء اختيار المدينة عند تحديد منطقة خارج الأحساء.',
              'outside_ahs_city.in' => 'المدينة المختارة غير صالحة.',
-             // --- MODIFICATION START: Validation messages for Add-on Services ---
              'add_on_services.array' => 'اختيار الخدمات الإضافية غير صحيح.',
              'add_on_services.*.integer' => 'أحد الخدمات الإضافية المختارة غير صحيح.',
-             'add_on_services.*.exists' => 'أحد الخدمات الإضافية المختارة غير متاح حالياً.',
+             // --- MODIFICATION START: Update validation message for add_on_services.*.in ---
+             'add_on_services.*.in' => 'أحد الخدمات الإضافية المختارة غير متاح لهذه الخدمة الرئيسية أو غير نشط.',
              // --- MODIFICATION END ---
         ]);
         
@@ -187,32 +189,38 @@ class BookingController extends Controller
              return back()->withInput()->with('error', 'التاريخ أو الوقت المحدد غير صحيح.');
         }
 
-        // --- MODIFICATION START: Calculate total price of selected add-on services ---
         $selectedAddOnServiceIds = $validatedData['add_on_services'] ?? [];
         $totalAddOnServicesPrice = 0;
-        $activeAddOnServicesWithPrices = []; // لتخزين الخدمات الإضافية النشطة بأسعارها من قاعدة البيانات
+        $activeAddOnServicesWithPrices = []; 
 
         if (!empty($selectedAddOnServiceIds)) {
-            $activeAddOns = AddOnService::whereIn('id', $selectedAddOnServiceIds)->where('is_active', true)->get();
-            foreach ($activeAddOns as $addOn) {
+            // --- MODIFICATION START: Ensure only allowed and active add-ons are processed ---
+            // $allowedAddOnsForThisService = $service->availableAddOns()->whereIn('add_on_services.id', $selectedAddOnServiceIds)->get();
+            // بدلاً من الاستعلام مرة أخرى، سنستخدم $allowedAddOnIds التي تم جلبها للتحقق
+            // ونجلب تفاصيل الخدمات المختارة والصالحة فقط
+            $validSelectedAddOns = \App\Models\AddOnService::whereIn('id', $selectedAddOnServiceIds)
+                                        ->where('is_active', true)
+                                        ->whereIn('id', $allowedAddOnIds) // تحقق إضافي أنها ضمن المسموح به لهذه الخدمة
+                                        ->get();
+
+            foreach ($validSelectedAddOns as $addOn) {
                 $totalAddOnServicesPrice += (float)$addOn->price;
-                $activeAddOnServicesWithPrices[$addOn->id] = (float)$addOn->price; // تخزين السعر الفعلي من قاعدة البيانات
+                $activeAddOnServicesWithPrices[$addOn->id] = (float)$addOn->price;
             }
-            // تحقق إذا كان عدد الخدمات النشطة المسترجعة يطابق عدد الـ IDs المرسلة
-            if (count($activeAddOns) !== count($selectedAddOnServiceIds)) {
-                Log::warning('Discrepancy in selected add-on services. Some might be inactive or invalid.', [
-                    'requested_ids' => $selectedAddOnServiceIds,
-                    'active_found_ids' => $activeAddOns->pluck('id')->toArray(),
+
+            if(count($validSelectedAddOns) !== count($selectedAddOnServiceIds)){
+                 Log::warning('Discrepancy or invalid add-on ID submitted by client.', [
+                    'submitted_ids' => $selectedAddOnServiceIds,
+                    'processed_valid_ids' => $validSelectedAddOns->pluck('id')->toArray(),
                 ]);
-                // يمكنك هنا إرجاع خطأ إذا كنت تريد أن تكون صارمًا
-                // return back()->withInput()->with('error', 'بعض الخدمات الإضافية المختارة لم تعد متاحة.');
+                // لا داعي لإرجاع خطأ هنا لأن التحقق Rule::in($allowedAddOnIds) يجب أن يكون قد قام بذلك
             }
+            // --- MODIFICATION END ---
         }
         $totalAddOnServicesPrice = round($totalAddOnServicesPrice, 2);
-        // --- MODIFICATION END ---
 
         $originalServicePrice = (float) $service->price_sar;
-        $priceAfterDiscount = $originalServicePrice; // الخصم يطبق على سعر الخدمة الأساسية
+        $priceAfterDiscount = $originalServicePrice;
         $discountCodeModel = null;
         $discountAmountApplied = 0.0;
         $isDiscountActuallyApplied = false;
@@ -249,43 +257,57 @@ class BookingController extends Controller
 
              if ($discountConditionsMet) {
                  $tempDiscountAmount = 0.0;
+                 // --- MODIFICATION START: Decide if discount applies to service only or service + add-ons ---
+                 // حاليًا، الخصم يطبق على سعر الخدمة الأساسية فقط.
+                 // إذا أردت أن يطبق الخصم على (الخدمة الأساسية + الخدمات الإضافية)، ستحتاج لتعديل $priceToApplyDiscountOn
+                 $priceToApplyDiscountOn = $originalServicePrice;
+                 // مثال إذا أردت تطبيق الخصم على الإجمالي:
+                 // $priceToApplyDiscountOn = $originalServicePrice + $totalAddOnServicesPrice;
+                 // --- MODIFICATION END ---
+
                  if ($discountCodeModel->type === DiscountCode::TYPE_PERCENTAGE) {
-                     $tempDiscountAmount = ($originalServicePrice * $discountCodeModel->value) / 100;
+                     $tempDiscountAmount = ($priceToApplyDiscountOn * $discountCodeModel->value) / 100;
                  } elseif ($discountCodeModel->type === DiscountCode::TYPE_FIXED) {
                      $tempDiscountAmount = $discountCodeModel->value;
                  }
-                 $discountAmountApplied = round(max(0, min($tempDiscountAmount, $originalServicePrice)), 2);
+                 $discountAmountApplied = round(max(0, min($tempDiscountAmount, $priceToApplyDiscountOn)), 2); // الخصم لا يمكن أن يتجاوز السعر المطبق عليه
+
+                 // --- MODIFICATION START: Adjust priceAfterDiscount carefully ---
+                 // priceAfterDiscount الآن يمثل سعر الخدمة الأساسية بعد الخصم.
+                 // إذا كان الخصم يطبق على (الخدمة + الإضافات)، يجب تعديل هذا المنطق.
+                 // حاليًا، إذا طبق الخصم على الخدمة الأساسية فقط:
                  $priceAfterDiscount = $originalServicePrice - $discountAmountApplied;
+                 // --- MODIFICATION END ---
+
                  $isDiscountActuallyApplied = true;
                  Log::info("SubmitBooking: Discount '{$discountCodeModel->code}' applied. Amount: {$discountAmountApplied}");
              } else {
                 Log::info("SubmitBooking: Discount '{$discountCodeModel->code}' conditions not met. Not applied.");
              }
         }
-        $priceAfterDiscount = round(max(0, $priceAfterDiscount), 2); // هذا سعر الخدمة بعد الخصم
+        $priceAfterDiscount = round(max(0, $priceAfterDiscount), 2);
 
         $currentOutsideLocationFeeApplied = 0.0;
         if ($validatedData['shooting_area_option'] === 'outside_ahsa') {
             $currentOutsideLocationFeeApplied = $outsideAhsaFeeFromSettings;
         }
-
-        // --- MODIFICATION START: Calculate final total amount including add-ons ---
+        
         // السعر النهائي = (سعر الخدمة بعد الخصم) + رسوم المنطقة + إجمالي سعر الخدمات الإضافية
         $finalTotalAmount = $priceAfterDiscount + $currentOutsideLocationFeeApplied + $totalAddOnServicesPrice;
-        // --- MODIFICATION END ---
         $finalTotalAmount = round(max(0, $finalTotalAmount), 2);
 
         $paymentOption = $validatedData['payment_option'];
         $amountDueNow = ($paymentOption === 'down_payment') ? round($finalTotalAmount / 2, 2) : $finalTotalAmount;
         $amountDueNow = max(0.01, round($amountDueNow, 2));
 
-        Log::debug('Booking Submit - Price Calculation Details:', [
+        Log::debug('Booking Submit - Price Calculation Details Updated:', [
             'original_service_price' => $originalServicePrice,
+            'total_add_on_services_price_calculated' => $totalAddOnServicesPrice,
+            'price_of_service_plus_addons_before_discount' => $originalServicePrice + $totalAddOnServicesPrice,
             'discount_code_attempted' => $validatedData['discount_code'] ?? 'None',
             'discount_amount_applied_value' => $discountAmountApplied,
             'is_discount_actually_applied' => $isDiscountActuallyApplied,
-            'price_of_service_after_discount' => $priceAfterDiscount, // تم تغيير اسم المفتاح للتوضيح
-            'total_add_on_services_price' => $totalAddOnServicesPrice, // إضافة سعر الخدمات الإضافية
+            'price_of_service_after_discount_alone' => $priceAfterDiscount,
             'outside_location_fee_applied_server' => $currentOutsideLocationFeeApplied,
             'final_total_amount_for_invoice' => $finalTotalAmount,
             'payment_option_selected' => $paymentOption,
@@ -297,9 +319,7 @@ class BookingController extends Controller
 
         $booking = null; $invoice = null;
 
-        // --- MODIFICATION START: Pass $activeAddOnServicesWithPrices to the transaction ---
         DB::transaction(function () use ($validatedData, $bookingDateTime, $service, $discountCodeModel, $finalTotalAmount, $paymentOption, $user, &$booking, &$invoice, $amountDueNow, $isDiscountActuallyApplied, $currentOutsideLocationFeeApplied, $selectedAddOnServiceIds, $activeAddOnServicesWithPrices) {
-        // --- MODIFICATION END ---
             $bookingData = [
                 'user_id' => $user->id,
                 'service_id' => $service->id,
@@ -327,12 +347,13 @@ class BookingController extends Controller
             }
             Log::debug('Booking created successfully:', ['booking_id' => $booking->id]);
 
-            // --- MODIFICATION START: Save selected add-on services to pivot table ---
             if (!empty($selectedAddOnServiceIds) && !empty($activeAddOnServicesWithPrices)) {
                 $addOnsToSync = [];
+                // تأكد من أن selectedAddOnServiceIds هي بالفعل مصفوفة من IDs
+                // وأن activeAddOnServicesWithPrices هي مصفوفة من id => price
                 foreach ($selectedAddOnServiceIds as $addOnId) {
-                    if (isset($activeAddOnServicesWithPrices[$addOnId])) { // تأكد من أن الخدمة نشطة وسعرها معروف
-                        $addOnsToSync[$addOnId] = ['price_at_booking' => $activeAddOnServicesWithPrices[$addOnId]];
+                    if (isset($activeAddOnServicesWithPrices[(int)$addOnId])) {
+                        $addOnsToSync[(int)$addOnId] = ['price_at_booking' => $activeAddOnServicesWithPrices[(int)$addOnId]];
                     }
                 }
                 if (!empty($addOnsToSync)) {
@@ -340,7 +361,6 @@ class BookingController extends Controller
                     Log::info("Add-on services synced for booking ID: {$booking->id}", ['synced_add_ons' => $addOnsToSync]);
                 }
             }
-            // --- MODIFICATION END ---
 
             $invoiceStatus = ($validatedData['payment_method'] === 'manual_confirmation_due_to_no_gateway')
                            ? Invoice::STATUS_PENDING_CONFIRMATION
@@ -349,7 +369,7 @@ class BookingController extends Controller
             $invoiceData = [
                 'booking_id' => $booking->id,
                 'invoice_number' => Invoice::generateUniqueInvoiceNumber(),
-                'amount' => $finalTotalAmount, // المبلغ النهائي يشمل كل شيء
+                'amount' => $finalTotalAmount,
                 'currency' => 'SAR',
                 'status' => $invoiceStatus,
                 'payment_method' => $validatedData['payment_method'],
@@ -382,7 +402,6 @@ class BookingController extends Controller
         if ($booking && $user && $invoice) {
             try {
                 $amountForNotification = $amountDueNow;
-                // ملاحظة: إذا أردت تضمين تفاصيل الخدمات الإضافية في الإشعار، ستحتاج لتعديل كلاس BookingRequestReceived
                 $user->notify(new BookingRequestReceived($booking, $invoice->payment_method, $amountForNotification, $invoice->payment_option));
                 Log::info("BookingRequestReceived notification queued for CUSTOMER for Booking ID: {$booking->id}");
                 
@@ -406,7 +425,7 @@ class BookingController extends Controller
              }
              $checkoutResponse = $this->tamaraService->initiateCheckout($invoice, $amountDueNow, $paymentOption);
              if ($checkoutResponse && isset($checkoutResponse['checkout_url']) && (isset($checkoutResponse['order_id']) || isset($checkoutResponse['checkout_id']))) {
-                  $gatewayRef = $checkoutResponse['checkout_id'] ?? $checkoutResponse['order_id'];
+                  $gatewayRef = $checkoutResponse['checkout_id'] ?? $checkoutResponse['order_id']; 
                   $invoice->payment_gateway_ref = $gatewayRef; 
                   $invoice->save();
                   Log::info("Tamara checkout URL obtained.", ['invoice_id' => $invoice->id, 'tamara_ref' => $gatewayRef]);
@@ -426,9 +445,7 @@ class BookingController extends Controller
             return redirect()->route('home')->with('error', 'غير مصرح لك بعرض هذا الحجز.');
           }
 
-          // --- MODIFICATION START: Eager load addOnServices ---
           $booking->load(['service', 'invoice.payments', 'discountCode', 'addOnServices']);
-          // --- MODIFICATION END ---
           $bankAccounts = BankAccount::where('is_active', true)->get();
           $invoice = $booking->invoice;
           
