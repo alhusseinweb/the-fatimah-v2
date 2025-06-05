@@ -30,6 +30,7 @@ use App\Http\Middleware\EnsureUserIsAdmin;
 use App\Http\Controllers\Admin\SmsTemplateController;
 use App\Http\Controllers\Admin\GoogleCalendarController;
 use App\Http\Controllers\Admin\DataManagementController;
+use App\Http\Controllers\Admin\AddOnServiceController;
 // --- MODIFICATION START: Import new AdminManualBookingController ---
 use App\Http\Controllers\Admin\AdminManualBookingController;
 // --- MODIFICATION END ---
@@ -145,7 +146,9 @@ Route::middleware(['auth', EnsureUserIsAdmin::class])
 
         Route::get('settings/sms', [SmsSettingController::class, 'edit'])->name('settings.sms.edit');
         Route::patch('settings/sms', [SmsSettingController::class, 'update'])->name('settings.sms.update');
-
+        // --- MODIFICATION START: Add Routes for Add-on Services ---
+        Route::resource('add-on-services', AddOnServiceController::class)->except(['show']);
+        // --- MODIFICATION END ---
         Route::post('data-management/delete-all-bookings', [DataManagementController::class, 'deleteAllBookingsAndRelatedData'])->name('data.delete_all_bookings');
 
         // --- MODIFICATION START: Routes for Manual Booking by Admin ---
