@@ -13,12 +13,12 @@
     </div>
 
     {{-- شريط البحث --}}
-    <form method="GET" action="{{ route('admin.add_on_services.index') }}" class="mb-3">
+    <form method="GET" action="{{ route('admin.add-on-services.index') }}" class="mb-3">
         <div class="input-group">
             <input type="text" name="search_term" class="form-control" placeholder="ابحث بالاسم أو الوصف..." value="{{ request('search_term') }}">
             <button class="btn btn-outline-secondary" type="submit"><i class="fas fa-search"></i></button>
             @if(request('search_term'))
-                <a href="{{ route('admin.add_on_services.index') }}" class="btn btn-outline-danger" title="إلغاء البحث"><i class="fas fa-times"></i></a>
+                <a href="{{ route('admin.add-on-services.index') }}" class="btn btn-outline-danger" title="إلغاء البحث"><i class="fas fa-times"></i></a>
             @endif
         </div>
     </form>
