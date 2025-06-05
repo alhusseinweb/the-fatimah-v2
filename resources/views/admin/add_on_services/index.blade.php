@@ -6,19 +6,19 @@
     <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
         <h1 class="h2">إدارة الخدمات الإضافية</h1>
         <div class="btn-toolbar mb-2 mb-md-0">
-            <a href="{{ route('admin.add-on-services.create') }}" class="btn btn-primary">
+            <a href="{{ route('admin.add_on_services.create') }}" class="btn btn-primary">
                 <i class="fas fa-plus fa-sm me-1"></i> إضافة خدمة إضافية جديدة
             </a>
         </div>
     </div>
 
     {{-- شريط البحث --}}
-    <form method="GET" action="{{ route('admin.add-on-services.index') }}" class="mb-3">
+    <form method="GET" action="{{ route('admin.add_on_services.index') }}" class="mb-3">
         <div class="input-group">
             <input type="text" name="search_term" class="form-control" placeholder="ابحث بالاسم أو الوصف..." value="{{ request('search_term') }}">
             <button class="btn btn-outline-secondary" type="submit"><i class="fas fa-search"></i></button>
             @if(request('search_term'))
-                <a href="{{ route('admin.add-on-services.index') }}" class="btn btn-outline-danger" title="إلغاء البحث"><i class="fas fa-times"></i></a>
+                <a href="{{ route('admin.add_on_services.index') }}" class="btn btn-outline-danger" title="إلغاء البحث"><i class="fas fa-times"></i></a>
             @endif
         </div>
     </form>
@@ -54,10 +54,10 @@
                                 </td>
                                 <td>{{ $service->created_at->translatedFormat('d M Y') }}</td>
                                 <td>
-                                    <a href="{{ route('admin.add-on-services.edit', $service->id) }}" class="btn btn-sm btn-outline-primary" title="تعديل">
+                                    <a href="{{ route('admin.add_on_services.edit', $service->id) }}" class="btn btn-sm btn-outline-primary" title="تعديل">
                                         <i class="fas fa-edit"></i>
                                     </a>
-                                    <form action="{{ route('admin.add-on-services.destroy', $service->id) }}" method="POST" class="d-inline" onsubmit="return confirm('هل أنت متأكد من رغبتك في حذف هذه الخدمة الإضافية؟');">
+                                    <form action="{{ route('admin.add_on_services.destroy', $service->id) }}" method="POST" class="d-inline" onsubmit="return confirm('هل أنت متأكد من رغبتك في حذف هذه الخدمة الإضافية؟');">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف">
