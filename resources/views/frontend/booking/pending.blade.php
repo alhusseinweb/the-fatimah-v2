@@ -87,6 +87,14 @@
      .btn-pay { background-color: #28a745; color: white; }
       .btn-pay:hover { background-color: #218838; color: white;}
 
+    /* --- MODIFICATION START: Styles for Add-on Services in Pending Page --- */
+    .add-on-services-summary-list { list-style: none; padding: 0; margin-top: 5px; }
+    .add-on-services-summary-list li { display: flex; justify-content: space-between; font-size: 0.95rem; color: #333; padding: 5px 0; }
+    .add-on-services-summary-list li:not(:last-child) { border-bottom: 1px dashed #f0f0f0; margin-bottom: 5px; padding-bottom: 5px;}
+    .add-on-services-summary-list .add-on-name { color: #555; }
+    .add-on-services-summary-list .add-on-price { font-weight: 600; color: #495057; }
+    /* --- MODIFICATION END --- */
+
     @media (max-width: 576px) { 
         .booking-card-body { padding: 20px; }
         .booking-section { padding: 15px; }
@@ -133,7 +141,7 @@
                             <h5 class="section-title"> ملخص الحجز </h5>
                             <dl>
                                 <dt>رقم الحجز:</dt> <dd>#{{ toArabicDigits($booking->id) }}</dd>
-                                <dt>الخدمة:</dt> <dd>{{ $booking->service?->name_ar ?? $booking->service?->name_en ?? 'غير محدد' }}</dd>
+                                <dt>الخدمة الأساسية:</dt> <dd>{{ $booking->service?->name_ar ?? $booking->service?->name_en ?? 'غير محدد' }}</dd>
                                 <dt>التاريخ والوقت:</dt> <dd>{{ $booking->booking_datetime ? toArabicDigits(\Carbon\Carbon::parse($booking->booking_datetime)->translatedFormat('l, d F Y - h:i A')) : 'غير محدد' }}</dd>
                                 
                                 <dt>منطقة التصوير:</dt> <dd>{{ $booking->shooting_area_label }}</dd>
@@ -142,6 +150,22 @@
                                 @endif
 
                                 <dt>مكان الحفل (العنوان):</dt> <dd>{{ $booking->event_location ?: '-' }}</dd>
+                                
+                                {{-- --- MODIFICATION START: Display Add-on Services --- --}}
+                                @if($booking->addOnServices->isNotEmpty())
+                                    <dt>الخدمات الإضافية:</dt>
+                                    <dd>
+                                        <ul class="add-on-services-summary-list">
+                                            @foreach($booking->addOnServices as $addOn)
+                                                <li>
+                                                    <span class="add-on-name">{{ $addOn->getLocalizedNameAttribute() }}</span>
+                                                    <span class="add-on-price">{{ formatAmountConditionallyPending($addOn->pivot->price_at_booking) }} {{ $booking->invoice?->currency ?: 'SAR' }}</span>
+                                                </li>
+                                            @endforeach
+                                        </ul>
+                                    </dd>
+                                @endif
+                                {{-- --- MODIFICATION END --- --}}
                             </dl>
                         </div>
 
@@ -150,10 +174,16 @@
                                 <h5 class="section-title"> تفاصيل الفاتورة </h5>
                                 <dl>
                                     <dt>رقم الفاتورة:</dt> <dd>{{ $invoice->invoice_number }}</dd>
-                                    <dt>المبلغ الإجمالي:</dt> <dd class="fw-bold">{{ formatAmountConditionallyPending($invoice->amount) }} {{ $invoice->currency ?? 'SAR' }}</dd>
+                                    <dt>المبلغ الإجمالي للفاتورة:</dt> <dd class="fw-bold">{{ formatAmountConditionallyPending($invoice->amount) }} {{ $invoice->currency ?? 'SAR' }}</dd>
                                     @if($booking->outside_location_fee_applied > 0)
                                         <dt>تشمل رسوم خارج المنطقة:</dt> <dd class="fw-bold">{{ formatAmountConditionallyPending($booking->outside_location_fee_applied) }} {{ $invoice->currency ?? 'SAR' }}</dd>
                                     @endif
+                                    {{-- --- MODIFICATION START: Display total for add-ons if any --- --}}
+                                    @if($booking->total_add_on_services_price > 0)
+                                    <dt>إجمالي الخدمات الإضافية:</dt>
+                                    <dd class="fw-bold">{{ formatAmountConditionallyPending($booking->total_add_on_services_price) }} {{ $invoice->currency ?? 'SAR' }}</dd>
+                                    @endif
+                                    {{-- --- MODIFICATION END --- --}}
                                     <dt>المبلغ المدفوع:</dt> <dd class="text-success fw-bold">{{ formatAmountConditionallyPending($invoice->total_paid_amount) }} {{ $invoice->currency ?? 'SAR' }}</dd>
                                     @if($invoice->remaining_amount > 0.009)
                                         <dt>المبلغ المتبقي:</dt> <dd class="text-danger fw-bold">{{ formatAmountConditionallyPending($invoice->remaining_amount) }} {{ $invoice->currency ?? 'SAR' }}</dd>
@@ -187,7 +217,7 @@
                                 </h5>
 
                                 @php 
-                                    $effectiveAmountDueNow = $amountDueNowOnPending ?? 0; // $amountDueNowOnPending يتم تمريرها من المتحكم
+                                    $effectiveAmountDueNow = $amountDueNowOnPending ?? 0;
                                 @endphp
 
                                 @if ($invoice->status == \App\Models\Invoice::STATUS_PAID)
@@ -195,7 +225,7 @@
                                         <svg class="alert-icon" fill="currentColor" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/></svg>
                                         <div class="flex-grow-1">تم استلام المبلغ كاملاً للفاتورة بنجاح. شكراً لثقتكم بنا.</div>
                                     </div>
-                                @elseif($invoice->status == \App\Models\Invoice::STATUS_PARTIALLY_PAID && $effectiveAmountDueNow <= 0.009) {{-- تم دفع العربون ولا يوجد متبقي حالياً (حسب منطق العربون فقط) --}}
+                                @elseif($invoice->status == \App\Models\Invoice::STATUS_PARTIALLY_PAID && $effectiveAmountDueNow <= 0.009)
                                      <div class="custom-alert alert-info">
                                          <svg class="alert-icon" fill="currentColor" viewBox="0 0 16 16"><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
                                          <div class="flex-grow-1">تم استلام دفعة العربون بنجاح. يرجى دفع المبلغ المتبقي ({{ formatAmountConditionallyPending($invoice->remaining_amount) }} {{ $invoice->currency }}) قبل موعد الحجز.</div>
@@ -231,7 +261,7 @@
                                              </form>
                                          </div>
                                      @elseif($invoice->payment_method == 'bank_transfer' && $isBankTransferEnabled && $effectiveAmountDueNow > 0.009)
-                                          <p class="mt-3">الرجاء تحويل المبلغ المطلوب (<strong>{{ formatAmountConditionallyPending($effectiveAmountDueNow) }} {{ $invoice->currency }}</strong>) إلى أحد الحسابات البنكية التالية وإرسال الإيصال عبر الواتساب <strong dir="ltr">{{ toArabicDigits(\App\Models\Setting::where('key', 'contact_whatsapp')->value('value') ?? '') }}</strong>:</p>
+                                          <p class="mt-3">الرجاء تحويل المبلغ المطلوب (<strong>{{ formatAmountConditionallyPending($effectiveAmountDueNow) }} {{ $invoice->currency }}</strong>) إلى أحد الحسابات البنكية التالية وإرسال الإيصال عبر الواتساب <strong dir="ltr">{{ toArabicDigits(\App\Models\Setting::where('key', 'contact_whatsapp')->value('value') ?? '') }}</strong> لتأكيد حجزك.</p>
                                             @if($bankAccounts && $bankAccounts->count() > 0)
                                               <ul class="bank-accounts-list mt-3">
                                                   @foreach($bankAccounts as $account)
