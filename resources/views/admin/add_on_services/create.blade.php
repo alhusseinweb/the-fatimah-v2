@@ -9,8 +9,8 @@
 
     <div class="card shadow-sm border-0">
         <div class="card-body">
-            <form action="{{ route('admin.add-on-services.store') }}" method="POST">
-                @include('admin.add-on-services._form')
+            <form action="{{ route('admin.add_on_services.store') }}" method="POST">
+                @include('admin.add_on_services._form')
             </form>
         </div>
     </div>
