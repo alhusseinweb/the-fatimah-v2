@@ -40,14 +40,11 @@
     $isTamaraEnabled = $isTamaraEnabled ?? ($settingsHomepage['tamara_enabled'] ?? false);
     $isBankTransferEnabled = $isBankTransferEnabled ?? ($settingsHomepage['enable_bank_transfer'] ?? false);
 
-    // --- MODIFICATION START: Get Bank Transfer Discount Settings ---
     $enableBankTransferDiscountPopup = filter_var($settingsHomepage['enable_bank_transfer_discount_popup'] ?? '0', FILTER_VALIDATE_BOOLEAN);
     $bankTransferDiscountCode = $settingsHomepage['bank_transfer_discount_code'] ?? '';
     $bankTransferPopupMessage = (app()->getLocale() == 'en' && !empty($settingsHomepage['bank_transfer_discount_popup_message_en']))
                                 ? $settingsHomepage['bank_transfer_discount_popup_message_en']
                                 : ($settingsHomepage['bank_transfer_discount_popup_message_ar'] ?? 'لا تفوت الفرصة! خصم خاص عند الدفع بالتحويل البنكي.');
-    // --- MODIFICATION END ---
-
 @endphp
 
 @extends('layouts.app')
@@ -124,6 +121,7 @@
     .alert-danger { background-color: #fff2f2; color: #dc3545; border-right: 4px solid #dc3545; }
     #discount_result .text-success { color: #198754 !important; font-weight: 500; }
     #discount_result .text-danger { color: #dc3545 !important; font-weight: 500; }
+    #discount_result .text-info { color: #0dcaf0 !important; font-weight: 500;} /* لون لرسالة الإعلام */
     #discount_result .spinner-border-sm { width: 1rem; height: 1rem; border-width: .2em; }
     #outside_ahs_city_group { display: none; margin-top: 15px; }
     .add-on-services-list { margin-top: 0; }
@@ -133,20 +131,17 @@
     html[dir="ltr"] .add-on-service-item .form-check-input { margin-left: 0; margin-right: 10px;}
     .add-on-service-item label { font-weight: 500; cursor: pointer; flex-grow: 1; margin-bottom: 0; }
     .add-on-service-price { font-weight: 600; color: #495057; margin-right: auto; white-space: nowrap; }
-    /* --- MODIFICATION START: Styles for Bank Transfer Discount Modal --- */
     .modal-header .btn-close { margin: -0.5rem -0.5rem -0.5rem auto;}
     .discount-popup-icon { font-size: 2rem; color: #198754; margin-left: 1rem; }
     html[dir="ltr"] .discount-popup-icon { margin-left: 0; margin-right: 1rem; }
     .btn-apply-discount-modal { background-color: #28a745; color: white; }
     .btn-apply-discount-modal:hover { background-color: #218838; }
-    /* --- MODIFICATION END --- */
 </style>
 @endsection
 
 @section('content')
 <div class="booking-form-wrapper">
     <div class="container booking-container">
-        {{-- ... (الكود السابق للـ header والـ summary) ... --}}
         <div class="booking-header">
             <h1 class="mb-2">تأكيد تفاصيل الحجز</h1>
             <p class="text-muted">يرجى تعبئة جميع البيانات المطلوبة لإتمام الحجز</p>
@@ -171,6 +166,7 @@
                  الرجاء التأكد من صحة اختيار الخدمات الإضافية.
             </div>
         @endif
+
 
         <div class="booking-card mb-4">
             <div class="card-header primary-header">
@@ -197,7 +193,6 @@
             <input type="hidden" name="time" id="booking_time_hidden_input" value="{{ $selectedTime }}">
             <input type="hidden" name="payment_option" id="payment_option_input" value="full">
 
-            {{-- ... (قسم اختيار منطقة التصوير) ... --}}
             <div class="booking-card mb-4">
                 <div class="card-header"> <h5 class="mb-0"> اختر منطقة التصوير <span class="text-danger">*</span> </h5> </div>
                 <div class="card-body">
@@ -225,7 +220,6 @@
                 </div>
             </div>
 
-            {{-- ... (قسم الخدمات الإضافية) ... --}}
             @if($addOnServices && $addOnServices->count() > 0)
             <div class="booking-card mb-4">
                 <div class="card-header"><h5 class="mb-0">خدمات إضافية (اختياري)</h5></div>
@@ -241,7 +235,6 @@
             </div>
             @endif
 
-            {{-- ... (قسم المعلومات الإضافية) ... --}}
             <div class="booking-card mb-4">
                 <div class="card-header"> <h5 class="mb-0">معلومات إضافية</h5> </div>
                 <div class="card-body">
@@ -287,8 +280,7 @@
                 </div>
             </div>
 
-            {{-- ... (قسم خيار الدفع وسياسة الحجز) ... --}}
-             <div class="booking-card mb-4">
+            <div class="booking-card mb-4">
                 <div class="card-header"> <h5 class="mb-0"> اختر خيار الدفع <span class="text-danger">*</span> </h5> </div>
                 <div class="card-body">
                     @error('payment_option') <div class="alert alert-danger py-2 small">{{ $message }}</div> @enderror
@@ -421,7 +413,7 @@
         <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
             <div class="modal-header bg-light border-0 align-items-center" style="border-top-left-radius: 15px; border-top-right-radius: 15px;">
                 <h5 class="modal-title w-100 text-center" id="bankTransferDiscountModalLabel">
-                     فرصة خصم خاصة!
+                    <i class="fas fa-tags text-success me-2"></i> فرصة خصم خاصة!
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -429,7 +421,7 @@
                 <p class="lead mb-3">{!! nl2br(e($bankTransferPopupMessage)) !!}</p>
                 <p class="mb-3">رمز الخصم: <strong class="text-primary" dir="ltr">{{ $bankTransferDiscountCode }}</strong></p>
                 <button type="button" class="btn btn-success btn-lg w-100 btn-apply-discount-modal" id="applyBankDiscountBtn">
-                     نعم، قم بتطبيق الخصم!
+                    <i class="fas fa-check-circle me-2"></i> نعم، قم بتطبيق الخصم!
                 </button>
             </div>
             <div class="modal-footer border-0 justify-content-center pt-0 pb-3">
@@ -444,7 +436,6 @@
 
 @section('scripts')
 <script>
-    // ... (دالة toArabicDigitsJS وباقي متغيرات JavaScript كما هي) ...
     function toArabicDigitsJS(str) {
         if (str === null || str === undefined) return '';
         const western = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.'];
@@ -487,14 +478,12 @@
     const outsideAhsaCitySelectEl = document.getElementById('outside_ahs_city');
     const addOnCheckboxes = document.querySelectorAll('.add-on-checkbox');
 
-    // --- MODIFICATION START: Variables and elements for Bank Transfer Discount Modal ---
     const enableBankTransferDiscountPopupJS = {{ $enableBankTransferDiscountPopup ? 'true' : 'false' }};
     const bankTransferDiscountCodeJS = "{{ $bankTransferDiscountCode ?? '' }}";
     let bankTransferDiscountModalInstance = null;
     const bankTransferDiscountModalEl = document.getElementById('bankTransferDiscountModal');
     const applyBankDiscountBtn = document.getElementById('applyBankDiscountBtn');
-    let bankDiscountModalShownOnce = false; // لمنع ظهور المودال أكثر من مرة في نفس الجلسة
-    // --- MODIFICATION END ---
+    let bankDiscountModalShownOnce = false;
 
     function formatDisplayAmountJS(value) {
         const numValue = parseFloat(value);
@@ -536,6 +525,8 @@
     }
 
     function selectPaymentMethodJS(methodValue) {
+        const previousPaymentMethod = document.querySelector('input[name="payment_method"]:checked')?.value;
+
         let methodFoundAndSelected = false;
         paymentMethodItemsEl.forEach(item => {
             const radio = item.querySelector('input[name="payment_method"]');
@@ -559,42 +550,52 @@
         }
         if(bankDetailsDivEl) bankDetailsDivEl.style.display = (methodValue === 'bank_transfer') ? 'block' : 'none';
         
-        // --- MODIFICATION START: Show Bank Transfer Discount Modal ---
+        if (previousPaymentMethod === 'bank_transfer' && 
+            methodValue !== 'bank_transfer' && 
+            isDiscountAppliedJS && 
+            discountInputEl && 
+            discountInputEl.value === bankTransferDiscountCodeJS && 
+            bankTransferDiscountCodeJS !== '') {
+            
+            console.log('Payment method changed from bank_transfer. Resetting bank transfer discount.');
+            resetDiscountStateJS(); 
+            if(discountResultDivEl) discountResultDivEl.innerHTML = '<span class="text-info small">تمت إزالة خصم التحويل البنكي بسبب تغيير طريقة الدفع.</span>';
+        }
+
         if (methodValue === 'bank_transfer' && enableBankTransferDiscountPopupJS && bankTransferDiscountCodeJS && bankTransferDiscountModalInstance && !bankDiscountModalShownOnce && !isDiscountAppliedJS) {
             bankTransferDiscountModalInstance.show();
-            bankDiscountModalShownOnce = true; // لمنع ظهوره مرة أخرى في هذه الجلسة بعد الإغلاق
-        }
-        // --- MODIFICATION END ---
-        
-        if (isDiscountAppliedJS && discountInputEl && discountInputEl.value.trim() !== '') {
-            // Consider re-checking or resetting discount if payment method changes discount applicability
-            // For now, we keep it simple and don't auto-reset unless user changes discount code field
+            bankDiscountModalShownOnce = true; 
         }
     }
     
-    function resetDiscountStateJS(showDiscountAppliedMessage = false) { // إضافة معامل جديد
+    function resetDiscountStateJS(showDiscountAppliedMessage = false) { 
         const wasDiscountApplied = isDiscountAppliedJS;
         isDiscountAppliedJS = false;
         priceAfterDiscountJS = baseServicePriceJS; 
         currentDiscountValueRawJS = 0;
         updateDisplayedPricesJS(); 
-        if(discountResultDivEl && !showDiscountAppliedMessage) discountResultDivEl.innerHTML = ''; // لا تمسح إذا أردنا عرض رسالة "تم التطبيق"
+        if(discountResultDivEl && !showDiscountAppliedMessage) discountResultDivEl.innerHTML = '';
         if(discountInputEl) {
             discountInputEl.classList.remove('is-invalid');
-            if(!showDiscountAppliedMessage) { // لا تجعله قابل للكتابة إذا كان الخصم مطبق للتو
+            if(!showDiscountAppliedMessage) {
                  discountInputEl.readOnly = false;
             }
         }
         if(checkDiscountBtnEl) {
-            if(!showDiscountAppliedMessage){ // لا تغير النص إذا كان الخصم مطبق للتو
+            if(!showDiscountAppliedMessage){
                 checkDiscountBtnEl.disabled = false;
                 checkDiscountBtnEl.innerHTML = 'التحقق';
             }
         }
-        if(wasDiscountApplied && !showDiscountAppliedMessage && discountInputEl) discountInputEl.value = ''; // مسح الكود إذا تم إعادة التعيين ولم يكن بسبب تطبيق خصم البنك
+        if(wasDiscountApplied && !showDiscountAppliedMessage && discountInputEl) {
+             // لا تمسح الكود إذا كان هو كود خصم البنك الذي نحاول تطبيقه للتو
+            if (discountInputEl.value !== bankTransferDiscountCodeJS || !bankTransferDiscountCodeJS) {
+                 discountInputEl.value = '';
+            }
+        }
     }
     
-    function checkDiscountFunctionalityJS(code, fromModal = false) { // إضافة معامل fromModal
+    function checkDiscountFunctionalityJS(code, fromModal = false) { 
         if (!code) {
             if(discountResultDivEl) discountResultDivEl.innerHTML = '<span class="text-danger">الرجاء إدخال كود الخصم أولاً.</span>';
             if (fromModal && bankTransferDiscountModalInstance) bankTransferDiscountModalInstance.hide();
@@ -639,10 +640,6 @@
                 if(discountResultDivEl) discountResultDivEl.innerHTML = `<span class="text-danger">${errorMessage}</span>`;
                 if (discountInputEl) discountInputEl.classList.add('is-invalid');
                 if(checkDiscountBtnEl) checkDiscountBtnEl.innerHTML = 'التحقق';
-                if (fromModal && bankTransferDiscountModalInstance) {
-                    // ربما لا تريد إخفاء المودال إذا فشل الكود من المودال مباشرة
-                    // bankTransferDiscountModalInstance.hide(); 
-                }
             }
         })
         .catch(error => {
@@ -682,24 +679,20 @@
     }
 
     document.addEventListener('DOMContentLoaded', function() {
-        // --- MODIFICATION START: Initialize Bank Transfer Discount Modal ---
         if (bankTransferDiscountModalEl && typeof bootstrap !== 'undefined') {
             bankTransferDiscountModalInstance = new bootstrap.Modal(bankTransferDiscountModalEl);
         }
         if (applyBankDiscountBtn && discountInputEl && bankTransferDiscountCodeJS) {
             applyBankDiscountBtn.addEventListener('click', function() {
                 if (isDiscountAppliedJS && discountInputEl.value === bankTransferDiscountCodeJS) {
-                    // إذا كان نفس الكود مطبقًا بالفعل، فقط أغلق المودال
                      if (bankTransferDiscountModalInstance) bankTransferDiscountModalInstance.hide();
                     return;
                 }
-                resetDiscountStateJS(); // أعد تعيين أي خصم سابق
+                resetDiscountStateJS();
                 discountInputEl.value = bankTransferDiscountCodeJS;
-                // استدعاء دالة التحقق من الخصم، مع إشارة أنها من المودال
                 checkDiscountFunctionalityJS(bankTransferDiscountCodeJS, true);
             });
         }
-        // --- MODIFICATION END ---
 
         paymentOptionItemsEl.forEach(item => { item.addEventListener('click', function() { selectPaymentOptionJS(this.dataset.value); }); });
         paymentMethodItemsEl.forEach(item => { item.addEventListener('click', function() { selectPaymentMethodJS(this.dataset.value); }); });
@@ -707,7 +700,6 @@
         if(discountInputEl) { 
             discountInputEl.addEventListener('input', function() { 
                 if (isDiscountAppliedJS || discountInputEl.classList.contains('is-invalid')) { 
-                    // لا تعيد التعيين إذا كان الكود المدخل هو نفسه كود خصم البنك وكان مطبقًا
                     if(isDiscountAppliedJS && discountInputEl.value === bankTransferDiscountCodeJS && bankTransferDiscountCodeJS !== ''){
                         return;
                     }
@@ -758,7 +750,7 @@
             else if ({{ $isBankTransferEnabled ? 'true' : 'false' }}) { defaultInitialMethod = 'bank_transfer'; }
         }
         if (defaultInitialMethod) { 
-            selectPaymentMethodJS(defaultInitialMethod); // هذا سيقوم بإظهار المودال إذا كانت الشروط متحققة عند التحميل
+            selectPaymentMethodJS(defaultInitialMethod); 
         } 
         else { if(submitBookingBtnEl && !{{ $isTamaraEnabled ? 'true' : 'false' }} && !{{ $isBankTransferEnabled ? 'true' : 'false' }}){ /* handle no payment methods available */ } }
         
