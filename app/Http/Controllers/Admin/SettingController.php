@@ -36,6 +36,12 @@ class SettingController extends Controller
         'display_whatsapp_contact',
         'display_instagram_contact',
         'outside_ahsa_fee',
+        // --- MODIFICATION START: New settings for Bank Transfer Discount ---
+        'enable_bank_transfer_discount_popup',
+        'bank_transfer_discount_popup_message_ar',
+        'bank_transfer_discount_popup_message_en',
+        'bank_transfer_discount_code',
+        // --- MODIFICATION END ---
     ];
 
     private array $booleanSettingKeys = [
@@ -46,6 +52,9 @@ class SettingController extends Controller
         'sms_stop_sending_on_limit',
         'display_whatsapp_contact',
         'display_instagram_contact',
+        // --- MODIFICATION START: Add new boolean key ---
+        'enable_bank_transfer_discount_popup',
+        // --- MODIFICATION END ---
     ];
 
     public function edit()
@@ -66,14 +75,24 @@ class SettingController extends Controller
                 if ($key === 'homepage_slider_images') {
                     $settings[$key] = [];
                 } elseif (in_array($key, $this->booleanSettingKeys)) {
-                    if ($key === 'display_whatsapp_contact' || $key === 'display_instagram_contact') {
-                        $settings[$key] = '1'; 
+                    // --- MODIFICATION START: Default for new boolean ---
+                    if ($key === 'display_whatsapp_contact' || $key === 'display_instagram_contact' || $key === 'enable_bank_transfer_discount_popup') {
+                         // Default to enabled for display toggles, or disabled for discount popup for safety
+                        $settings[$key] = ($key === 'enable_bank_transfer_discount_popup') ? '0' : '1';
                     } else {
                         $settings[$key] = '0';
                     }
+                    // --- MODIFICATION END ---
                 } elseif ($key === 'outside_ahsa_fee') { 
                     $settings[$key] = '300'; 
                 } 
+                // --- MODIFICATION START: Default for new text settings ---
+                elseif ($key === 'bank_transfer_discount_popup_message_ar') {
+                    $settings[$key] = 'لا تفوت الفرصة! استخدم كود الخصم الخاص بالتحويل البنكي.';
+                } elseif ($key === 'bank_transfer_discount_code') {
+                    $settings[$key] = ''; // اترك الكود فارغًا بشكل افتراضي
+                }
+                // --- MODIFICATION END ---
                 else {
                     $settings[$key] = '';
                 }
@@ -109,6 +128,11 @@ class SettingController extends Controller
             'tamara_notification_token' => 'nullable|string|max:1000',
             'contact_instagram_url' => 'nullable|url|max:255',
             'outside_ahsa_fee' => 'nullable|numeric|min:0|max:10000',
+            // --- MODIFICATION START: Validation for new settings ---
+            'bank_transfer_discount_popup_message_ar' => 'nullable|string|max:500',
+            'bank_transfer_discount_popup_message_en' => 'nullable|string|max:500',
+            'bank_transfer_discount_code' => 'nullable|string|max:50', // يمكن إضافة exists:discount_codes,code إذا أردت التأكد من وجود الكود
+            // --- MODIFICATION END ---
         ];
 
         foreach ($this->settingKeys as $key) {
@@ -118,17 +142,21 @@ class SettingController extends Controller
                 } else if ($key === 'homepage_slider_images' || Str::endsWith($key, '_file') || $key === 'deleted_slider_images_json' ) {
                     // No general rule needed
                 }
-                else if (Str::contains($key, ['policy_', 'terms_', 'description_', 'message_'])) {
+                else if (Str::contains($key, ['policy_', 'terms_', 'description_', 'message_']) && !Str::contains($key, 'bank_transfer_discount_popup_message')) { // استثناء رسالة الخصم الجديدة إذا أردت لها max مختلف
                      $rules[$key] = 'nullable|string|max:10000';
                 }
-                else {
+                else if (!Str::contains($key, 'bank_transfer_discount_popup_message') && $key !== 'bank_transfer_discount_code'){ // تجنب إعادة تعريف القواعد المضافة بالفعل
                     $rules[$key] = 'nullable|string|max:65535'; 
                 }
             }
         }
         
         $validatedData = $request->validate($rules);
-        Log::debug('Settings Update Request - Validated Data (subset shown):', collect($validatedData)->only(['contact_instagram_url', 'display_whatsapp_contact', 'display_instagram_contact', 'outside_ahsa_fee'])->toArray());
+        Log::debug('Settings Update Request - Validated Data (subset shown):', collect($validatedData)->only([
+            'contact_instagram_url', 'display_whatsapp_contact', 'display_instagram_contact', 'outside_ahsa_fee',
+            'enable_bank_transfer_discount_popup', 'bank_transfer_discount_popup_message_ar', 'bank_transfer_discount_code' // إضافة المفاتيح الجديدة هنا لتسجيلها
+        ])->toArray());
+
 
         try {
             DB::beginTransaction();
@@ -144,17 +172,25 @@ class SettingController extends Controller
                 } elseif (array_key_exists($key, $validatedData)) { 
                     $valueToStore = $validatedData[$key];
                 } elseif ($request->exists($key)) { 
+                    // هذا الشرط قد يكون غير ضروري إذا اعتمدنا فقط على $validatedData للقيم النصية
+                    // ولكن نبقيه للحقول التي قد لا تكون في $rules بشكل صريح ولكنها في $settingKeys
                     $valueToStore = $request->input($key);
                 }
                 
-                if ($valueToStore !== null || in_array($key, $this->booleanSettingKeys) || array_key_exists($key, $validatedData) ) {
-                    Setting::updateOrCreate(['key' => $key], ['value' => $valueToStore ?? '']);
-                     if (in_array($key, ['enable_bank_transfer', 'tamara_enabled', 'display_whatsapp_contact', 'display_instagram_contact', 'outside_ahsa_fee'])) { 
+                // يتم التحديث فقط إذا كان المفتاح موجودًا في الطلب (للحقول العادية) أو دائمًا للحقول البوليانية
+                if ($request->exists($key) || in_array($key, $this->booleanSettingKeys) ) {
+                     Setting::updateOrCreate(['key' => $key], ['value' => $valueToStore ?? '']);
+                     if (in_array($key, [
+                         'enable_bank_transfer', 'tamara_enabled', 'display_whatsapp_contact', 
+                         'display_instagram_contact', 'outside_ahsa_fee', 
+                         'enable_bank_transfer_discount_popup', 'bank_transfer_discount_code' // إضافة لتسجيل التغيير
+                        ])) { 
                         Log::info("Setting '{$key}' updated to: " . ($valueToStore ?? 'EMPTY_STRING'));
                     }
                 }
             }
 
+            // ... (باقي كود رفع الملفات كما هو) ...
             $fileUploads = [
                 'logo_light_file' => 'logo_path_light',
                 'logo_dark_file' => 'logo_path_dark',
@@ -203,6 +239,7 @@ class SettingController extends Controller
                 }
                 Setting::updateOrCreate(['key' => 'homepage_slider_images'], ['value' => json_encode(array_values($currentSliderImagesPaths))]);
             }
+
 
             DB::commit();
             Log::info('General settings updated by admin ID: ' . auth()->id());
