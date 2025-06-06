@@ -442,6 +442,7 @@
 
 @section('scripts')
 <script>
+    // --- MODIFICATION START: All JavaScript logic will be placed here ---
     function toArabicDigitsJS(str) {
         if (str === null || str === undefined) return '';
         const western = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.'];
@@ -460,6 +461,7 @@
     let currentShootingAreaFeeJS = 0; 
     let isDiscountAppliedJS = false;
     let totalAddOnServicesPriceJS = 0;
+    let currentSelectedPaymentMethod = null;
 
     const totalAmountDisplayEl = document.getElementById('total_amount_display');
     const amountToPayDisplayEl = document.getElementById('amount_to_pay_display');
@@ -501,9 +503,9 @@
     const applyBankDiscountBtn = document.getElementById('applyBankDiscountBtn');
     let bankDiscountModalShownOnce = false;
 
-    function formatDisplayAmountJS(value) { /* ... as before ... */ return toArabicDigitsJS( (Math.round(parseFloat(value) * 100) / 100).toFixed( (Math.abs(parseFloat(value) % 1) > 0.0001) ? 2 : 0 ) ); }
-    function calculateFinalTotalJS() { /* ... as before ... */ return priceAfterDiscountJS + currentShootingAreaFeeJS + totalAddOnServicesPriceJS; }
-    function updateDisplayedPricesJS() { /* ... as before ... */
+    function formatDisplayAmountJS(value) { return toArabicDigitsJS( (Math.round(parseFloat(value) * 100) / 100).toFixed( (Math.abs(parseFloat(value) % 1) > 0.0001) ? 2 : 0 ) ); }
+    function calculateFinalTotalJS() { return priceAfterDiscountJS + currentShootingAreaFeeJS + totalAddOnServicesPriceJS; }
+    function updateDisplayedPricesJS() {
         const finalTotal = calculateFinalTotalJS();
         const downPaymentCalculated = Math.round(finalTotal * 50) / 100; 
         const currentPaymentOptionValue = paymentOptionInputEl.value;
@@ -600,7 +602,17 @@
     }
 
     function selectPaymentMethodJS(methodValue) {
-        const previousPaymentMethod = document.querySelector('input[name="payment_method"]:checked')?.value;
+        // إذا لم تكن هناك طريقة دفع حالية (عند التحميل الأول)، قم بتعيينها
+        if(currentSelectedPaymentMethod === null) {
+            currentSelectedPaymentMethod = methodValue;
+        }
+
+        if(isDiscountAppliedJS && methodValue !== currentSelectedPaymentMethod) {
+            console.log(`Payment method changed from '${currentSelectedPaymentMethod}' to '${methodValue}'. Resetting discount.`);
+            resetDiscountStateJS();
+            if(manualDiscountResultDivEl) manualDiscountResultDivEl.innerHTML = '<span class="text-info small">تمت إزالة الخصم بسبب تغيير طريقة الدفع. يرجى اختيار خصم جديد إذا كان متاحًا.</span>';
+        }
+
         let methodFoundAndSelected = false;
         paymentMethodItemsEl.forEach(item => {
             const radio = item.querySelector('input[name="payment_method"]');
@@ -624,11 +636,8 @@
         }
         if(bankDetailsDivEl) bankDetailsDivEl.style.display = (methodValue === 'bank_transfer') ? 'block' : 'none';
         
-        if(isDiscountAppliedJS && methodValue !== previousPaymentMethod) {
-            resetDiscountStateJS();
-            if(manualDiscountResultDivEl) manualDiscountResultDivEl.innerHTML = '<span class="text-info small">تمت إزالة الخصم بسبب تغيير طريقة الدفع. يرجى اختيار خصم جديد إذا كان متاحًا.</span>';
-        }
-        
+        currentSelectedPaymentMethod = methodValue;
+
         if (methodValue === 'bank_transfer' && enableBankTransferDiscountPopupJS && bankTransferDiscountCodeJS && bankTransferDiscountModalInstance && !bankDiscountModalShownOnce && !isDiscountAppliedJS) {
             bankTransferDiscountModalInstance.show();
             bankDiscountModalShownOnce = true; 
@@ -668,6 +677,9 @@
                 showAppliedDiscountState(body.message);
                 if(discountCodeInputEl) discountCodeInputEl.value = code;
                 if (bankTransferDiscountModalInstance) bankTransferDiscountModalInstance.hide();
+                if(manualDiscountInputGroup) manualDiscountInputGroup.style.display = 'none';
+                if(toggleManualDiscountLink) toggleManualDiscountLink.style.display = 'inline-block';
+                if(manualDiscountResultDivEl) manualDiscountResultDivEl.innerHTML = '';
             } else {
                 const errorMessage = body.message || 'كود الخصم غير صالح أو حدث خطأ.';
                 resultContainer.innerHTML = `<span class="text-danger">${errorMessage}</span>`;
