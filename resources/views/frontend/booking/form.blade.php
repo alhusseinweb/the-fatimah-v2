@@ -146,7 +146,16 @@
     #manual-discount-input-group { display: none; }
     #manual_discount_result .text-success { color: #198754 !important; font-weight: 500; }
     #manual_discount_result .text-danger { color: #dc3545 !important; font-weight: 500; }
-    #manual_discount_result .text-info { color: #0dcaf0 !important; font-weight: 500;}
+    #manual_discount_result .text-info { color: #0d6efd !important; font-weight: 500;}
+
+    .confirmation-modal-body .summary-list { list-style: none; padding: 0; }
+    .confirmation-modal-body .summary-item { display: flex; justify-content: space-between; padding: 0.6rem 0; border-bottom: 1px dashed #eee; }
+    .confirmation-modal-body .summary-item:last-child { border-bottom: none; }
+    .confirmation-modal-body .summary-label { color: #6c757d; }
+    .confirmation-modal-body .summary-value { font-weight: 600; color: #343a40; }
+    .confirmation-modal-body .summary-value.total { color: #198754; font-size: 1.1rem; }
+    .confirmation-modal-body .sub-items { padding-right: 1.5rem; font-size: 0.9rem; }
+    .confirmation-modal-body .sub-item { display: flex; justify-content: space-between; }
 </style>
 @endsection
 
@@ -402,7 +411,7 @@
             </div>
 
             <div class="d-grid gap-3 mt-4">
-                <button type="submit" class="btn custom-btn custom-btn-success btn-lg" id="submit_booking_btn">
+                <button type="button" class="btn custom-btn custom-btn-success btn-lg" id="open-confirmation-modal-btn">
                      تأكيد الحجز والمتابعة للدفع
                 </button>
                 <a href="{{ route('booking.calendar', $service->id) }}" class="btn custom-btn custom-btn-outline">
@@ -438,6 +447,58 @@
 </div>
 @endif
 
+<div class="modal fade" id="finalConfirmationModal" tabindex="-1" aria-labelledby="finalConfirmationModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
+            <div class="modal-header bg-light border-0">
+                <h5 class="modal-title" id="finalConfirmationModalLabel">مراجعة نهائية للحجز</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4 confirmation-modal-body">
+                <p class="text-center text-muted mb-4">يرجى التأكد من صحة جميع التفاصيل قبل إتمام الحجز.</p>
+                
+                <ul class="summary-list">
+                    <li class="summary-item">
+                        <span class="summary-label">التاريخ والوقت:</span>
+                        <span class="summary-value" id="modal-booking-datetime"></span>
+                    </li>
+                    <li class="summary-item">
+                        <span class="summary-label">الخدمات المختارة:</span>
+                        <div class="summary-value text-end" id="modal-service-summary">
+                        </div>
+                    </li>
+                    <li class="summary-item">
+                        <span class="summary-label">إجمالي الخدمات:</span>
+                        <span class="summary-value" id="modal-subtotal"></span>
+                    </li>
+                    <li class="summary-item" id="modal-discount-row" style="display: none;">
+                        <span class="summary-label text-danger">الخصم المطبق:</span>
+                        <span class="summary-value text-danger" id="modal-discount-amount"></span>
+                    </li>
+                    <li class="summary-item">
+                        <span class="summary-label">المبلغ الإجمالي:</span>
+                        <span class="summary-value total" id="modal-grand-total"></span>
+                    </li>
+                    <li class="summary-item">
+                        <span class="summary-label">طريقة الدفع:</span>
+                        <span class="summary-value" id="modal-payment-method"></span>
+                    </li>
+                     <li class="summary-item">
+                        <span class="summary-label">المبلغ المطلوب الآن:</span>
+                        <span class="summary-value total" id="modal-amount-due"></span>
+                    </li>
+                </ul>
+
+            </div>
+            <div class="modal-footer border-0 p-3">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">تعديل</button>
+                <button type="button" class="btn btn-primary" id="confirm-and-submit-btn">
+                    تأكيد وإتمام الحجز
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 @endsection
 
 @section('scripts')
@@ -502,6 +563,11 @@
     const bankTransferDiscountModalEl = document.getElementById('bankTransferDiscountModal');
     const applyBankDiscountBtn = document.getElementById('applyBankDiscountBtn');
     let bankDiscountModalShownOnce = false;
+
+    const openConfirmationModalBtn = document.getElementById('open-confirmation-modal-btn');
+    const finalConfirmationModalEl = document.getElementById('finalConfirmationModal');
+    let finalConfirmationModalInstance = null;
+    const confirmAndSubmitBtn = document.getElementById('confirm-and-submit-btn');
 
     function formatDisplayAmountJS(value) { return toArabicDigitsJS( (Math.round(parseFloat(value) * 100) / 100).toFixed( (Math.abs(parseFloat(value) % 1) > 0.0001) ? 2 : 0 ) ); }
     function calculateFinalTotalJS() { return priceAfterDiscountJS + currentShootingAreaFeeJS + totalAddOnServicesPriceJS; }
@@ -602,11 +668,6 @@
     }
 
     function selectPaymentMethodJS(methodValue) {
-        // إذا لم تكن هناك طريقة دفع حالية (عند التحميل الأول)، قم بتعيينها
-        if(currentSelectedPaymentMethod === null) {
-            currentSelectedPaymentMethod = methodValue;
-        }
-
         if(isDiscountAppliedJS && methodValue !== currentSelectedPaymentMethod) {
             console.log(`Payment method changed from '${currentSelectedPaymentMethod}' to '${methodValue}'. Resetting discount.`);
             resetDiscountStateJS();
@@ -718,6 +779,36 @@
         updateDisplayedPricesJS();
     }
 
+    function populateConfirmationModal() {
+        document.getElementById('modal-booking-datetime').textContent = '{{ $bookingDateTime ? toArabicDigits($bookingDateTime->translatedFormat("l، d F Y - h:i a")) : "" }}';
+        let servicesHtml = `<div class="sub-item"><span>{{ e($service->getLocalizedNameAttribute()) }}</span><span>${formatDisplayAmountJS(baseServicePriceJS)} ريال</span></div>`;
+        addOnCheckboxes.forEach(checkbox => {
+            if (checkbox.checked) {
+                const label = document.querySelector(`label[for='${checkbox.id}']`).textContent;
+                const price = parseFloat(checkbox.dataset.price);
+                servicesHtml += `<div class="sub-item"><span>${label}</span><span>${formatDisplayAmountJS(price)} ريال</span></div>`;
+            }
+        });
+        document.getElementById('modal-service-summary').innerHTML = servicesHtml;
+        const selectedPaymentMethodRadio = document.querySelector('input[name="payment_method"]:checked');
+        const paymentMethodLabel = selectedPaymentMethodRadio ? document.querySelector(`label[for='${selectedPaymentMethodRadio.id}']`).textContent.trim() : 'غير محدد';
+        document.getElementById('modal-payment-method').textContent = paymentMethodLabel;
+        const subtotal = baseServicePriceJS + totalAddOnServicesPriceJS + currentShootingAreaFeeJS;
+        document.getElementById('modal-subtotal').textContent = `${formatDisplayAmountJS(subtotal)} ريال`;
+        const discountRow = document.getElementById('modal-discount-row');
+        if (isDiscountAppliedJS && currentDiscountValueRawJS > 0) {
+            document.getElementById('modal-discount-amount').textContent = `- ${formatDisplayAmountJS(currentDiscountValueRawJS)} ريال`;
+            discountRow.style.display = 'flex';
+        } else {
+            discountRow.style.display = 'none';
+        }
+        const grandTotal = calculateFinalTotalJS();
+        document.getElementById('modal-grand-total').textContent = `${formatDisplayAmountJS(grandTotal)} ريال`;
+        const paymentOption = paymentOptionInputEl.value;
+        const amountDue = (paymentOption === 'down_payment') ? (grandTotal / 2) : grandTotal;
+        document.getElementById('modal-amount-due').textContent = `${formatDisplayAmountJS(amountDue)} ريال`;
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         if (bankTransferDiscountModalEl && typeof bootstrap !== 'undefined') {
             bankTransferDiscountModalInstance = new bootstrap.Modal(bankTransferDiscountModalEl);
@@ -766,6 +857,38 @@
         });
         handleAddOnServiceChangeJS();
         
+        if (finalConfirmationModalEl && typeof bootstrap !== 'undefined') {
+            finalConfirmationModalInstance = new bootstrap.Modal(finalConfirmationModalEl);
+        }
+        if(openConfirmationModalBtn) {
+            openConfirmationModalBtn.addEventListener('click', function() {
+                const policyCheckbox = document.getElementById('agreed_to_policy');
+                if (!policyCheckbox.checked) {
+                    alert('يجب الموافقة على سياسة الحجز للمتابعة.');
+                    policyCheckbox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    const container = policyCheckbox.closest('.policy-check-container');
+                    if(container) {
+                        container.style.transition = 'background-color 0.5s';
+                        container.style.backgroundColor = 'rgba(220, 53, 69, 0.1)';
+                        setTimeout(() => { container.style.backgroundColor = 'transparent'; }, 1000);
+                    }
+                    return;
+                }
+                populateConfirmationModal();
+                if(finalConfirmationModalInstance) {
+                    finalConfirmationModalInstance.show();
+                }
+            });
+        }
+        
+        if(confirmAndSubmitBtn) {
+            confirmAndSubmitBtn.addEventListener('click', function() {
+                this.disabled = true;
+                this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> جاري ...';
+                document.getElementById('booking-form').submit();
+            });
+        }
+
         const initialRegionOption = document.querySelector('input[name="shooting_area_option"]:checked')?.value || 'inside_ahsa';
         if (initialRegionOption === 'outside_ahsa') { 
             currentShootingAreaFeeJS = outsideAhsaFeeConstJS;
