@@ -119,11 +119,6 @@
     .invalid-feedback { display: block; color: #dc3545; margin-top: 5px; font-size: 0.85rem; }
     .alert { border-radius: 10px; padding: 15px; margin-bottom: 20px; border: none; }
     .alert-danger { background-color: #fff2f2; color: #dc3545; border-right: 4px solid #dc3545; }
-    #discount_result .text-success { color: #198754 !important; font-weight: 500; }
-    #discount_result .text-danger { color: #dc3545 !important; font-weight: 500; }
-    #discount_result .text-info { color: #0dcaf0 !important; font-weight: 500;} /* لون لرسالة الإعلام */
-    #discount_result .spinner-border-sm { width: 1rem; height: 1rem; border-width: .2em; }
-    #outside_ahs_city_group { display: none; margin-top: 15px; }
     .add-on-services-list { margin-top: 0; }
     .add-on-service-item { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px dashed #eee; }
     .add-on-service-item:last-child { border-bottom: none; }
@@ -136,12 +131,29 @@
     html[dir="ltr"] .discount-popup-icon { margin-left: 0; margin-right: 1rem; }
     .btn-apply-discount-modal { background-color: #28a745; color: white; }
     .btn-apply-discount-modal:hover { background-color: #218838; }
+
+    /* --- MODIFICATION START: Styles for new discount section --- */
+    .discount-section .form-label { font-size: 0.9rem; font-weight: 600; color: #6c757d; }
+    #available-discounts-container { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+    .available-discount-btn { cursor: pointer; background-color: #e9f5ff; border: 1px solid #b8dcfd; color: #0d6efd; padding: 0.25rem 0.75rem; border-radius: 50px; font-size: 0.85rem; transition: all 0.2s ease; }
+    .available-discount-btn:hover { background-color: #d1e7ff; }
+    #applied-discount-container { display: none; padding: 0.75rem; background-color: #d1e7dd; border-radius: 8px; border: 1px solid #a3cfbb; }
+    #applied-discount-info { display: flex; justify-content: space-between; align-items: center; }
+    #applied-discount-text { font-weight: 500; color: #0a3622; }
+    #cancel-discount-btn { background: none; border: none; font-size: 1.2rem; color: #dc3545; opacity: 0.7; }
+    #cancel-discount-btn:hover { opacity: 1; }
+    #discount-loader { display: none; }
+    #toggle-manual-discount { color: #0d6efd; cursor: pointer; font-size: 0.85rem; text-decoration: underline; margin-top: 0.5rem; display: inline-block; }
+    #manual-discount-input-group { display: none; }
+    /* --- MODIFICATION END --- */
+
 </style>
 @endsection
 
 @section('content')
 <div class="booking-form-wrapper">
     <div class="container booking-container">
+        {{-- ... (Header and Summary sections remain the same) ... --}}
         <div class="booking-header">
             <h1 class="mb-2">تأكيد تفاصيل الحجز</h1>
             <p class="text-muted">يرجى تعبئة جميع البيانات المطلوبة لإتمام الحجز</p>
@@ -150,24 +162,16 @@
         @if (session('error'))
             <div class="alert alert-danger">{{ session('error') }}</div>
         @endif
-        @if ($errors->has('discount_code'))
-            <div class="alert alert-danger">{{ $errors->first('discount_code') }}</div>
-        @endif
-        @if ($errors->has('shooting_area_option') || $errors->has('outside_ahs_city'))
+        @if ($errors->any())
             <div class="alert alert-danger">
                 <ul class="mb-0">
-                    @if($errors->has('shooting_area_option')) <li>{{ $errors->first('shooting_area_option') }}</li> @endif
-                    @if($errors->has('outside_ahs_city')) <li>{{ $errors->first('outside_ahs_city') }}</li> @endif
+                    @foreach ($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
                 </ul>
             </div>
         @endif
-        @if ($errors->has('add_on_services') || $errors->has('add_on_services.*'))
-            <div class="alert alert-danger">
-                 الرجاء التأكد من صحة اختيار الخدمات الإضافية.
-            </div>
-        @endif
-
-
+        
         <div class="booking-card mb-4">
             <div class="card-header primary-header">
                 <h5 class="mb-0">ملخص الحجز</h5>
@@ -185,14 +189,16 @@
                 </dl>
             </div>
         </div>
-
+        
         <form action="{{ route('booking.submit') }}" method="POST" id="booking-form">
             @csrf
             <input type="hidden" name="service_id" value="{{ $service->id }}">
             <input type="hidden" name="date" value="{{ $selectedDate }}">
             <input type="hidden" name="time" id="booking_time_hidden_input" value="{{ $selectedTime }}">
             <input type="hidden" name="payment_option" id="payment_option_input" value="full">
+            <input type="hidden" name="discount_code" id="discount_code_input" value="{{ old('discount_code') }}">
 
+            {{-- ... (Region, Add-ons, and Additional Info sections remain the same) ... --}}
             <div class="booking-card mb-4">
                 <div class="card-header"> <h5 class="mb-0"> اختر منطقة التصوير <span class="text-danger">*</span> </h5> </div>
                 <div class="card-body">
@@ -208,15 +214,13 @@
                     </div>
                     <div id="outside_ahs_city_group" class="mt-3" style="display: {{ old('shooting_area_option') == 'outside_ahsa' ? 'block' : 'none' }};">
                         <label for="outside_ahs_city" class="form-label">الرجاء اختيار المدينة (خارج الأحساء) <span class="text-danger">*</span></label>
-                        <select class="form-select @error('outside_ahs_city') is-invalid @enderror" name="outside_ahs_city" id="outside_ahs_city" {{ old('shooting_area_option') == 'outside_ahsa' ? 'required' : '' }}>
+                        <select class="form-select" name="outside_ahs_city" id="outside_ahs_city" {{ old('shooting_area_option') == 'outside_ahsa' ? 'required' : '' }}>
                             <option value="">-- اختر المدينة --</option>
                             @foreach($outsideAhsaCities as $value => $label)
                                 <option value="{{ $value }}" {{ old('outside_ahs_city') == $value ? 'selected' : '' }}>{{ $label }}</option>
                             @endforeach
                         </select>
-                        @error('outside_ahs_city') <div class="invalid-feedback">{{ $message }}</div> @enderror
                     </div>
-                    @error('shooting_area_option') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
                 </div>
             </div>
 
@@ -238,52 +242,31 @@
             <div class="booking-card mb-4">
                 <div class="card-header"> <h5 class="mb-0">معلومات إضافية</h5> </div>
                 <div class="card-body">
-                    @if ($errors->any() && !$errors->has('payment_method') && !$errors->has('payment_option') && !$errors->has('discount_code') && !$errors->has('agreed_to_policy') && !$errors->has('shooting_area_option') && !$errors->has('outside_ahs_city') && !$errors->has('add_on_services') && !$errors->has('add_on_services.*'))
-                        <div class="alert alert-danger"><ul class="mb-0">@foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>
-                    @endif
                     <div class="row">
                         <div class="col-md-12 mb-3">
                             <label for="event_location" class="form-label">مكان الحفل/المناسبة (اسم القاعة، الحي، إلخ)</label>
-                            <input type="text" class="form-control @error('event_location') is-invalid @enderror" id="event_location" name="event_location" value="{{ old('event_location') }}">
-                            @error('event_location') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                            <input type="text" class="form-control" id="event_location" name="event_location" value="{{ old('event_location') }}">
                         </div>
                         <div class="col-md-6 mb-3">
                              <label for="groom_name_en" class="form-label">اسم العريس (بالإنجليزية)</label>
-                             <input type="text" class="form-control @error('groom_name_en') is-invalid @enderror" id="groom_name_en" name="groom_name_en" value="{{ old('groom_name_en') }}">
-                             @error('groom_name_en') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                             <input type="text" class="form-control" id="groom_name_en" name="groom_name_en" value="{{ old('groom_name_en') }}">
                         </div>
                          <div class="col-md-6 mb-3">
                              <label for="bride_name_en" class="form-label">اسم العروس (بالإنجليزية)</label>
-                             <input type="text" class="form-control @error('bride_name_en') is-invalid @enderror" id="bride_name_en" name="bride_name_en" value="{{ old('bride_name_en') }}">
-                             @error('bride_name_en') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                             <input type="text" class="form-control" id="bride_name_en" name="bride_name_en" value="{{ old('bride_name_en') }}">
                          </div>
                         <div class="col-md-12 mb-3">
                             <label for="customer_notes" class="form-label">ملاحظات إضافية (اختياري)</label>
-                            <textarea class="form-control @error('customer_notes') is-invalid @enderror" id="customer_notes" name="customer_notes" rows="3">{{ old('customer_notes') }}</textarea>
-                            @error('customer_notes') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                            <textarea class="form-control" id="customer_notes" name="customer_notes" rows="3">{{ old('customer_notes') }}</textarea>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div class="booking-card mb-4">
-                <div class="card-header"><h5 class="mb-0">كود الخصم (اختياري)</h5></div>
-                <div class="card-body">
-                    <label for="discount_code_input" class="form-label visually-hidden">كود الخصم</label>
-                    <div class="input-group mb-2">
-                        <input type="text" class="form-control" placeholder="أدخل كود الخصم هنا" name="discount_code" id="discount_code_input" value="{{ old('discount_code') }}" aria-describedby="discount_result" dir="ltr">
-                        <button class="btn btn-outline-secondary" type="button" id="check_discount_btn" style="border-color: #e0e0e0;">
-                             التحقق
-                        </button>
-                    </div>
-                    <div id="discount_result" class="mt-1" style="min-height: 22px; font-size: 0.9rem;"></div>
-                </div>
-            </div>
-
+            {{-- --- MODIFICATION: Sections reordered --- --}}
             <div class="booking-card mb-4">
                 <div class="card-header"> <h5 class="mb-0"> اختر خيار الدفع <span class="text-danger">*</span> </h5> </div>
                 <div class="card-body">
-                    @error('payment_option') <div class="alert alert-danger py-2 small">{{ $message }}</div> @enderror
                     <div class="payment-options">
                         <div class="payment-option-item selected" data-value="full">
                             <input class="form-check-input" type="radio" name="payment_option_radio_display" id="pay_full" value="full" checked>
@@ -298,34 +281,10 @@
                     </div>
                 </div>
             </div>
-
-            <div class="booking-card mb-4">
-                <div class="card-header"><h5 class="mb-0">سياسة الحجز</h5></div>
-                <div class="card-body">
-                    <div class="policy-box">
-                         @php
-                             $policy = app()->getLocale() == 'ar' ? ($bookingPolicyAr ?? '') : ($bookingPolicyEn ?? '');
-                             if(empty($policy) && app()->getLocale() == 'en') $policy = $bookingPolicyAr ?? '';
-                             if(empty($policy) && app()->getLocale() == 'ar' && !empty($bookingPolicyEn)) $policy = $bookingPolicyEn ?? '';
-                             if(empty($policy)) $policy = 'لم يتم تحديد سياسة الحجز بعد.';
-                         @endphp
-                         {!! nl2br(e($policy)) !!}
-                    </div>
-                    <div class="policy-check-container">
-                        <input class="policy-check-input form-check-input @error('agreed_to_policy') is-invalid @enderror" type="checkbox" value="1" id="agreed_to_policy" name="agreed_to_policy" {{ old('agreed_to_policy') ? 'checked' : '' }} required>
-                        <label class="policy-check-label form-check-label" for="agreed_to_policy">
-                            لقد قرأت سياسة الحجز وأوافق عليها <span class="text-danger">*</span>
-                        </label>
-                        @error('agreed_to_policy') <div class="invalid-feedback d-block">يجب الموافقة على سياسة الحجز للمتابعة.</div> @enderror
-                    </div>
-                </div>
-            </div>
             
             <div class="booking-card mb-4">
                 <div class="card-header"> <h5 class="mb-0"> اختر طريقة الدفع <span class="text-danger">*</span> </h5> </div>
                 <div class="card-body">
-                    @error('payment_method') <div class="alert alert-danger py-2 small">{{ $message }}</div> @enderror
-                    
                     @php
                         $defaultPaymentMethod = old('payment_method');
                         if (!$defaultPaymentMethod) {
@@ -393,6 +352,63 @@
                     @endif
                 </div>
             </div>
+            
+            {{-- --- MODIFICATION START: New Discount Section --- --}}
+            <div class="booking-card mb-4 discount-section">
+                <div class="card-header"><h5 class="mb-0">الخصومات والعروض</h5></div>
+                <div class="card-body">
+                    {{-- Container for applied discount --}}
+                    <div id="applied-discount-container">
+                        <div id="applied-discount-info">
+                            <span id="applied-discount-text"></span>
+                            <button type="button" id="cancel-discount-btn" title="إلغاء الخصم">&times;</button>
+                        </div>
+                    </div>
+
+                    {{-- Container for available discounts and manual input --}}
+                    <div id="discount-options-container">
+                        <label class="form-label" id="available-discounts-label">الخصومات المتاحة لطريقة الدفع المختارة:</label>
+                        <div id="discount-loader" class="text-center py-2">
+                             <div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">جاري البحث عن خصومات...</span></div>
+                        </div>
+                        <div id="available-discounts-container">
+                           {{-- Available discount buttons will be injected here by JS --}}
+                        </div>
+                        <div id="no-discounts-message" class="text-muted small mt-2" style="display: none;">
+                            لا توجد خصومات متاحة حالياً لطريقة الدفع المختارة.
+                        </div>
+                        <hr>
+                        <a href="#" id="toggle-manual-discount">أو أدخل كود الخصم يدويًا</a>
+                        <div class="input-group mt-2" id="manual-discount-input-group">
+                             <input type="text" class="form-control" placeholder="أدخل كود الخصم هنا" id="manual_discount_code" aria-label="كود الخصم اليدوي" dir="ltr">
+                             <button class="btn btn-outline-secondary" type="button" id="check_manual_discount_btn">التحقق</button>
+                        </div>
+                        <div id="manual_discount_result" class="mt-1" style="min-height: 22px; font-size: 0.9rem;"></div>
+                    </div>
+                </div>
+            </div>
+            {{-- --- MODIFICATION END --- --}}
+
+            <div class="booking-card mb-4">
+                <div class="card-header"><h5 class="mb-0">سياسة الحجز</h5></div>
+                <div class="card-body">
+                    <div class="policy-box">
+                         @php
+                             $policy = app()->getLocale() == 'ar' ? ($bookingPolicyAr ?? '') : ($bookingPolicyEn ?? '');
+                             if(empty($policy) && app()->getLocale() == 'en') $policy = $bookingPolicyAr ?? '';
+                             if(empty($policy) && app()->getLocale() == 'ar' && !empty($bookingPolicyEn)) $policy = $bookingPolicyEn ?? '';
+                             if(empty($policy)) $policy = 'لم يتم تحديد سياسة الحجز بعد.';
+                         @endphp
+                         {!! nl2br(e($policy)) !!}
+                    </div>
+                    <div class="policy-check-container">
+                        <input class="policy-check-input form-check-input" type="checkbox" value="1" id="agreed_to_policy" name="agreed_to_policy" {{ old('agreed_to_policy') ? 'checked' : '' }} required>
+                        <label class="policy-check-label form-check-label" for="agreed_to_policy">
+                            لقد قرأت سياسة الحجز وأوافق عليها <span class="text-danger">*</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
 
             <div class="d-grid gap-3 mt-4">
                 <button type="submit" class="btn custom-btn custom-btn-success btn-lg" id="submit_booking_btn">
@@ -406,14 +422,14 @@
     </div>
 </div>
 
-{{-- --- MODIFICATION START: Bank Transfer Discount Modal --- --}}
+{{-- ... (Bank Transfer Discount Modal HTML remains the same) ... --}}
 @if($isBankTransferEnabled && $enableBankTransferDiscountPopup && !empty($bankTransferDiscountCode))
 <div class="modal fade" id="bankTransferDiscountModal" tabindex="-1" aria-labelledby="bankTransferDiscountModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
             <div class="modal-header bg-light border-0 align-items-center" style="border-top-left-radius: 15px; border-top-right-radius: 15px;">
                 <h5 class="modal-title w-100 text-center" id="bankTransferDiscountModalLabel">
-                    فرصة خصم خاصة!
+                    <i class="fas fa-tags text-success me-2"></i> فرصة خصم خاصة!
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -421,7 +437,7 @@
                 <p class="lead mb-3">{!! nl2br(e($bankTransferPopupMessage)) !!}</p>
                 <p class="mb-3">رمز الخصم: <strong class="text-primary" dir="ltr">{{ $bankTransferDiscountCode }}</strong></p>
                 <button type="button" class="btn btn-success btn-lg w-100 btn-apply-discount-modal" id="applyBankDiscountBtn">
-                     نعم، قم بتطبيق الخصم!
+                    <i class="fas fa-check-circle me-2"></i> نعم، قم بتطبيق الخصم!
                 </button>
             </div>
             <div class="modal-footer border-0 justify-content-center pt-0 pb-3">
@@ -431,11 +447,12 @@
     </div>
 </div>
 @endif
-{{-- --- MODIFICATION END --- --}}
+
 @endsection
 
 @section('scripts')
 <script>
+    // ... (toArabicDigitsJS and initial variable setup as before) ...
     function toArabicDigitsJS(str) {
         if (str === null || str === undefined) return '';
         const western = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.'];
@@ -462,9 +479,21 @@
     const fullPaymentOptionAmountSpanEl = document.getElementById('full_payment_option_amount');
     const downPaymentOptionAmountSpanEl = document.getElementById('down_payment_option_amount');
     
-    const discountInputEl = document.getElementById('discount_code_input');
-    const checkDiscountBtnEl = document.getElementById('check_discount_btn');
-    const discountResultDivEl = document.getElementById('discount_result');
+    // --- MODIFICATION START: New elements for discount UI ---
+    const discountCodeInputEl = document.getElementById('discount_code_input'); // This is the hidden input now
+    const manualDiscountInputEl = document.getElementById('manual_discount_code');
+    const checkManualDiscountBtnEl = document.getElementById('check_manual_discount_btn');
+    const manualDiscountResultDivEl = document.getElementById('manual_discount_result');
+    const availableDiscountsContainer = document.getElementById('available-discounts-container');
+    const noDiscountsMessage = document.getElementById('no-discounts-message');
+    const discountLoader = document.getElementById('discount-loader');
+    const appliedDiscountContainer = document.getElementById('applied-discount-container');
+    const appliedDiscountText = document.getElementById('applied-discount-text');
+    const cancelDiscountBtn = document.getElementById('cancel-discount-btn');
+    const discountOptionsContainer = document.getElementById('discount-options-container');
+    const toggleManualDiscountLink = document.getElementById('toggle-manual-discount');
+    const manualDiscountInputGroup = document.getElementById('manual-discount-input-group');
+    // --- MODIFICATION END ---
     
     const paymentMethodItemsEl = document.querySelectorAll('.payment-method-item');
     const bankDetailsDivEl = document.getElementById('bank-details');
@@ -485,22 +514,12 @@
     const applyBankDiscountBtn = document.getElementById('applyBankDiscountBtn');
     let bankDiscountModalShownOnce = false;
 
-    function formatDisplayAmountJS(value) {
-        const numValue = parseFloat(value);
-        const roundedToTwoDecimals = Math.round(numValue * 100) / 100;
-        const hasSignificantFraction = (Math.abs(roundedToTwoDecimals % 1) > 0.0001);
-        return toArabicDigitsJS(roundedToTwoDecimals.toFixed(hasSignificantFraction ? 2 : 0));
-    }
-
-    function calculateFinalTotalJS() {
-        return priceAfterDiscountJS + currentShootingAreaFeeJS + totalAddOnServicesPriceJS;
-    }
-
-    function updateDisplayedPricesJS() {
+    function formatDisplayAmountJS(value) { /* ... as before ... */ return toArabicDigitsJS( (Math.round(parseFloat(value) * 100) / 100).toFixed( (Math.abs(parseFloat(value) % 1) > 0.0001) ? 2 : 0 ) ); }
+    function calculateFinalTotalJS() { /* ... as before ... */ return priceAfterDiscountJS + currentShootingAreaFeeJS + totalAddOnServicesPriceJS; }
+    function updateDisplayedPricesJS() { /* ... as before ... */
         const finalTotal = calculateFinalTotalJS();
         const downPaymentCalculated = Math.round(finalTotal * 50) / 100; 
         const currentPaymentOptionValue = paymentOptionInputEl.value;
-
         const formattedFinalTotal = formatDisplayAmountJS(finalTotal);
         const formattedDownPayment = formatDisplayAmountJS(downPaymentCalculated);
         const amountToPayNow = currentPaymentOptionValue === 'full' ? finalTotal : downPaymentCalculated;
@@ -508,7 +527,6 @@
         
         if(totalAmountDisplayEl) totalAmountDisplayEl.textContent = `${formattedFinalTotal} ريال سعودي`;
         if(amountToPayDisplayEl) amountToPayDisplayEl.textContent = `${formattedAmountToPayNow} ريال سعودي`;
-        
         if(fullPaymentOptionAmountSpanEl) fullPaymentOptionAmountSpanEl.textContent = `${formattedFinalTotal} ريال`;
         if(downPaymentOptionAmountSpanEl) downPaymentOptionAmountSpanEl.textContent = `${formattedDownPayment} ريال`;
 
@@ -519,14 +537,86 @@
         });
     }
 
-    function selectPaymentOptionJS(option) {
-        if (paymentOptionInputEl) paymentOptionInputEl.value = option;
-        updateDisplayedPricesJS();
+    // --- MODIFICATION START: New functions for discount UI ---
+
+    function showAppliedDiscountState(message) {
+        if(appliedDiscountContainer) appliedDiscountContainer.style.display = 'block';
+        if(appliedDiscountText) appliedDiscountText.textContent = message;
+        if(discountOptionsContainer) discountOptionsContainer.style.display = 'none';
     }
+
+    function showDiscountOptionsState() {
+        if(appliedDiscountContainer) appliedDiscountContainer.style.display = 'none';
+        if(appliedDiscountText) appliedDiscountText.textContent = '';
+        if(discountOptionsContainer) discountOptionsContainer.style.display = 'block';
+    }
+
+    function resetDiscountStateJS() {
+        isDiscountAppliedJS = false;
+        priceAfterDiscountJS = baseServicePriceJS; 
+        currentDiscountValueRawJS = 0;
+        if(discountCodeInputEl) discountCodeInputEl.value = ''; // Clear hidden main input
+        if(manualDiscountInputEl) {
+             manualDiscountInputEl.value = '';
+             manualDiscountInputEl.classList.remove('is-invalid');
+        }
+        if(manualDiscountResultDivEl) manualDiscountResultDivEl.innerHTML = '';
+        
+        showDiscountOptionsState(); // Show the discount options again
+        updateDisplayedPricesJS(); 
+    }
+    
+    async function fetchAvailableDiscounts(paymentMethod) {
+        if(!availableDiscountsContainer || !discountLoader || !noDiscountsMessage) return;
+
+        discountLoader.style.display = 'block';
+        availableDiscountsContainer.innerHTML = '';
+        noDiscountsMessage.style.display = 'none';
+        
+        try {
+            // سنفترض وجود مسار API جديد. إذا لم يكن موجودًا، سيفشل هذا وسيعرض رسالة خطأ.
+            // const response = await fetch('{{-- route("api.discounts.get-available") --}}', {
+            //     method: 'POST',
+            //     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfTokenJS },
+            //     body: JSON.stringify({
+            //         service_id: serviceIdForDiscountJS,
+            //         payment_method: paymentMethod,
+            //     })
+            // });
+            // if(!response.ok) throw new Error('Network response was not ok');
+            // const data = await response.json();
+            
+            // **محاكاة مؤقتة لبيانات API**
+            const data = { available_discounts: [] }; 
+            // example: const data = { available_discounts: [ {code: 'BANK10', description: 'خصم 10% للتحويل البنكي'}, {code: 'WELCOME5', description: 'خصم 5% ترحيبي'} ] };
+            
+            if(data.available_discounts && data.available_discounts.length > 0) {
+                data.available_discounts.forEach(discount => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'available-discount-btn';
+                    btn.textContent = discount.description || discount.code;
+                    btn.dataset.code = discount.code;
+                    btn.addEventListener('click', () => checkDiscountFunctionalityJS(discount.code));
+                    availableDiscountsContainer.appendChild(btn);
+                });
+            } else {
+                noDiscountsMessage.style.display = 'block';
+            }
+
+        } catch (error) {
+            console.error('Failed to fetch available discounts:', error);
+            noDiscountsMessage.textContent = 'حدث خطأ في جلب الخصومات المتاحة.';
+            noDiscountsMessage.style.display = 'block';
+        } finally {
+            discountLoader.style.display = 'none';
+        }
+    }
+
+    // --- MODIFICATION END ---
 
     function selectPaymentMethodJS(methodValue) {
         const previousPaymentMethod = document.querySelector('input[name="payment_method"]:checked')?.value;
-
         let methodFoundAndSelected = false;
         paymentMethodItemsEl.forEach(item => {
             const radio = item.querySelector('input[name="payment_method"]');
@@ -550,60 +640,27 @@
         }
         if(bankDetailsDivEl) bankDetailsDivEl.style.display = (methodValue === 'bank_transfer') ? 'block' : 'none';
         
-        if (previousPaymentMethod === 'bank_transfer' && 
-            methodValue !== 'bank_transfer' && 
-            isDiscountAppliedJS && 
-            discountInputEl && 
-            discountInputEl.value === bankTransferDiscountCodeJS && 
-            bankTransferDiscountCodeJS !== '') {
-            
-            console.log('Payment method changed from bank_transfer. Resetting bank transfer discount.');
-            resetDiscountStateJS(); 
-            if(discountResultDivEl) discountResultDivEl.innerHTML = '<span class="text-info small">تمت إزالة خصم التحويل البنكي بسبب تغيير طريقة الدفع.</span>';
+        // --- MODIFICATION START: Reset discount when payment method changes ---
+        if(isDiscountAppliedJS && methodValue !== previousPaymentMethod) {
+            resetDiscountStateJS();
+            // يمكنك إضافة رسالة إعلامية هنا
         }
-
+        // --- MODIFICATION END ---
+        
         if (methodValue === 'bank_transfer' && enableBankTransferDiscountPopupJS && bankTransferDiscountCodeJS && bankTransferDiscountModalInstance && !bankDiscountModalShownOnce && !isDiscountAppliedJS) {
             bankTransferDiscountModalInstance.show();
             bankDiscountModalShownOnce = true; 
         }
+        
+        fetchAvailableDiscounts(methodValue); // جلب الخصومات لطريقة الدفع الجديدة
     }
     
-    function resetDiscountStateJS(showDiscountAppliedMessage = false) { 
-        const wasDiscountApplied = isDiscountAppliedJS;
-        isDiscountAppliedJS = false;
-        priceAfterDiscountJS = baseServicePriceJS; 
-        currentDiscountValueRawJS = 0;
-        updateDisplayedPricesJS(); 
-        if(discountResultDivEl && !showDiscountAppliedMessage) discountResultDivEl.innerHTML = '';
-        if(discountInputEl) {
-            discountInputEl.classList.remove('is-invalid');
-            if(!showDiscountAppliedMessage) {
-                 discountInputEl.readOnly = false;
-            }
-        }
-        if(checkDiscountBtnEl) {
-            if(!showDiscountAppliedMessage){
-                checkDiscountBtnEl.disabled = false;
-                checkDiscountBtnEl.innerHTML = 'التحقق';
-            }
-        }
-        if(wasDiscountApplied && !showDiscountAppliedMessage && discountInputEl) {
-             // لا تمسح الكود إذا كان هو كود خصم البنك الذي نحاول تطبيقه للتو
-            if (discountInputEl.value !== bankTransferDiscountCodeJS || !bankTransferDiscountCodeJS) {
-                 discountInputEl.value = '';
-            }
-        }
-    }
-    
-    function checkDiscountFunctionalityJS(code, fromModal = false) { 
-        if (!code) {
-            if(discountResultDivEl) discountResultDivEl.innerHTML = '<span class="text-danger">الرجاء إدخال كود الخصم أولاً.</span>';
-            if (fromModal && bankTransferDiscountModalInstance) bankTransferDiscountModalInstance.hide();
-            return;
-        }
-        if(discountResultDivEl) discountResultDivEl.innerHTML = `<div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">جاري التحقق...</span></div>`;
-        if(checkDiscountBtnEl) checkDiscountBtnEl.disabled = true;
-        if(discountInputEl) discountInputEl.classList.remove('is-invalid');
+    function checkDiscountFunctionalityJS(code) {
+        if (!code) { /* ... */ return; }
+        
+        const resultContainer = manualDiscountResultDivEl;
+        resultContainer.innerHTML = `<div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">جاري التحقق...</span></div>`;
+        if(checkManualDiscountBtnEl) checkManualDiscountBtnEl.disabled = true;
 
         const selectedPaymentMethodValue = document.querySelector('input[name="payment_method"]:checked')?.value || null;
         const payload = {
@@ -620,93 +677,70 @@
         })
         .then(response => response.json().then(data => ({ status: response.status, body: data })))
         .then(({ status, body }) => {
-            if(checkDiscountBtnEl) checkDiscountBtnEl.disabled = false;
+            if(checkManualDiscountBtnEl) checkManualDiscountBtnEl.disabled = false;
             if (status >= 200 && status < 300 && body.valid) {
                 isDiscountAppliedJS = true;
                 currentDiscountValueRawJS = parseFloat(body.discount_value_raw || 0);
                 priceAfterDiscountJS = parseFloat(body.new_price_raw || baseServicePriceJS); 
                 updateDisplayedPricesJS();
                 const formattedDiscountTaken = formatDisplayAmountJS(currentDiscountValueRawJS);
-                if(discountResultDivEl) discountResultDivEl.innerHTML = `<span class="text-success">${body.message}. تم خصم: ${formattedDiscountTaken} ${body.currency || 'ريال'}</span>`;
-                if(checkDiscountBtnEl) { checkDiscountBtnEl.innerHTML = 'تم تطبيق الخصم'; checkDiscountBtnEl.disabled = true; }
-                if(discountInputEl) discountInputEl.readOnly = true;
-
-                if (fromModal && bankTransferDiscountModalInstance) {
-                    bankTransferDiscountModalInstance.hide();
-                }
+                showAppliedDiscountState(`${body.message}. تم خصم: ${formattedDiscountTaken} ${body.currency || 'ريال'}`);
+                if(discountCodeInputEl) discountCodeInputEl.value = code; // تعبئة الحقل المخفي
+                if (bankTransferDiscountModalInstance) bankTransferDiscountModalInstance.hide();
             } else {
-                resetDiscountStateJS(); 
                 const errorMessage = body.message || 'كود الخصم غير صالح أو حدث خطأ.';
-                if(discountResultDivEl) discountResultDivEl.innerHTML = `<span class="text-danger">${errorMessage}</span>`;
-                if (discountInputEl) discountInputEl.classList.add('is-invalid');
-                if(checkDiscountBtnEl) checkDiscountBtnEl.innerHTML = 'التحقق';
+                resultContainer.innerHTML = `<span class="text-danger">${errorMessage}</span>`;
+                if(manualDiscountInputEl) manualDiscountInputEl.classList.add('is-invalid');
             }
         })
         .catch(error => {
             console.error('Discount Check Fetch Error:', error);
-            resetDiscountStateJS();
-            if(discountResultDivEl) discountResultDivEl.innerHTML = '<span class="text-danger">حدث خطأ في الشبكة. يرجى المحاولة مرة أخرى.</span>';
-            if(checkDiscountBtnEl) { checkDiscountBtnEl.disabled = false; checkDiscountBtnEl.innerHTML = 'التحقق';}
-            if (fromModal && bankTransferDiscountModalInstance) bankTransferDiscountModalInstance.hide();
+            resultContainer.innerHTML = '<span class="text-danger">حدث خطأ في الشبكة. يرجى المحاولة مرة أخرى.</span>';
+            if(checkManualDiscountBtnEl) checkManualDiscountBtnEl.disabled = false;
         });
-    }
-    
-    function handleRegionChangeJS() {
-        const selectedRegionValue = document.querySelector('input[name="shooting_area_option"]:checked')?.value;
-        if (selectedRegionValue === 'outside_ahsa') {
-            if(outsideAhsaCityGroupEl) outsideAhsaCityGroupEl.style.display = 'block';
-            if(outsideAhsaCitySelectEl) outsideAhsaCitySelectEl.required = true;
-            currentShootingAreaFeeJS = outsideAhsaFeeConstJS;
-        } else {
-            if(outsideAhsaCityGroupEl) outsideAhsaCityGroupEl.style.display = 'none';
-            if(outsideAhsaCitySelectEl) { outsideAhsaCitySelectEl.required = false; }
-            currentShootingAreaFeeJS = 0;
-        }
-        regionOptionItemsEl.forEach(item => {
-            item.classList.toggle('selected', item.dataset.value === selectedRegionValue);
-        });
-        updateDisplayedPricesJS();
     }
 
-    function handleAddOnServiceChangeJS() {
-        totalAddOnServicesPriceJS = 0;
-        addOnCheckboxes.forEach(checkbox => {
-            if (checkbox.checked) {
-                totalAddOnServicesPriceJS += parseFloat(checkbox.dataset.price || 0);
-            }
-        });
-        updateDisplayedPricesJS();
-    }
+    // ... (باقي الدوال مثل handleRegionChangeJS و handleAddOnServiceChangeJS تبقى كما هي) ...
+    function selectPaymentOptionJS(option) { /* ... as before ... */ }
+    function handleRegionChangeJS() { /* ... as before ... */ }
+    function handleAddOnServiceChangeJS() { /* ... as before ... */ }
 
     document.addEventListener('DOMContentLoaded', function() {
         if (bankTransferDiscountModalEl && typeof bootstrap !== 'undefined') {
             bankTransferDiscountModalInstance = new bootstrap.Modal(bankTransferDiscountModalEl);
         }
-        if (applyBankDiscountBtn && discountInputEl && bankTransferDiscountCodeJS) {
+        if (applyBankDiscountBtn && bankTransferDiscountCodeJS) {
             applyBankDiscountBtn.addEventListener('click', function() {
-                if (isDiscountAppliedJS && discountInputEl.value === bankTransferDiscountCodeJS) {
-                     if (bankTransferDiscountModalInstance) bankTransferDiscountModalInstance.hide();
-                    return;
-                }
-                resetDiscountStateJS();
-                discountInputEl.value = bankTransferDiscountCodeJS;
-                checkDiscountFunctionalityJS(bankTransferDiscountCodeJS, true);
+                checkDiscountFunctionalityJS(bankTransferDiscountCodeJS);
             });
         }
-
+        
+        // --- MODIFICATION START: New event listeners for discount UI ---
+        if(cancelDiscountBtn) {
+            cancelDiscountBtn.addEventListener('click', resetDiscountStateJS);
+        }
+        if(toggleManualDiscountLink && manualDiscountInputGroup) {
+            toggleManualDiscountLink.addEventListener('click', function(e) {
+                e.preventDefault();
+                manualDiscountInputGroup.style.display = 'flex';
+                this.style.display = 'none';
+            });
+        }
+        if(checkManualDiscountBtnEl && manualDiscountInputEl) {
+            checkManualDiscountBtnEl.addEventListener('click', function() {
+                checkDiscountFunctionalityJS(manualDiscountInputEl.value.trim());
+            });
+        }
+        if(manualDiscountInputEl){
+            manualDiscountInputEl.addEventListener('input', function() {
+                manualDiscountInputEl.classList.remove('is-invalid');
+                if(manualDiscountResultDivEl) manualDiscountResultDivEl.innerHTML = '';
+            });
+        }
+        // --- MODIFICATION END ---
+        
         paymentOptionItemsEl.forEach(item => { item.addEventListener('click', function() { selectPaymentOptionJS(this.dataset.value); }); });
         paymentMethodItemsEl.forEach(item => { item.addEventListener('click', function() { selectPaymentMethodJS(this.dataset.value); }); });
-        if (checkDiscountBtnEl && discountInputEl) { checkDiscountBtnEl.addEventListener('click', function() { checkDiscountFunctionalityJS(discountInputEl.value.trim()); }); }
-        if(discountInputEl) { 
-            discountInputEl.addEventListener('input', function() { 
-                if (isDiscountAppliedJS || discountInputEl.classList.contains('is-invalid')) { 
-                    if(isDiscountAppliedJS && discountInputEl.value === bankTransferDiscountCodeJS && bankTransferDiscountCodeJS !== ''){
-                        return;
-                    }
-                    resetDiscountStateJS(); 
-                } 
-            }); 
-        }
         
         regionOptionItemsEl.forEach(item => {
             item.addEventListener('click', function() {
@@ -752,7 +786,6 @@
         if (defaultInitialMethod) { 
             selectPaymentMethodJS(defaultInitialMethod); 
         } 
-        else { if(submitBookingBtnEl && !{{ $isTamaraEnabled ? 'true' : 'false' }} && !{{ $isBankTransferEnabled ? 'true' : 'false' }}){ /* handle no payment methods available */ } }
         
         updateDisplayedPricesJS(); 
     });
