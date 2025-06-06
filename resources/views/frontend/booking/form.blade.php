@@ -147,7 +147,6 @@
     #manual_discount_result .text-success { color: #198754 !important; font-weight: 500; }
     #manual_discount_result .text-danger { color: #dc3545 !important; font-weight: 500; }
     #manual_discount_result .text-info { color: #0dcaf0 !important; font-weight: 500;}
-
 </style>
 @endsection
 
@@ -443,7 +442,6 @@
 
 @section('scripts')
 <script>
-    // ... (toArabicDigitsJS and initial variable setup as before) ...
     function toArabicDigitsJS(str) {
         if (str === null || str === undefined) return '';
         const western = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.'];
@@ -503,9 +501,9 @@
     const applyBankDiscountBtn = document.getElementById('applyBankDiscountBtn');
     let bankDiscountModalShownOnce = false;
 
-    function formatDisplayAmountJS(value) { return toArabicDigitsJS( (Math.round(parseFloat(value) * 100) / 100).toFixed( (Math.abs(parseFloat(value) % 1) > 0.0001) ? 2 : 0 ) ); }
-    function calculateFinalTotalJS() { return priceAfterDiscountJS + currentShootingAreaFeeJS + totalAddOnServicesPriceJS; }
-    function updateDisplayedPricesJS() {
+    function formatDisplayAmountJS(value) { /* ... as before ... */ return toArabicDigitsJS( (Math.round(parseFloat(value) * 100) / 100).toFixed( (Math.abs(parseFloat(value) % 1) > 0.0001) ? 2 : 0 ) ); }
+    function calculateFinalTotalJS() { /* ... as before ... */ return priceAfterDiscountJS + currentShootingAreaFeeJS + totalAddOnServicesPriceJS; }
+    function updateDisplayedPricesJS() { /* ... as before ... */
         const finalTotal = calculateFinalTotalJS();
         const downPaymentCalculated = Math.round(finalTotal * 50) / 100; 
         const currentPaymentOptionValue = paymentOptionInputEl.value;
@@ -628,6 +626,7 @@
         
         if(isDiscountAppliedJS && methodValue !== previousPaymentMethod) {
             resetDiscountStateJS();
+            if(manualDiscountResultDivEl) manualDiscountResultDivEl.innerHTML = '<span class="text-info small">تمت إزالة الخصم بسبب تغيير طريقة الدفع. يرجى اختيار خصم جديد إذا كان متاحًا.</span>';
         }
         
         if (methodValue === 'bank_transfer' && enableBankTransferDiscountPopupJS && bankTransferDiscountCodeJS && bankTransferDiscountModalInstance && !bankDiscountModalShownOnce && !isDiscountAppliedJS) {
@@ -641,7 +640,7 @@
     function checkDiscountFunctionalityJS(code) {
         if (!code) { return; }
         
-        const resultContainer = manualDiscountResultDivEl; // Use manual result for all checks now
+        const resultContainer = manualDiscountResultDivEl;
         resultContainer.innerHTML = `<div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">جاري التحقق...</span></div>`;
         if(checkManualDiscountBtnEl) checkManualDiscountBtnEl.disabled = true;
 
@@ -666,7 +665,7 @@
                 currentDiscountValueRawJS = parseFloat(body.discount_value_raw || 0);
                 priceAfterDiscountJS = parseFloat(body.new_price_raw || baseServicePriceJS); 
                 updateDisplayedPricesJS();
-                showAppliedDiscountState(body.message); // Use the new function to show applied state
+                showAppliedDiscountState(body.message);
                 if(discountCodeInputEl) discountCodeInputEl.value = code;
                 if (bankTransferDiscountModalInstance) bankTransferDiscountModalInstance.hide();
             } else {
@@ -682,8 +681,8 @@
         });
     }
 
-    function selectPaymentOptionJS(option) { /* ... as before ... */ if (paymentOptionInputEl) paymentOptionInputEl.value = option; updateDisplayedPricesJS(); }
-    function handleRegionChangeJS() { /* ... as before ... */ 
+    function selectPaymentOptionJS(option) { if (paymentOptionInputEl) paymentOptionInputEl.value = option; updateDisplayedPricesJS(); }
+    function handleRegionChangeJS() { 
         const selectedRegionValue = document.querySelector('input[name="shooting_area_option"]:checked')?.value;
         if (selectedRegionValue === 'outside_ahsa') {
             if(outsideAhsaCityGroupEl) outsideAhsaCityGroupEl.style.display = 'block';
@@ -697,7 +696,7 @@
         regionOptionItemsEl.forEach(item => { item.classList.toggle('selected', item.dataset.value === selectedRegionValue); });
         updateDisplayedPricesJS();
     }
-    function handleAddOnServiceChangeJS() { /* ... as before ... */
+    function handleAddOnServiceChangeJS() {
         totalAddOnServicesPriceJS = 0;
         addOnCheckboxes.forEach(checkbox => {
             if (checkbox.checked) {
