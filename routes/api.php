@@ -1,4 +1,5 @@
 <?php
+
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AvailabilityController;
@@ -31,24 +32,22 @@ Route::get('/availability/month/{service}/{year}/{month}', [AvailabilityControll
     ->name('api.availability.month');
 
 // Route for receiving Webhook notifications from Tamara
-Route::post('/tamara/webhook', [PaymentController::class, 'handleTamaraWebhook'])->name('tamara.webhook'); [cite: 112]
-Route::post('/tamara/Webhook', [PaymentController::class, 'handleTamaraWebhook']); [cite: 112]
+Route::post('/tamara/webhook', [PaymentController::class, 'handleTamaraWebhook'])->name('tamara.webhook');
+Route::post('/tamara/Webhook', [PaymentController::class, 'handleTamaraWebhook']);
 
+// --- المسارات الخاصة بالخصومات ---
 
-// --- MODIFICATION START: New route to get available discounts ---
-// هذا المسار سيجلب الخصومات المتاحة بناءً على الخدمة وطريقة الدفع
+// المسار الجديد لجلب الخصومات المتاحة
 Route::post('/discounts/get-available', [DiscountController::class, 'getAvailableDiscounts'])->name('api.discounts.get-available');
-// --- MODIFICATION END ---
 
+// المسار الحالي للتحقق من كود الخصم
+Route::post('/discount/check', [DiscountController::class, 'checkDiscount'])->name('api.discount.check');
 
-// المسار الحالي للتحقق من كود الخصم (يبقى كما هو)
-Route::post('/discount/check', [DiscountController::class, 'checkDiscount'])->name('api.discount.check'); [cite: 112]
 
 // --- HttpSms.com Webhook Route ---
-// هذا المسار سيستقبل تحديثات حالة الرسائل من httpsms.com
 Route::post('/webhooks/httpsms', [HttpSmsWebhookController::class, 'handle'])
-    ->name('webhooks.httpsms.handle'); [cite: 112]
-// --- نهاية مسار HttpSms.com Webhook ---
+    ->name('webhooks.httpsms.handle');
+
 
 // Debugging route to test Tamara API access
 Route::any('/tamara/test', function (Request $request) {
@@ -58,7 +57,7 @@ Route::any('/tamara/test', function (Request $request) {
         'timestamp' => now()->toDateTimeString(),
         'method' => $request->method()
     ]);
-}); [cite: 112]
+});
 
 // Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 //     return $request->user();
