@@ -52,6 +52,7 @@
 @section('title', 'تأكيد الحجز')
 
 @section('styles')
+{{-- ... (قسم الـ CSS يبقى كما هو بدون تغيير) ... --}}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
@@ -131,7 +132,6 @@
     html[dir="ltr"] .discount-popup-icon { margin-left: 0; margin-right: 1rem; }
     .btn-apply-discount-modal { background-color: #28a745; color: white; }
     .btn-apply-discount-modal:hover { background-color: #218838; }
-
     .discount-section .form-label { font-size: 0.9rem; font-weight: 600; color: #6c757d; }
     #available-discounts-container { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
     .available-discount-btn { cursor: pointer; background-color: #e9f5ff; border: 1px solid #b8dcfd; color: #0d6efd; padding: 0.25rem 0.75rem; border-radius: 50px; font-size: 0.85rem; transition: all 0.2s ease; }
@@ -146,8 +146,7 @@
     #manual-discount-input-group { display: none; }
     #manual_discount_result .text-success { color: #198754 !important; font-weight: 500; }
     #manual_discount_result .text-danger { color: #dc3545 !important; font-weight: 500; }
-    #manual_discount_result .text-info { color: #0d6efd !important; font-weight: 500;}
-
+    #manual_discount_result .text-info { color: #0dcaf0 !important; font-weight: 500;}
     .confirmation-modal-body .summary-list { list-style: none; padding: 0; }
     .confirmation-modal-body .summary-item { display: flex; justify-content: space-between; padding: 0.6rem 0; border-bottom: 1px dashed #eee; }
     .confirmation-modal-body .summary-item:last-child { border-bottom: none; }
@@ -166,30 +165,17 @@
             <h1 class="mb-2">تأكيد تفاصيل الحجز</h1>
             <p class="text-muted">يرجى تعبئة جميع البيانات المطلوبة لإتمام الحجز</p>
         </div>
-
-        @if (session('error'))
-            <div class="alert alert-danger">{{ session('error') }}</div>
-        @endif
-        @if ($errors->any())
-            <div class="alert alert-danger">
-                <ul class="mb-0">
-                    @foreach ($errors->all() as $error)
-                        <li>{{ $error }}</li>
-                    @endforeach
-                </ul>
-            </div>
-        @endif
+        @if (session('error')) <div class="alert alert-danger">{{ session('error') }}</div> @endif
+        @if ($errors->any()) <div class="alert alert-danger"><ul class="mb-0">@foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div> @endif
         
         <div class="booking-card mb-4">
-            <div class="card-header primary-header">
-                <h5 class="mb-0">ملخص الحجز</h5>
-            </div>
+            <div class="card-header primary-header"><h5 class="mb-0">ملخص الحجز</h5></div>
             <div class="card-body booking-summary">
                 <dl class="row mb-0">
                     <dt class="col-sm-3">الخدمة:</dt>
-                    <dd class="col-sm-9">{{ $service->{'name_' . app()->getLocale()} ?? $service->name_ar }}</dd>
+                    <dd class="col-sm-9">{{ $service->getLocalizedNameAttribute() }}</dd>
                     <dt class="col-sm-3">التاريخ والوقت:</dt>
-                    <dd class="col-sm-9">{{ $bookingDateTime ? (function_exists('toArabicDigits') ? toArabicDigits($bookingDateTime->translatedFormat('l, d F Y - h:i A')) : $bookingDateTime->translatedFormat('l, d F Y - h:i A')) : 'غير محدد' }}</dd>
+                    <dd class="col-sm-9">{{ $bookingDateTime ? toArabicDigits($bookingDateTime->translatedFormat('l, d F Y - h:i A')) : 'غير محدد' }}</dd>
                     <dt class="col-sm-3">السعر الإجمالي:</dt>
                     <dd class="col-sm-9 booking-price" id="total_amount_display">{{ $baseServicePriceFormatted }} ريال سعودي</dd>
                     <dt class="col-sm-3">المبلغ المطلوب للدفع الآن:</dt>
@@ -349,7 +335,7 @@
                                     @endforeach
                                 </ul>
                                  <p class="text-muted small mt-3">
-                                     يرجى تحويل المبلغ المطلوب إلى أحد الحسابات الموضحة أعلاه وإرسال إيصال التحويل عبر الواتساب <strong dir="ltr">{{ function_exists('toArabicDigits') ? toArabicDigits(App\Models\Setting::where('key', 'contact_whatsapp')->first()->value ?? '') : (App\Models\Setting::where('key', 'contact_whatsapp')->first()->value ?? '') }}</strong> لتأكيد حجزك.
+                                     يرجى تحويل المبلغ المطلوب إلى أحد الحسابات الموضحة أعلاه وإرسال إيصال التحويل عبر الواتساب <strong dir="ltr">{{ function_exists('toArabicDigits') ? toArabicDigits(App\Models\Setting::where('key', 'contact_whatsapp')->first()->value ?? '') : '' }}</strong> لتأكيد حجزك.
                                  </p>
                             @else
                                 <p class="alert alert-secondary small">لم يتم إضافة حسابات بنكية بواسطة الإدارة بعد. إذا اخترت التحويل البنكي، سيتم التواصل معك لتزويدك بالبيانات.</p>
@@ -484,7 +470,7 @@
                         <span class="summary-value" id="modal-payment-method"></span>
                     </li>
                      <li class="summary-item">
-                        <span class="summary-label">المبلغ المطلوب الآن:</span>
+                        <span class="summary-label" id="modal-amount-due-label">المبلغ المطلوب الآن:</span>
                         <span class="summary-value total" id="modal-amount-due"></span>
                     </li>
                 </ul>
@@ -503,7 +489,6 @@
 
 @section('scripts')
 <script>
-    // --- MODIFICATION START: All JavaScript logic will be placed here ---
     function toArabicDigitsJS(str) {
         if (str === null || str === undefined) return '';
         const western = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.'];
@@ -550,8 +535,7 @@
     const serviceIdForDiscountJS = '{{ $service->id }}';
     const bookingTimeForDiscountJS = document.getElementById('booking_time_hidden_input')?.value || '{{ $selectedTime }}';
     const csrfTokenJS = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-    const submitBookingBtnEl = document.getElementById('submit_booking_btn');
-
+    
     const regionOptionItemsEl = document.querySelectorAll('.region-option-item');
     const outsideAhsaCityGroupEl = document.getElementById('outside_ahs_city_group');
     const outsideAhsaCitySelectEl = document.getElementById('outside_ahs_city');
@@ -579,12 +563,10 @@
         const formattedDownPayment = formatDisplayAmountJS(downPaymentCalculated);
         const amountToPayNow = currentPaymentOptionValue === 'full' ? finalTotal : downPaymentCalculated;
         const formattedAmountToPayNow = formatDisplayAmountJS(amountToPayNow);
-        
         if(totalAmountDisplayEl) totalAmountDisplayEl.textContent = `${formattedFinalTotal} ريال سعودي`;
         if(amountToPayDisplayEl) amountToPayDisplayEl.textContent = `${formattedAmountToPayNow} ريال سعودي`;
         if(fullPaymentOptionAmountSpanEl) fullPaymentOptionAmountSpanEl.textContent = `${formattedFinalTotal} ريال`;
         if(downPaymentOptionAmountSpanEl) downPaymentOptionAmountSpanEl.textContent = `${formattedDownPayment} ريال`;
-
         paymentOptionItemsEl.forEach(item => {
             item.classList.toggle('selected', item.dataset.value === currentPaymentOptionValue);
             const radio = item.querySelector('input[type="radio"]');
@@ -614,18 +596,15 @@
              manualDiscountInputEl.classList.remove('is-invalid');
         }
         if(manualDiscountResultDivEl) manualDiscountResultDivEl.innerHTML = '';
-        
         showDiscountOptionsState();
         updateDisplayedPricesJS(); 
     }
     
     async function fetchAvailableDiscounts(paymentMethod) {
         if(!availableDiscountsContainer || !discountLoader || !noDiscountsMessage) return;
-
         discountLoader.style.display = 'block';
         availableDiscountsContainer.innerHTML = '';
         noDiscountsMessage.style.display = 'none';
-        
         try {
             const response = await fetch('{{ route("api.discounts.get-available") }}', {
                 method: 'POST',
@@ -636,14 +615,8 @@
                     booking_time: bookingTimeForDiscountJS, 
                 })
             });
-            
-            if(!response.ok) {
-                console.error('API response was not ok for get-available-discounts');
-                throw new Error('Network response was not ok');
-            }
-            
+            if(!response.ok) { throw new Error('Network response was not ok'); }
             const data = await response.json();
-            
             if(data.available_discounts && data.available_discounts.length > 0) {
                 data.available_discounts.forEach(discount => {
                     const btn = document.createElement('button');
@@ -657,7 +630,6 @@
             } else {
                 noDiscountsMessage.style.display = 'block';
             }
-
         } catch (error) {
             console.error('Failed to fetch available discounts:', error);
             noDiscountsMessage.textContent = 'حدث خطأ في جلب الخصومات المتاحة.';
@@ -673,18 +645,13 @@
             resetDiscountStateJS();
             if(manualDiscountResultDivEl) manualDiscountResultDivEl.innerHTML = '<span class="text-info small">تمت إزالة الخصم بسبب تغيير طريقة الدفع. يرجى اختيار خصم جديد إذا كان متاحًا.</span>';
         }
-
         let methodFoundAndSelected = false;
         paymentMethodItemsEl.forEach(item => {
             const radio = item.querySelector('input[name="payment_method"]');
-            if (item.dataset.value === methodValue) {
-                item.classList.add('selected');
-                if (radio) radio.checked = true;
-                methodFoundAndSelected = true;
-            } else {
-                item.classList.remove('selected');
-                if (radio) radio.checked = false;
-            }
+            const isSelected = item.dataset.value === methodValue;
+            item.classList.toggle('selected', isSelected);
+            if (radio) radio.checked = isSelected;
+            if(isSelected) methodFoundAndSelected = true;
         });
         if(!methodFoundAndSelected && !document.querySelector('input[name="payment_method"]:checked')) {
             const firstAvailableMethodRadio = document.querySelector('.payment-method-item input[name="payment_method"]');
@@ -696,24 +663,19 @@
             }
         }
         if(bankDetailsDivEl) bankDetailsDivEl.style.display = (methodValue === 'bank_transfer') ? 'block' : 'none';
-        
         currentSelectedPaymentMethod = methodValue;
-
         if (methodValue === 'bank_transfer' && enableBankTransferDiscountPopupJS && bankTransferDiscountCodeJS && bankTransferDiscountModalInstance && !bankDiscountModalShownOnce && !isDiscountAppliedJS) {
             bankTransferDiscountModalInstance.show();
             bankDiscountModalShownOnce = true; 
         }
-        
         fetchAvailableDiscounts(methodValue);
     }
     
     function checkDiscountFunctionalityJS(code) {
         if (!code) { return; }
-        
         const resultContainer = manualDiscountResultDivEl;
         resultContainer.innerHTML = `<div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">جاري التحقق...</span></div>`;
         if(checkManualDiscountBtnEl) checkManualDiscountBtnEl.disabled = true;
-
         const selectedPaymentMethodValue = document.querySelector('input[name="payment_method"]:checked')?.value || null;
         const payload = {
             discount_code: code,
@@ -721,7 +683,6 @@
             booking_time: bookingTimeForDiscountJS, 
             selected_payment_method: selectedPaymentMethodValue,
         };
-
         fetch('{{ route("api.discount.check") }}', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfTokenJS, },
@@ -789,6 +750,9 @@
                 servicesHtml += `<div class="sub-item"><span>${label}</span><span>${formatDisplayAmountJS(price)} ريال</span></div>`;
             }
         });
+        if (currentShootingAreaFeeJS > 0) {
+            servicesHtml += `<div class="sub-item"><span>رسوم تصوير خارج الأحساء</span><span>${formatDisplayAmountJS(currentShootingAreaFeeJS)} ريال</span></div>`;
+        }
         document.getElementById('modal-service-summary').innerHTML = servicesHtml;
         const selectedPaymentMethodRadio = document.querySelector('input[name="payment_method"]:checked');
         const paymentMethodLabel = selectedPaymentMethodRadio ? document.querySelector(`label[for='${selectedPaymentMethodRadio.id}']`).textContent.trim() : 'غير محدد';
@@ -806,6 +770,8 @@
         document.getElementById('modal-grand-total').textContent = `${formatDisplayAmountJS(grandTotal)} ريال`;
         const paymentOption = paymentOptionInputEl.value;
         const amountDue = (paymentOption === 'down_payment') ? (grandTotal / 2) : grandTotal;
+        const paymentOptionLabelEl = document.getElementById('modal-amount-due-label');
+        if(paymentOptionLabelEl) paymentOptionLabelEl.textContent = (paymentOption === 'down_payment') ? 'المبلغ المطلوب الآن (عربون 50%)' : 'المبلغ المطلوب الآن (كامل)';
         document.getElementById('modal-amount-due').textContent = `${formatDisplayAmountJS(amountDue)} ريال`;
     }
 
@@ -818,10 +784,7 @@
                 checkDiscountFunctionalityJS(bankTransferDiscountCodeJS);
             });
         }
-        
-        if(cancelDiscountBtn) {
-            cancelDiscountBtn.addEventListener('click', resetDiscountStateJS);
-        }
+        if(cancelDiscountBtn) { cancelDiscountBtn.addEventListener('click', resetDiscountStateJS); }
         if(toggleManualDiscountLink && manualDiscountInputGroup) {
             toggleManualDiscountLink.addEventListener('click', function(e) {
                 e.preventDefault();
