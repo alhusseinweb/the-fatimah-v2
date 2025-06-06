@@ -241,13 +241,13 @@
                             <input type="text" class="form-control" id="event_location" name="event_location" value="{{ old('event_location') }}">
                         </div>
                         <div class="col-md-6 mb-3">
-                             <label for="groom_name_en" class="form-label">اسم العريس (بالإنجليزية)</label>
-                             <input type="text" class="form-control" id="groom_name_en" name="groom_name_en" value="{{ old('groom_name_en') }}">
+                            <label for="groom_name_en" class="form-label">اسم العريس (بالإنجليزية)</label>
+                            <input type="text" class="form-control" id="groom_name_en" name="groom_name_en" value="{{ old('groom_name_en') }}">
                         </div>
-                         <div class="col-md-6 mb-3">
-                             <label for="bride_name_en" class="form-label">اسم العروس (بالإنجليزية)</label>
-                             <input type="text" class="form-control" id="bride_name_en" name="bride_name_en" value="{{ old('bride_name_en') }}">
-                         </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="bride_name_en" class="form-label">اسم العروس (بالإنجليزية)</label>
+                            <input type="text" class="form-control" id="bride_name_en" name="bride_name_en" value="{{ old('bride_name_en') }}">
+                        </div>
                         <div class="col-md-12 mb-3">
                             <label for="customer_notes" class="form-label">ملاحظات إضافية (اختياري)</label>
                             <textarea class="form-control" id="customer_notes" name="customer_notes" rows="3">{{ old('customer_notes') }}</textarea>
@@ -287,18 +287,22 @@
 
                     <div class="payment-methods">
                         @if($isTamaraEnabled)
-                            <div class="payment-method-item {{ $defaultPaymentMethod == 'tamara' ? 'selected' : '' }}" data-value="tamara">
-                                 <input class="form-check-input" type="radio" name="payment_method" id="pay_tamara" value="tamara" {{ $defaultPaymentMethod == 'tamara' ? 'checked' : '' }} required>
-                                 <img src="{{ asset('images/tamara.png') }}" height="28" alt="Tamara" style="margin-right: 8px; max-width: 100px; vertical-align: middle;">
-                                 <label for="pay_tamara" style="cursor:pointer;" class="ms-2"> الدفع لاحقاً أو على أقساط مع تمارا </label>
+                            <div class="payment-method-item {{ $defaultPaymentMethod == 'tamara' ? 'selected' : '' }}" data-value="tamara" style="display: flex;">
+                                <input class="form-check-input" type="radio" name="payment_method" id="pay_tamara" value="tamara" {{ $defaultPaymentMethod == 'tamara' ? 'checked' : '' }} required>
+                                <img src="{{ asset('images/tamara.png') }}" height="28" alt="Tamara" style="margin-right: 8px; max-width: 100px; vertical-align: middle;">
+                                <label for="pay_tamara" style="cursor:pointer;" class="ms-2"> الدفع لاحقاً أو على أقساط مع تمارا </label>
+                            </div>
+                            {{-- NEW: Warning message for Tamara limit --}}
+                            <div id="tamara-limit-warning" class="text-danger small mt-2" style="display: none; padding-right: 15px;">
+                                <strong>ملاحظة:</strong> الدفع عبر تمارا غير متاح للمبالغ التي تتجاوز 3000 ريال. يرجى اختيار طريقة دفع أخرى.
                             </div>
                         @endif
 
                         @if($isBankTransferEnabled)
-                             <div class="payment-method-item {{ $defaultPaymentMethod == 'bank_transfer' ? 'selected' : '' }}" data-value="bank_transfer">
-                                 <input class="form-check-input" type="radio" name="payment_method" id="pay_bank" value="bank_transfer" {{ $defaultPaymentMethod == 'bank_transfer' ? 'checked' : '' }} required>
-                                 <img src="{{ asset('images/bank-icon.jpg') }}" height="24" alt="Bank Transfer" style="margin-right: 8px; margin-left: 5px; vertical-align: middle;">
-                                 <label for="pay_bank" style="cursor:pointer;" class="ms-1"> تحويل بنكي </label>
+                            <div class="payment-method-item {{ $defaultPaymentMethod == 'bank_transfer' ? 'selected' : '' }}" data-value="bank_transfer">
+                                <input class="form-check-input" type="radio" name="payment_method" id="pay_bank" value="bank_transfer" {{ $defaultPaymentMethod == 'bank_transfer' ? 'checked' : '' }} required>
+                                <img src="{{ asset('images/bank-icon.jpg') }}" height="24" alt="Bank Transfer" style="margin-right: 8px; margin-left: 5px; vertical-align: middle;">
+                                <label for="pay_bank" style="cursor:pointer;" class="ms-1"> تحويل بنكي </label>
                             </div>
                         @endif
                     </div>
@@ -307,7 +311,7 @@
                         <div class="alert alert-warning py-3">
                             عفواً، لا توجد طرق دفع إلكترونية مفعلة حالياً. سيكتمل حجزك مبدئياً وسيتم التواصل معك لترتيب عملية الدفع.
                         </div>
-                         <input type="hidden" name="payment_method" value="manual_confirmation_due_to_no_gateway">
+                        <input type="hidden" name="payment_method" value="manual_confirmation_due_to_no_gateway">
                     @endif
                     
                     @if($isBankTransferEnabled)
@@ -334,9 +338,9 @@
                                     </li>
                                     @endforeach
                                 </ul>
-                                 <p class="text-muted small mt-3">
-                                     يرجى تحويل المبلغ المطلوب إلى أحد الحسابات الموضحة أعلاه وإرسال إيصال التحويل عبر الواتساب <strong dir="ltr">{{ function_exists('toArabicDigits') ? toArabicDigits(App\Models\Setting::where('key', 'contact_whatsapp')->first()->value ?? '') : '' }}</strong> لتأكيد حجزك.
-                                 </p>
+                                <p class="text-muted small mt-3">
+                                    يرجى تحويل المبلغ المطلوب إلى أحد الحسابات الموضحة أعلاه وإرسال إيصال التحويل عبر الواتساب <strong dir="ltr">{{ function_exists('toArabicDigits') ? toArabicDigits(App\Models\Setting::where('key', 'contact_whatsapp')->first()->value ?? '') : '' }}</strong> لتأكيد حجزك.
+                                </p>
                             @else
                                 <p class="alert alert-secondary small">لم يتم إضافة حسابات بنكية بواسطة الإدارة بعد. إذا اخترت التحويل البنكي، سيتم التواصل معك لتزويدك بالبيانات.</p>
                             @endif
@@ -357,7 +361,7 @@
                     <div id="discount-options-container">
                         <label class="form-label" id="available-discounts-label">الخصومات المتاحة لطريقة الدفع المختارة:</label>
                         <div id="discount-loader" class="text-center py-2">
-                             <div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">جاري البحث عن خصومات...</span></div>
+                            <div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">جاري البحث عن خصومات...</span></div>
                         </div>
                         <div id="available-discounts-container">
                         </div>
@@ -367,8 +371,8 @@
                         <hr>
                         <a href="#" id="toggle-manual-discount">أو أدخل كود الخصم يدويًا</a>
                         <div class="input-group mt-2" id="manual-discount-input-group">
-                             <input type="text" class="form-control" placeholder="أدخل كود الخصم هنا" id="manual_discount_code" aria-label="كود الخصم اليدوي" dir="ltr">
-                             <button class="btn btn-outline-secondary" type="button" id="check_manual_discount_btn">التحقق</button>
+                            <input type="text" class="form-control" placeholder="أدخل كود الخصم هنا" id="manual_discount_code" aria-label="كود الخصم اليدوي" dir="ltr">
+                            <button class="btn btn-outline-secondary" type="button" id="check_manual_discount_btn">التحقق</button>
                         </div>
                         <div id="manual_discount_result" class="mt-1" style="min-height: 22px; font-size: 0.9rem;"></div>
                     </div>
@@ -379,13 +383,13 @@
                 <div class="card-header"><h5 class="mb-0">سياسة الحجز</h5></div>
                 <div class="card-body">
                     <div class="policy-box">
-                         @php
-                             $policy = app()->getLocale() == 'ar' ? ($bookingPolicyAr ?? '') : ($bookingPolicyEn ?? '');
-                             if(empty($policy) && app()->getLocale() == 'en') $policy = $bookingPolicyAr ?? '';
-                             if(empty($policy) && app()->getLocale() == 'ar' && !empty($bookingPolicyEn)) $policy = $bookingPolicyEn ?? '';
-                             if(empty($policy)) $policy = 'لم يتم تحديد سياسة الحجز بعد.';
-                         @endphp
-                         {!! nl2br(e($policy)) !!}
+                        @php
+                            $policy = app()->getLocale() == 'ar' ? ($bookingPolicyAr ?? '') : ($bookingPolicyEn ?? '');
+                            if(empty($policy) && app()->getLocale() == 'en') $policy = $bookingPolicyAr ?? '';
+                            if(empty($policy) && app()->getLocale() == 'ar' && !empty($bookingPolicyEn)) $policy = $bookingPolicyEn ?? '';
+                            if(empty($policy)) $policy = 'لم يتم تحديد سياسة الحجز بعد.';
+                        @endphp
+                        {!! nl2br(e($policy)) !!}
                     </div>
                     <div class="policy-check-container">
                         <input class="policy-check-input form-check-input" type="checkbox" value="1" id="agreed_to_policy" name="agreed_to_policy" {{ old('agreed_to_policy') ? 'checked' : '' }} required>
@@ -398,10 +402,10 @@
 
             <div class="d-grid gap-3 mt-4">
                 <button type="button" class="btn custom-btn custom-btn-success btn-lg" id="open-confirmation-modal-btn">
-                     تأكيد الحجز والمتابعة للدفع
+                    تأكيد الحجز والمتابعة للدفع
                 </button>
                 <a href="{{ route('booking.calendar', $service->id) }}" class="btn custom-btn custom-btn-outline">
-                     العودة للتقويم
+                    العودة للتقويم
                 </a>
             </div>
         </form>
@@ -426,7 +430,7 @@
                 </button>
             </div>
             <div class="modal-footer border-0 justify-content-center pt-0 pb-3">
-                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">لا شكراً، المتابعة بدون خصم</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">لا شكراً، المتابعة بدون خصم</button>
             </div>
         </div>
     </div>
@@ -469,7 +473,7 @@
                         <span class="summary-label">طريقة الدفع:</span>
                         <span class="summary-value" id="modal-payment-method"></span>
                     </li>
-                     <li class="summary-item">
+                    <li class="summary-item">
                         <span class="summary-label" id="modal-amount-due-label">المبلغ المطلوب الآن:</span>
                         <span class="summary-value total" id="modal-amount-due"></span>
                     </li>
@@ -509,6 +513,9 @@
     let totalAddOnServicesPriceJS = 0;
     let currentSelectedPaymentMethod = null;
 
+    // NEW: Tamara payment limit constant
+    const TAMARA_PAYMENT_LIMIT = 3000;
+
     const totalAmountDisplayEl = document.getElementById('total_amount_display');
     const amountToPayDisplayEl = document.getElementById('amount_to_pay_display');
     const paymentOptionInputEl = document.getElementById('payment_option_input');
@@ -532,6 +539,10 @@
     
     const paymentMethodItemsEl = document.querySelectorAll('.payment-method-item');
     const bankDetailsDivEl = document.getElementById('bank-details');
+    // NEW: Tamara element selectors
+    const tamaraPaymentOptionEl = document.querySelector('.payment-method-item[data-value="tamara"]');
+    const tamaraLimitWarningEl = document.getElementById('tamara-limit-warning');
+
     const serviceIdForDiscountJS = '{{ $service->id }}';
     const bookingTimeForDiscountJS = document.getElementById('booking_time_hidden_input')?.value || '{{ $selectedTime }}';
     const csrfTokenJS = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
@@ -555,6 +566,32 @@
 
     function formatDisplayAmountJS(value) { return toArabicDigitsJS( (Math.round(parseFloat(value) * 100) / 100).toFixed( (Math.abs(parseFloat(value) % 1) > 0.0001) ? 2 : 0 ) ); }
     function calculateFinalTotalJS() { return priceAfterDiscountJS + currentShootingAreaFeeJS + totalAddOnServicesPriceJS; }
+
+    // NEW: Tamara limit check function
+    function checkTamaraLimit() {
+        if (!tamaraPaymentOptionEl || !tamaraLimitWarningEl) return;
+
+        const finalTotal = calculateFinalTotalJS();
+        const amountToPayNow = paymentOptionInputEl.value === 'full' ? finalTotal : (Math.round(finalTotal * 50) / 100);
+
+        if (amountToPayNow > TAMARA_PAYMENT_LIMIT) {
+            tamaraPaymentOptionEl.style.display = 'none';
+            tamaraLimitWarningEl.style.display = 'block';
+
+            // If Tamara was the selected method, switch to the next available one
+            const selectedMethodInput = document.querySelector('input[name="payment_method"]:checked');
+            if (selectedMethodInput && selectedMethodInput.value === 'tamara') {
+                const nextAvailableMethod = document.querySelector('.payment-method-item[data-value="bank_transfer"]');
+                if (nextAvailableMethod) {
+                    selectPaymentMethodJS('bank_transfer');
+                }
+            }
+        } else {
+            tamaraPaymentOptionEl.style.display = 'flex';
+            tamaraLimitWarningEl.style.display = 'none';
+        }
+    }
+
     function updateDisplayedPricesJS() {
         const finalTotal = calculateFinalTotalJS();
         const downPaymentCalculated = Math.round(finalTotal * 50) / 100; 
@@ -563,15 +600,20 @@
         const formattedDownPayment = formatDisplayAmountJS(downPaymentCalculated);
         const amountToPayNow = currentPaymentOptionValue === 'full' ? finalTotal : downPaymentCalculated;
         const formattedAmountToPayNow = formatDisplayAmountJS(amountToPayNow);
+
         if(totalAmountDisplayEl) totalAmountDisplayEl.textContent = `${formattedFinalTotal} ريال سعودي`;
         if(amountToPayDisplayEl) amountToPayDisplayEl.textContent = `${formattedAmountToPayNow} ريال سعودي`;
         if(fullPaymentOptionAmountSpanEl) fullPaymentOptionAmountSpanEl.textContent = `${formattedFinalTotal} ريال`;
         if(downPaymentOptionAmountSpanEl) downPaymentOptionAmountSpanEl.textContent = `${formattedDownPayment} ريال`;
+        
         paymentOptionItemsEl.forEach(item => {
             item.classList.toggle('selected', item.dataset.value === currentPaymentOptionValue);
             const radio = item.querySelector('input[type="radio"]');
             if (radio) radio.checked = (item.dataset.value === currentPaymentOptionValue);
         });
+
+        // Call the new Tamara check function every time prices are updated
+        checkTamaraLimit();
     }
 
     function showAppliedDiscountState(message) {
@@ -592,8 +634,8 @@
         currentDiscountValueRawJS = 0;
         if(discountCodeInputEl) discountCodeInputEl.value = '';
         if(manualDiscountInputEl) {
-             manualDiscountInputEl.value = '';
-             manualDiscountInputEl.classList.remove('is-invalid');
+            manualDiscountInputEl.value = '';
+            manualDiscountInputEl.classList.remove('is-invalid');
         }
         if(manualDiscountResultDivEl) manualDiscountResultDivEl.innerHTML = '';
         showDiscountOptionsState();
@@ -645,16 +687,22 @@
             resetDiscountStateJS();
             if(manualDiscountResultDivEl) manualDiscountResultDivEl.innerHTML = '<span class="text-info small">تمت إزالة الخصم بسبب تغيير طريقة الدفع. يرجى اختيار خصم جديد إذا كان متاحًا.</span>';
         }
+
         let methodFoundAndSelected = false;
         paymentMethodItemsEl.forEach(item => {
+            // Skip Tamara if it's hidden due to the limit
+            if (item.dataset.value === 'tamara' && item.style.display === 'none') {
+                return;
+            }
             const radio = item.querySelector('input[name="payment_method"]');
             const isSelected = item.dataset.value === methodValue;
             item.classList.toggle('selected', isSelected);
             if (radio) radio.checked = isSelected;
             if(isSelected) methodFoundAndSelected = true;
         });
+
         if(!methodFoundAndSelected && !document.querySelector('input[name="payment_method"]:checked')) {
-            const firstAvailableMethodRadio = document.querySelector('.payment-method-item input[name="payment_method"]');
+            const firstAvailableMethodRadio = document.querySelector('.payment-method-item input[name="payment_method"]:not([disabled])');
             if(firstAvailableMethodRadio){
                 firstAvailableMethodRadio.checked = true;
                 const parentItem = firstAvailableMethodRadio.closest('.payment-method-item');
@@ -662,6 +710,7 @@
                 methodValue = firstAvailableMethodRadio.value;
             }
         }
+
         if(bankDetailsDivEl) bankDetailsDivEl.style.display = (methodValue === 'bank_transfer') ? 'block' : 'none';
         currentSelectedPaymentMethod = methodValue;
         if (methodValue === 'bank_transfer' && enableBankTransferDiscountPopupJS && bankTransferDiscountCodeJS && bankTransferDiscountModalInstance && !bankDiscountModalShownOnce && !isDiscountAppliedJS) {
@@ -769,7 +818,7 @@
         const grandTotal = calculateFinalTotalJS();
         document.getElementById('modal-grand-total').textContent = `${formatDisplayAmountJS(grandTotal)} ريال`;
         const paymentOption = paymentOptionInputEl.value;
-        const amountDue = (paymentOption === 'down_payment') ? (grandTotal / 2) : grandTotal;
+        const amountDue = (paymentOption === 'down_payment') ? (Math.round(grandTotal * 50) / 100) : grandTotal;
         const paymentOptionLabelEl = document.getElementById('modal-amount-due-label');
         if(paymentOptionLabelEl) paymentOptionLabelEl.textContent = (paymentOption === 'down_payment') ? 'المبلغ المطلوب الآن (عربون 50%)' : 'المبلغ المطلوب الآن (كامل)';
         document.getElementById('modal-amount-due').textContent = `${formatDisplayAmountJS(amountDue)} ريال`;
