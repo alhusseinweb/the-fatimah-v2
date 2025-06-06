@@ -132,7 +132,6 @@
     .btn-apply-discount-modal { background-color: #28a745; color: white; }
     .btn-apply-discount-modal:hover { background-color: #218838; }
 
-    /* --- MODIFICATION START: Styles for new discount section --- */
     .discount-section .form-label { font-size: 0.9rem; font-weight: 600; color: #6c757d; }
     #available-discounts-container { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
     .available-discount-btn { cursor: pointer; background-color: #e9f5ff; border: 1px solid #b8dcfd; color: #0d6efd; padding: 0.25rem 0.75rem; border-radius: 50px; font-size: 0.85rem; transition: all 0.2s ease; }
@@ -145,7 +144,9 @@
     #discount-loader { display: none; }
     #toggle-manual-discount { color: #0d6efd; cursor: pointer; font-size: 0.85rem; text-decoration: underline; margin-top: 0.5rem; display: inline-block; }
     #manual-discount-input-group { display: none; }
-    /* --- MODIFICATION END --- */
+    #manual_discount_result .text-success { color: #198754 !important; font-weight: 500; }
+    #manual_discount_result .text-danger { color: #dc3545 !important; font-weight: 500; }
+    #manual_discount_result .text-info { color: #0dcaf0 !important; font-weight: 500;}
 
 </style>
 @endsection
@@ -153,7 +154,6 @@
 @section('content')
 <div class="booking-form-wrapper">
     <div class="container booking-container">
-        {{-- ... (Header and Summary sections remain the same) ... --}}
         <div class="booking-header">
             <h1 class="mb-2">تأكيد تفاصيل الحجز</h1>
             <p class="text-muted">يرجى تعبئة جميع البيانات المطلوبة لإتمام الحجز</p>
@@ -198,7 +198,6 @@
             <input type="hidden" name="payment_option" id="payment_option_input" value="full">
             <input type="hidden" name="discount_code" id="discount_code_input" value="{{ old('discount_code') }}">
 
-            {{-- ... (Region, Add-ons, and Additional Info sections remain the same) ... --}}
             <div class="booking-card mb-4">
                 <div class="card-header"> <h5 class="mb-0"> اختر منطقة التصوير <span class="text-danger">*</span> </h5> </div>
                 <div class="card-body">
@@ -263,7 +262,6 @@
                 </div>
             </div>
 
-            {{-- --- MODIFICATION: Sections reordered --- --}}
             <div class="booking-card mb-4">
                 <div class="card-header"> <h5 class="mb-0"> اختر خيار الدفع <span class="text-danger">*</span> </h5> </div>
                 <div class="card-body">
@@ -353,26 +351,21 @@
                 </div>
             </div>
             
-            {{-- --- MODIFICATION START: New Discount Section --- --}}
             <div class="booking-card mb-4 discount-section">
                 <div class="card-header"><h5 class="mb-0">الخصومات والعروض</h5></div>
                 <div class="card-body">
-                    {{-- Container for applied discount --}}
                     <div id="applied-discount-container">
                         <div id="applied-discount-info">
                             <span id="applied-discount-text"></span>
                             <button type="button" id="cancel-discount-btn" title="إلغاء الخصم">&times;</button>
                         </div>
                     </div>
-
-                    {{-- Container for available discounts and manual input --}}
                     <div id="discount-options-container">
                         <label class="form-label" id="available-discounts-label">الخصومات المتاحة لطريقة الدفع المختارة:</label>
                         <div id="discount-loader" class="text-center py-2">
                              <div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">جاري البحث عن خصومات...</span></div>
                         </div>
                         <div id="available-discounts-container">
-                           {{-- Available discount buttons will be injected here by JS --}}
                         </div>
                         <div id="no-discounts-message" class="text-muted small mt-2" style="display: none;">
                             لا توجد خصومات متاحة حالياً لطريقة الدفع المختارة.
@@ -387,7 +380,6 @@
                     </div>
                 </div>
             </div>
-            {{-- --- MODIFICATION END --- --}}
 
             <div class="booking-card mb-4">
                 <div class="card-header"><h5 class="mb-0">سياسة الحجز</h5></div>
@@ -422,7 +414,6 @@
     </div>
 </div>
 
-{{-- ... (Bank Transfer Discount Modal HTML remains the same) ... --}}
 @if($isBankTransferEnabled && $enableBankTransferDiscountPopup && !empty($bankTransferDiscountCode))
 <div class="modal fade" id="bankTransferDiscountModal" tabindex="-1" aria-labelledby="bankTransferDiscountModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -479,8 +470,7 @@
     const fullPaymentOptionAmountSpanEl = document.getElementById('full_payment_option_amount');
     const downPaymentOptionAmountSpanEl = document.getElementById('down_payment_option_amount');
     
-    // --- MODIFICATION START: New elements for discount UI ---
-    const discountCodeInputEl = document.getElementById('discount_code_input'); // This is the hidden input now
+    const discountCodeInputEl = document.getElementById('discount_code_input');
     const manualDiscountInputEl = document.getElementById('manual_discount_code');
     const checkManualDiscountBtnEl = document.getElementById('check_manual_discount_btn');
     const manualDiscountResultDivEl = document.getElementById('manual_discount_result');
@@ -493,7 +483,6 @@
     const discountOptionsContainer = document.getElementById('discount-options-container');
     const toggleManualDiscountLink = document.getElementById('toggle-manual-discount');
     const manualDiscountInputGroup = document.getElementById('manual-discount-input-group');
-    // --- MODIFICATION END ---
     
     const paymentMethodItemsEl = document.querySelectorAll('.payment-method-item');
     const bankDetailsDivEl = document.getElementById('bank-details');
@@ -514,9 +503,9 @@
     const applyBankDiscountBtn = document.getElementById('applyBankDiscountBtn');
     let bankDiscountModalShownOnce = false;
 
-    function formatDisplayAmountJS(value) { /* ... as before ... */ return toArabicDigitsJS( (Math.round(parseFloat(value) * 100) / 100).toFixed( (Math.abs(parseFloat(value) % 1) > 0.0001) ? 2 : 0 ) ); }
-    function calculateFinalTotalJS() { /* ... as before ... */ return priceAfterDiscountJS + currentShootingAreaFeeJS + totalAddOnServicesPriceJS; }
-    function updateDisplayedPricesJS() { /* ... as before ... */
+    function formatDisplayAmountJS(value) { return toArabicDigitsJS( (Math.round(parseFloat(value) * 100) / 100).toFixed( (Math.abs(parseFloat(value) % 1) > 0.0001) ? 2 : 0 ) ); }
+    function calculateFinalTotalJS() { return priceAfterDiscountJS + currentShootingAreaFeeJS + totalAddOnServicesPriceJS; }
+    function updateDisplayedPricesJS() {
         const finalTotal = calculateFinalTotalJS();
         const downPaymentCalculated = Math.round(finalTotal * 50) / 100; 
         const currentPaymentOptionValue = paymentOptionInputEl.value;
@@ -537,8 +526,6 @@
         });
     }
 
-    // --- MODIFICATION START: New functions for discount UI ---
-
     function showAppliedDiscountState(message) {
         if(appliedDiscountContainer) appliedDiscountContainer.style.display = 'block';
         if(appliedDiscountText) appliedDiscountText.textContent = message;
@@ -555,14 +542,14 @@
         isDiscountAppliedJS = false;
         priceAfterDiscountJS = baseServicePriceJS; 
         currentDiscountValueRawJS = 0;
-        if(discountCodeInputEl) discountCodeInputEl.value = ''; // Clear hidden main input
+        if(discountCodeInputEl) discountCodeInputEl.value = '';
         if(manualDiscountInputEl) {
              manualDiscountInputEl.value = '';
              manualDiscountInputEl.classList.remove('is-invalid');
         }
         if(manualDiscountResultDivEl) manualDiscountResultDivEl.innerHTML = '';
         
-        showDiscountOptionsState(); // Show the discount options again
+        showDiscountOptionsState();
         updateDisplayedPricesJS(); 
     }
     
@@ -574,21 +561,22 @@
         noDiscountsMessage.style.display = 'none';
         
         try {
-            // سنفترض وجود مسار API جديد. إذا لم يكن موجودًا، سيفشل هذا وسيعرض رسالة خطأ.
-            // const response = await fetch('{{-- route("api.discounts.get-available") --}}', {
-            //     method: 'POST',
-            //     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfTokenJS },
-            //     body: JSON.stringify({
-            //         service_id: serviceIdForDiscountJS,
-            //         payment_method: paymentMethod,
-            //     })
-            // });
-            // if(!response.ok) throw new Error('Network response was not ok');
-            // const data = await response.json();
+            const response = await fetch('{{ route("api.discounts.get-available") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfTokenJS },
+                body: JSON.stringify({
+                    service_id: serviceIdForDiscountJS,
+                    payment_method: paymentMethod,
+                    booking_time: bookingTimeForDiscountJS, 
+                })
+            });
             
-            // **محاكاة مؤقتة لبيانات API**
-            const data = { available_discounts: [] }; 
-            // example: const data = { available_discounts: [ {code: 'BANK10', description: 'خصم 10% للتحويل البنكي'}, {code: 'WELCOME5', description: 'خصم 5% ترحيبي'} ] };
+            if(!response.ok) {
+                console.error('API response was not ok for get-available-discounts');
+                throw new Error('Network response was not ok');
+            }
+            
+            const data = await response.json();
             
             if(data.available_discounts && data.available_discounts.length > 0) {
                 data.available_discounts.forEach(discount => {
@@ -612,8 +600,6 @@
             discountLoader.style.display = 'none';
         }
     }
-
-    // --- MODIFICATION END ---
 
     function selectPaymentMethodJS(methodValue) {
         const previousPaymentMethod = document.querySelector('input[name="payment_method"]:checked')?.value;
@@ -640,25 +626,22 @@
         }
         if(bankDetailsDivEl) bankDetailsDivEl.style.display = (methodValue === 'bank_transfer') ? 'block' : 'none';
         
-        // --- MODIFICATION START: Reset discount when payment method changes ---
         if(isDiscountAppliedJS && methodValue !== previousPaymentMethod) {
             resetDiscountStateJS();
-            // يمكنك إضافة رسالة إعلامية هنا
         }
-        // --- MODIFICATION END ---
         
         if (methodValue === 'bank_transfer' && enableBankTransferDiscountPopupJS && bankTransferDiscountCodeJS && bankTransferDiscountModalInstance && !bankDiscountModalShownOnce && !isDiscountAppliedJS) {
             bankTransferDiscountModalInstance.show();
             bankDiscountModalShownOnce = true; 
         }
         
-        fetchAvailableDiscounts(methodValue); // جلب الخصومات لطريقة الدفع الجديدة
+        fetchAvailableDiscounts(methodValue);
     }
     
     function checkDiscountFunctionalityJS(code) {
-        if (!code) { /* ... */ return; }
+        if (!code) { return; }
         
-        const resultContainer = manualDiscountResultDivEl;
+        const resultContainer = manualDiscountResultDivEl; // Use manual result for all checks now
         resultContainer.innerHTML = `<div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">جاري التحقق...</span></div>`;
         if(checkManualDiscountBtnEl) checkManualDiscountBtnEl.disabled = true;
 
@@ -683,9 +666,8 @@
                 currentDiscountValueRawJS = parseFloat(body.discount_value_raw || 0);
                 priceAfterDiscountJS = parseFloat(body.new_price_raw || baseServicePriceJS); 
                 updateDisplayedPricesJS();
-                const formattedDiscountTaken = formatDisplayAmountJS(currentDiscountValueRawJS);
-                showAppliedDiscountState(`${body.message}. تم خصم: ${formattedDiscountTaken} ${body.currency || 'ريال'}`);
-                if(discountCodeInputEl) discountCodeInputEl.value = code; // تعبئة الحقل المخفي
+                showAppliedDiscountState(body.message); // Use the new function to show applied state
+                if(discountCodeInputEl) discountCodeInputEl.value = code;
                 if (bankTransferDiscountModalInstance) bankTransferDiscountModalInstance.hide();
             } else {
                 const errorMessage = body.message || 'كود الخصم غير صالح أو حدث خطأ.';
@@ -700,10 +682,30 @@
         });
     }
 
-    // ... (باقي الدوال مثل handleRegionChangeJS و handleAddOnServiceChangeJS تبقى كما هي) ...
-    function selectPaymentOptionJS(option) { /* ... as before ... */ }
-    function handleRegionChangeJS() { /* ... as before ... */ }
-    function handleAddOnServiceChangeJS() { /* ... as before ... */ }
+    function selectPaymentOptionJS(option) { /* ... as before ... */ if (paymentOptionInputEl) paymentOptionInputEl.value = option; updateDisplayedPricesJS(); }
+    function handleRegionChangeJS() { /* ... as before ... */ 
+        const selectedRegionValue = document.querySelector('input[name="shooting_area_option"]:checked')?.value;
+        if (selectedRegionValue === 'outside_ahsa') {
+            if(outsideAhsaCityGroupEl) outsideAhsaCityGroupEl.style.display = 'block';
+            if(outsideAhsaCitySelectEl) outsideAhsaCitySelectEl.required = true;
+            currentShootingAreaFeeJS = outsideAhsaFeeConstJS;
+        } else {
+            if(outsideAhsaCityGroupEl) outsideAhsaCityGroupEl.style.display = 'none';
+            if(outsideAhsaCitySelectEl) { outsideAhsaCitySelectEl.required = false; }
+            currentShootingAreaFeeJS = 0;
+        }
+        regionOptionItemsEl.forEach(item => { item.classList.toggle('selected', item.dataset.value === selectedRegionValue); });
+        updateDisplayedPricesJS();
+    }
+    function handleAddOnServiceChangeJS() { /* ... as before ... */
+        totalAddOnServicesPriceJS = 0;
+        addOnCheckboxes.forEach(checkbox => {
+            if (checkbox.checked) {
+                totalAddOnServicesPriceJS += parseFloat(checkbox.dataset.price || 0);
+            }
+        });
+        updateDisplayedPricesJS();
+    }
 
     document.addEventListener('DOMContentLoaded', function() {
         if (bankTransferDiscountModalEl && typeof bootstrap !== 'undefined') {
@@ -715,7 +717,6 @@
             });
         }
         
-        // --- MODIFICATION START: New event listeners for discount UI ---
         if(cancelDiscountBtn) {
             cancelDiscountBtn.addEventListener('click', resetDiscountStateJS);
         }
@@ -737,7 +738,6 @@
                 if(manualDiscountResultDivEl) manualDiscountResultDivEl.innerHTML = '';
             });
         }
-        // --- MODIFICATION END ---
         
         paymentOptionItemsEl.forEach(item => { item.addEventListener('click', function() { selectPaymentOptionJS(this.dataset.value); }); });
         paymentMethodItemsEl.forEach(item => { item.addEventListener('click', function() { selectPaymentMethodJS(this.dataset.value); }); });
