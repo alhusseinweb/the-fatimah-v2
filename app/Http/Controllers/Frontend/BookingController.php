@@ -126,7 +126,7 @@ class BookingController extends Controller
         if ($isBankTransferEnabled) $availablePaymentMethodsServer[] = 'bank_transfer';
         
         $noPaymentMethodEnabled = empty($availablePaymentMethodsServer);
-        $outsideAhsaCitiesKeys = ['الخبر', 'الظهران', 'الدمام', 'سيهات', 'القطيف'];
+        $outsideAhsaCitiesKeys = ['الخبر', 'الظهران', 'الدمام', 'بقيق', 'العيون', 'سيهات', 'القطيف'];
 
         // --- MODIFICATION START: Update validation rules for add_on_services ---
         $mainServiceForValidation = Service::find($request->input('service_id'));
