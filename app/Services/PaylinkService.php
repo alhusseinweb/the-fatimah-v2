@@ -22,13 +22,15 @@ class PaylinkService
             'paylink_test_mode'
         ])->pluck('value', 'key');
 
-        $this->appId = $settings['paylink_api_id'] ?? '';
-        $this->secretKey = $settings['paylink_secret_key'] ?? '';
-        $this->isTest = filter_var($settings['paylink_test_mode'] ?? true, FILTER_VALIDATE_BOOLEAN);
+        $this->appId = env('PAYLINK_APP_ID') ?? $settings['paylink_api_id'] ?? '';
+        $this->secretKey = env('PAYLINK_SECRET_KEY') ?? $settings['paylink_secret_key'] ?? '';
+        $this->isTest = env('PAYLINK_TEST_MODE') !== null 
+            ? filter_var(env('PAYLINK_TEST_MODE'), FILTER_VALIDATE_BOOLEAN)
+            : filter_var($settings['paylink_test_mode'] ?? true, FILTER_VALIDATE_BOOLEAN);
 
         $this->baseUrl = $this->isTest 
-            ? 'https://restapi.paylink.sa/api-v2' 
-            : 'https://restapi.paylink.sa/api-v2'; // Note: Check if production has a different URL, usually it's the same or similar
+            ? 'https://restdemo.paylink.sa/api-v2' 
+            : 'https://restapi.paylink.sa/api-v2';
             
         // Current Paylink V2 API Info:
         // Test: https://restdemo.paylink.sa/api-v2

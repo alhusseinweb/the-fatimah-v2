@@ -15,8 +15,8 @@ class GreenApiService
 
     public function __construct()
     {
-        $this->idInstance = Setting::where('key', 'whatsapp_green_api_id_instance')->value('value') ?? '';
-        $this->apiTokenInstance = Setting::where('key', 'whatsapp_green_api_api_token_instance')->value('value') ?? '';
+        $this->idInstance = env('GREEN_API_ID_INSTANCE') ?? Setting::where('key', 'whatsapp_green_api_id_instance')->value('value') ?? '';
+        $this->apiTokenInstance = env('GREEN_API_TOKEN_INSTANCE') ?? Setting::where('key', 'whatsapp_green_api_api_token_instance')->value('value') ?? '';
 
         if (!empty($this->idInstance) && !empty($this->apiTokenInstance)) {
             $this->isConfigured = true;
