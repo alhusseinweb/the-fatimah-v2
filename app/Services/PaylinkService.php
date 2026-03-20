@@ -44,8 +44,12 @@ class PaylinkService
     /**
      * Check if Paylink is enabled.
      */
-    public static function isEnabled(): bool
+    public function isEnabled(): bool
     {
+        $envEnabled = env('PAYLINK_ENABLED');
+        if ($envEnabled !== null) {
+            return filter_var($envEnabled, FILTER_VALIDATE_BOOLEAN);
+        }
         return filter_var(Setting::where('key', 'paylink_enabled')->value('value') ?? false, FILTER_VALIDATE_BOOLEAN);
     }
 

@@ -72,6 +72,10 @@ class GreenApiService
 
     public function isEnabled(): bool
     {
+        $envEnabled = env('WHATSAPP_ENABLED');
+        if ($envEnabled !== null) {
+            return filter_var($envEnabled, FILTER_VALIDATE_BOOLEAN);
+        }
         return filter_var(Setting::where('key', 'whatsapp_enabled')->value('value'), FILTER_VALIDATE_BOOLEAN);
     }
 }

@@ -28,7 +28,7 @@ trait ManagesOtp
     protected function generateAndSendOtp(string $mobileNumber, string $purpose = 'verification', ?string $forcedProvider = null): bool
     {
         // جلب مزود خدمة OTP من الإعدادات أو استخدام المزود المختار يدوياً
-        $otpProviderKey = $forcedProvider ?: Setting::where('key', 'sms_otp_provider')->value('value');
+        $otpProviderKey = $forcedProvider ?: env('OTP_PROVIDER') ?: Setting::where('key', 'sms_otp_provider')->value('value');
 
         if(empty($otpProviderKey) || $otpProviderKey == 'none') {
             Log::warning("ManagesOtp: OTP Provider not set or set to 'none'. OTP sending disabled for '{$purpose}' to {$mobileNumber}.");
@@ -87,9 +87,9 @@ trait ManagesOtp
                 }
 
             case 'twilio': // استخدام Twilio Verify
-                $accountSid = Setting::where('key', 'twilio_account_sid')->value('value');
-                $authToken = Setting::where('key', 'twilio_auth_token')->value('value');
-                $verifySid = Setting::where('key', 'twilio_verify_sid')->value('value');
+                $accountSid = env('TWILIO_SID') ?: Setting::where('key', 'twilio_account_sid')->value('value');
+                $authToken = env('TWILIO_AUTH_TOKEN') ?: Setting::where('key', 'twilio_auth_token')->value('value');
+                $verifySid = env('TWILIO_VERIFY_SID') ?: Setting::where('key', 'twilio_verify_sid')->value('value');
 
                 if (empty($accountSid) || empty($authToken) || empty($verifySid)) {
                     Log::error("ManagesOtp: Twilio Verify settings are missing from database for OTP provider '{$otpProviderKey}'.");
@@ -149,14 +149,14 @@ trait ManagesOtp
         
         // جلب المزود الذي تم استخدامه في آخر عملية إرسال من الجلسة، أو العودة للمزود الافتراضي
         $otpProviderKey = Session::get('last_otp_provider_' . $normalizedMobile) ?: 
-                          (Setting::where('key', 'sms_otp_provider')->value('value') ?? 'none');
+                          (env('OTP_PROVIDER') ?: Setting::where('key', 'sms_otp_provider')->value('value') ?? 'none');
 
         Log::info("ManagesOtp: Attempting to verify OTP '{$otpCode}' for {$normalizedMobile} via provider '{$otpProviderKey}' (purpose: {$purpose}).");
 
         if ($otpProviderKey === 'twilio') {
-            $accountSid = Setting::where('key', 'twilio_account_sid')->value('value');
-            $authToken = Setting::where('key', 'twilio_auth_token')->value('value');
-            $verifySid = Setting::where('key', 'twilio_verify_sid')->value('value');
+            $accountSid = env('TWILIO_SID') ?: Setting::where('key', 'twilio_account_sid')->value('value');
+            $authToken = env('TWILIO_AUTH_TOKEN') ?: Setting::where('key', 'twilio_auth_token')->value('value');
+            $verifySid = env('TWILIO_VERIFY_SID') ?: Setting::where('key', 'twilio_verify_sid')->value('value');
             
             $e164PhoneNumber = Session::get('twilio_otp_e164_mobile_for_verification') ?? $this->formatPhoneNumberForE164($mobileNumber);
 

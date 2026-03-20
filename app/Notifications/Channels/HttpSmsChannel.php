@@ -23,9 +23,9 @@ class HttpSmsChannel
 
     public function __construct()
     {
-        // --- MODIFICATION START: Load settings from database ---
-        $this->apiKey = Setting::where('key', 'httpsms_api_key')->value('value');
-        $this->senderPhone = Setting::where('key', 'httpsms_sender_phone')->value('value');
+        // --- MODIFICATION START: Load settings from environment or database ---
+        $this->apiKey = env('HTTPSMS_API_KEY') ?: Setting::where('key', 'httpsms_api_key')->value('value');
+        $this->senderPhone = env('HTTPSMS_SENDER_PHONE') ?: Setting::where('key', 'httpsms_sender_phone')->value('value');
 
         if (!empty($this->apiKey) && !empty($this->senderPhone)) {
             $this->isConfigured = true;
