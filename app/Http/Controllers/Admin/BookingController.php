@@ -391,9 +391,12 @@ class BookingController extends Controller
                 foreach ($notificationsToSend as $notification) {
                     try {
                         $customer->notify($notification);
-                        Log::info("Notification " . class_basename($notification) . " queued for CUSTOMER {$customer->id} for booking {$booking->id}.");
+                        Log::info("Notification " . class_basename($notification) . " sent/queued successfully to CUSTOMER {$customer->id} for booking {$booking->id}.");
                     } catch (\Exception $e) {
-                        Log::error("Failed to queue notification " . class_basename($notification) . " to CUSTOMER for booking {$booking->id}.", ['error' => $e->getMessage()]);
+                        Log::error("Failed to send/queue notification " . class_basename($notification) . " to CUSTOMER for booking {$booking->id}.", [
+                            'error' => $e->getMessage(),
+                            'trace' => Str::limit($e->getTraceAsString(), 500)
+                        ]);
                     }
                 }
 

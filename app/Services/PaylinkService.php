@@ -39,6 +39,12 @@ class PaylinkService
         if ($this->isTest) {
             $this->baseUrl = 'https://restdemo.paylink.sa/api-v2';
         }
+
+        Log::debug("PaylinkService initialized.", [
+            'appIdPrefix' => substr($this->appId, 0, 8),
+            'isTest' => $this->isTest,
+            'baseUrl' => $this->baseUrl
+        ]);
     }
 
     /**
