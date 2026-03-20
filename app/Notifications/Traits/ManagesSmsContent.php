@@ -310,20 +310,21 @@ trait ManagesSmsContent
         }
 
         if ($isOtp) {
-            $otpProvider = Setting::where('key', 'sms_otp_provider')->value('value') ?? 'none';
+            $otpProvider = env('OTP_PROVIDER') ?: (Setting::where('key', 'sms_otp_provider')->value('value') ?? 'none');
             if ($otpProvider === 'whatsapp') {
                 $channels[] = WhatsAppChannel::class;
             } elseif ($otpProvider === 'httpsms') {
                 $channels[] = HttpSmsChannel::class;
-            } elseif ($otpProvider === 'twilio') {
-                // Twilio handles its own channel in ManagesOtp usually, 
-                // but if we want it here: $channels[] = TwilioChannel::class;
             }
             return $channels;
         }
 
-        $defaultProvider = Setting::where('key', 'sms_default_provider')->value('value') ?? 'httpsms';
-        $whatsappEnabled = Setting::where('key', 'whatsapp_enabled')->value('value') == '1';
+        $defaultProvider = env('SMS_DEFAULT_PROVIDER') ?: (Setting::where('key', 'sms_default_provider')->value('value') ?? 'httpsms');
+        
+        $whatsappEnabledEnv = env('WHATSAPP_ENABLED');
+        $whatsappEnabled = $whatsappEnabledEnv !== null 
+            ? filter_var($whatsappEnabledEnv, FILTER_VALIDATE_BOOLEAN)
+            : (Setting::where('key', 'whatsapp_enabled')->value('value') == '1');
 
         // WhatsApp priority if enabled OR if it's the default provider
         if ($whatsappEnabled || $defaultProvider === 'whatsapp') {
