@@ -14,6 +14,6 @@ class VerifyCsrfToken extends Middleware
 protected $except = [
     'api/tamara/webhook',
     'tamara/webhook',
-    '/', // Temporarily allow POST to root while debugging
+    'payment/callback/*',
 ];
 }

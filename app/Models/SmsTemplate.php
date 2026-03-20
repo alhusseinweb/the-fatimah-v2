@@ -20,6 +20,7 @@ class SmsTemplate extends Model
         'recipient_type',
         'template_content',
         'available_variables',
+        'is_active',
     ];
 
     /**

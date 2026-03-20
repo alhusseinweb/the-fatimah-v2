@@ -40,14 +40,14 @@
                         <div class="card booking-card h-100 shadow-sm border-0">
                             <div class="card-header d-flex justify-content-between align-items-center bg-light-subtle">
                                 <h6 class="mb-0 fw-bold small">
-                                    <i class="fas fa-user me-1"></i> {{ $booking->user?->name ?? 'N/A' }}
+                                    <i class="fas fa-user me-1"></i> {{ $booking->user?->name ?? 'غير محدد' }}
                                 </h6>
                                 <span class="badge bg-secondary rounded-pill small">#{{ $booking->id }}</span>
                             </div>
                             <div class="card-body pb-2">
                                 <p class="mb-2 text-dark">
                                     <i class="fas fa-concierge-bell fa-fw me-1 text-muted"></i>
-                                    {{ $booking->service?->name_ar ?? 'N/A' }}
+                                    {{ $booking->service?->name_ar ?? 'غير محدد' }}
                                 </p>
                                 <p class="mb-2 small">
                                     <i class="fas fa-calendar-alt fa-fw me-1 text-muted"></i>

@@ -5,6 +5,7 @@ namespace App\Notifications;
 use App\Models\Booking;
 // use App\Models\User; // $notifiable هو المستلم، لا حاجة لـ User هنا كـ property
 use App\Notifications\Channels\HttpSmsChannel;
+use App\Notifications\Channels\WhatsAppChannel;
 use App\Notifications\Traits\ManagesSmsContent;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
@@ -69,20 +70,12 @@ class BookingRequestReceived extends Notification implements ShouldQueue
 
         if (isset($notifiable->mobile_number) && !empty($notifiable->mobile_number)) {
             $templateKey = ($notifiable->is_admin ?? false) ? 'booking_request_admin' : 'booking_request_customer';
-            $templateExists = Cache::remember('sms_template_active_exists_' . $templateKey, now()->addMinutes(60), function () use ($templateKey) {
-                 return SmsTemplate::where('notification_type', $templateKey)
-                                   ->where('is_active', true)
-                                   ->exists();
-            });
+            $smsChannels = $this->determineSmsChannels($templateKey, $notifiable);
+            $channels = array_merge($channels, $smsChannels);
 
-            if ($templateExists) {
-                $channels[] = HttpSmsChannel::class;
-                Log::info(class_basename($this) . ": HttpSmsChannel ADDED.", $logContext + ['template_key' => $templateKey]);
-            } else {
-                Log::warning(class_basename($this) . ": HttpSmsChannel SKIPPED (template '{$templateKey}' not found or inactive).", $logContext);
+            if (empty($smsChannels)) {
+                Log::warning(class_basename($this) . ": No SMS/WhatsApp channels determined for notifiable ID {$notifiable->id}.");
             }
-        } else {
-            Log::warning(class_basename($this) . ": HttpSmsChannel SKIPPED (mobile_number missing).", $logContext);
         }
         
         if(empty($channels)){
@@ -238,6 +231,17 @@ class BookingRequestReceived extends Notification implements ShouldQueue
         return [
             'to' => $recipientPhoneNumber,
             'content' => $messageContent,
+        ];
+    }
+
+    public function toWhatsApp(object $notifiable): array
+    {
+        $smsData = $this->toHttpSms($notifiable);
+        if (empty($smsData)) return [];
+
+        return [
+            'to' => $this->formatWhatsAppRecipient($notifiable->mobile_number),
+            'content' => $smsData['content'],
         ];
     }
 

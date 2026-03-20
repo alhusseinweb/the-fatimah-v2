@@ -23,8 +23,17 @@ use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
+use App\Services\PaylinkService;
+
 class BookingController extends Controller
 {
+    protected $paylinkService;
+
+    public function __construct(PaylinkService $paylinkService)
+    {
+        $this->paylinkService = $paylinkService;
+    }
+
     /**
      * Display a listing of the bookings.
      */
@@ -84,20 +93,7 @@ class BookingController extends Controller
     {
         $booking->load(['user', 'service', 'discountCode', 'invoice.payments']);
 
-        // جلب جميع الحالات الأصلية
-        $allBookingStatusesOriginal = Booking::getStatusesWithOptions(); // استخدام اسم مميز لتجنب الالتباس
-
-        // تحديد الحالات التي لا نريد عرضها في القائمة المنسدلة
-        $statusesToRemove = [
-            Booking::STATUS_NO_SHOW,
-            Booking::STATUS_RESCHEDULED_BY_ADMIN,
-            Booking::STATUS_RESCHEDULED_BY_USER,
-        ];
-
-        // تصفية الحالات وتخزينها في المتغير 'statuses' الذي سيتم تمريره للـ view
-        $statuses = array_filter($allBookingStatusesOriginal, function ($key) use ($statusesToRemove) {
-            return !in_array($key, $statusesToRemove, true);
-        }, ARRAY_FILTER_USE_KEY);
+        $statuses = Booking::getStatusesWithOptions();
         
         $paymentConfirmationOptions = [];
         $invoice = $booking->invoice;
@@ -105,7 +101,7 @@ class BookingController extends Controller
         // عرض خيارات تأكيد الدفع فقط إذا كانت الفاتورة ليست مدفوعة بالكامل
         // وإذا كان الحجز ليس في حالة مكتمل أو ملغي بالفعل
         if ($invoice && $invoice->status !== Invoice::STATUS_PAID && 
-            !in_array($booking->status, [Booking::STATUS_COMPLETED, Booking::STATUS_CANCELLED_BY_ADMIN, Booking::STATUS_CANCELLED_BY_USER])) {
+            !in_array($booking->status, [Booking::STATUS_COMPLETED_DELIVERED, Booking::STATUS_CANCELLED_BY_ADMIN, Booking::STATUS_CANCELLED_BY_USER])) {
             
             if ($invoice->status === Invoice::STATUS_PARTIALLY_PAID) {
                 $paymentConfirmationOptions['full'] = 'تأكيد استلام المبلغ المتبقي';
@@ -143,7 +139,8 @@ class BookingController extends Controller
     public function updateStatus(Request $request, Booking $booking): RedirectResponse
     {
         $definedBookingStatuses = Booking::getStatusesWithOptions(); 
-        $confirmedStatusValue = Booking::STATUS_CONFIRMED;
+        // لم نعد نستخدم حالة confirmed واحدة، بل حالتين. نستخدم مؤشر للبحث أو التحقق
+        $confirmedStatusValues = [Booking::STATUS_CONFIRMED_PAID, Booking::STATUS_CONFIRMED_DEPOSIT];
         $cancellationStatusesRequiringReason = Booking::getCancellationStatusesRequiringReason();
         $allCancellationStatusValues = [ 
             Booking::STATUS_CANCELLED_BY_ADMIN,
@@ -153,7 +150,7 @@ class BookingController extends Controller
         $rules = [
             'status' => ['required', Rule::in(array_keys($definedBookingStatuses))],
             'payment_confirmation_type' => [
-                Rule::requiredIf(fn () => $request->input('status') === $confirmedStatusValue && $booking->invoice && $booking->invoice->status !== Invoice::STATUS_PAID), // مطلوب فقط إذا الفاتورة ليست مدفوعة بالكامل
+                Rule::requiredIf(fn () => in_array($request->input('status'), [Booking::STATUS_CONFIRMED_PAID, Booking::STATUS_CONFIRMED_DEPOSIT]) && $booking->invoice && $booking->invoice->status !== Invoice::STATUS_PAID),
                 'nullable',
                 Rule::in(['full', 'deposit', 'none']) 
             ],
@@ -163,8 +160,8 @@ class BookingController extends Controller
                 'string', 'min:5', 'max:1000'
             ],
             'deposit_amount' => [ 
-                Rule::requiredIf(function () use ($request, $confirmedStatusValue) {
-                    return $request->input('status') === $confirmedStatusValue &&
+                Rule::requiredIf(function () use ($request) {
+                    return in_array($request->input('status'), [Booking::STATUS_CONFIRMED_PAID, Booking::STATUS_CONFIRMED_DEPOSIT]) &&
                            $request->input('payment_confirmation_type') === 'deposit';
                 }),
                 'nullable',
@@ -221,6 +218,49 @@ class BookingController extends Controller
                 }
                 $booking->save();
                 $bookingStatusActuallyChanged = true;
+
+                // --- عند موافقة المدير: إنشاء الفاتورة تلقائياً إذا لم تكن موجودة ---
+                if ($newStatus === Booking::STATUS_AWAITING_PAYMENT && !$invoice) {
+                    $invoiceStatus = ($booking->requested_payment_method === 'manual_confirmation_due_to_no_gateway')
+                                   ? Invoice::STATUS_PENDING_CONFIRMATION
+                                   : Invoice::STATUS_UNPAID;
+
+                    $newInvoice = Invoice::create([
+                        'booking_id'     => $booking->id,
+                        'invoice_number' => Invoice::generateUniqueInvoiceNumber(),
+                        'amount'         => $booking->total_price ?? 0,
+                        'currency'       => 'SAR',
+                        'status'         => $invoiceStatus,
+                        'payment_method' => $booking->requested_payment_method ?? 'paylink',
+                        'payment_option' => $booking->requested_payment_option ?? 'full',
+                        'due_date'       => \Carbon\Carbon::today(),
+                    ]);
+
+                    $booking->invoice_id = $newInvoice->id;
+                    $booking->save();
+                    $invoice = $newInvoice; // نحدّث المتغير المحلي للاستخدام لاحقاً
+
+                    Log::info("AdminApproval: Invoice #{$newInvoice->id} created for Booking {$booking->id} upon approval.");
+                    $successMessages[] = "تم إنشاء الفاتورة رقم (#{$newInvoice->invoice_number}) تلقائياً للحجز.";
+                }
+
+                // توليد رابط الدفع الإلكتروني (Paylink) إذا كانت الفاتورة جاهزة والدفع إلكتروني
+                if ($newStatus === Booking::STATUS_AWAITING_PAYMENT && $invoice) {
+                    $paymentMethod = $invoice->payment_method;
+                    $isElectronic = $paymentMethod === 'tamara' || $paymentMethod === 'paylink';
+                    
+                    if ($isElectronic && empty($invoice->payment_url)) {
+                        Log::info("AdminApproval: Generating Paylink URL for Booking {$booking->id}.");
+                        $paymentUrl = $this->paylinkService->createInvoice($invoice);
+                        if ($paymentUrl) {
+                            $successMessages[] = 'تم توليد رابط الدفع الإلكتروني (Paylink) بنجاح.';
+                        } else {
+                            Log::error("AdminApproval: Failed to generate Paylink URL for Booking {$booking->id}.");
+                            $successMessages[] = 'تنبيه: فشل توليد رابط الدفع الإلكتروني، يرجى المحاولة لاحقاً.';
+                        }
+                    }
+                }
+
                 $successMessages[] = 'تم تحديث حالة الحجز بنجاح.';
                 Log::info("Booking ID {$booking->id} status changed from '{$oldStatus}' to '{$newStatus}' by Admin ID: " . Auth::id());
             }
@@ -234,7 +274,9 @@ class BookingController extends Controller
                 }
             }
 
-            if ($newStatus === $confirmedStatusValue && $paymentConfirmationType && $invoice && $invoice->status !== Invoice::STATUS_PAID) {
+            $isConfirmedSelection = in_array($newStatus, [Booking::STATUS_CONFIRMED_PAID, Booking::STATUS_CONFIRMED_DEPOSIT]);
+
+            if ($isConfirmedSelection && $paymentConfirmationType && $invoice && $invoice->status !== Invoice::STATUS_PAID) {
                 if ($paymentConfirmationType !== 'none') {
                     $newInvoiceStatusAfterPayment = $invoice->status; 
                     $paymentGatewayType = 'manual_admin';
@@ -298,7 +340,7 @@ class BookingController extends Controller
                 } else { // payment_confirmation_type === 'none'
                      Log::info("Booking {$booking->id} confirmed (status: {$newStatus}). Payment confirmation type was 'none'. Invoice status remains '{$invoice->status}'.");
                 }
-            } elseif ($newStatus === $confirmedStatusValue && !$invoice) {
+            } elseif ($booking->isConfirmed() && !$invoice) {
                 Log::warning("Booking ID {$booking->id} confirmed by admin, but no associated invoice found.");
                 $successMessages[] = 'تنبيه: تم تأكيد الحجز ولكن لا توجد فاتورة مرتبطة.';
             }
@@ -310,7 +352,7 @@ class BookingController extends Controller
 
             if ($customer) {
                 if ($bookingStatusActuallyChanged) {
-                    if ($newStatus === Booking::STATUS_CONFIRMED) {
+                    if ($booking->isConfirmed()) {
                         $notificationsToSend[] = new BookingConfirmedNotification($booking);
                     } elseif (in_array($newStatus, $allCancellationStatusValues)) {
                         $notificationsToSend[] = new BookingCancelledNotification($booking, $actor, $booking->cancellation_reason);
@@ -330,7 +372,7 @@ class BookingController extends Controller
                     // لا ترسل إشعار نجاح الدفع إذا تم إرسال إشعار تأكيد الحجز بالفعل
                     // إلا إذا كان منطق عملك يتطلب ذلك (مثلاً محتوى مختلف جدًا)
                     // حاليًا، إذا تم تأكيد الحجز (وتم إرسال إشعار تأكيد)، فلن نرسل إشعار نجاح دفع منفصل
-                    if (!$alreadySentBookingConfirmed || $newStatus !== Booking::STATUS_CONFIRMED) {
+                    if (!$alreadySentBookingConfirmed || !$booking->isConfirmed()) {
                          $notificationsToSend[] = new PaymentSuccessNotification($invoice, $amountPaidThisTransaction, $invoice->currency ?: 'SAR');
                     }
                 }

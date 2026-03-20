@@ -15,14 +15,15 @@ class Booking extends Model
 {
     use HasFactory;
 
-    public const STATUS_PENDING = 'pending';
-    public const STATUS_CONFIRMED = 'confirmed';
-    public const STATUS_COMPLETED = 'completed';
+    public const STATUS_UNDER_REVIEW = 'under_review';
+    public const STATUS_AWAITING_PAYMENT = 'awaiting_payment';
+    public const STATUS_CONFIRMED_PAID = 'confirmed_paid';
+    public const STATUS_CONFIRMED_DEPOSIT = 'confirmed_deposit';
+    public const STATUS_PHOTOGRAPHED_AWAITING_PAYMENT = 'photographed_awaiting_payment';
+    public const STATUS_PHOTOGRAPHED_AWAITING_DELIVERY = 'photographed_awaiting_delivery';
+    public const STATUS_COMPLETED_DELIVERED = 'completed_delivered';
     public const STATUS_CANCELLED_BY_USER = 'cancelled_by_user';
     public const STATUS_CANCELLED_BY_ADMIN = 'cancelled_by_admin';
-    public const STATUS_NO_SHOW = 'no_show';
-    public const STATUS_RESCHEDULED_BY_ADMIN = 'rescheduled_by_admin';
-    public const STATUS_RESCHEDULED_BY_USER = 'rescheduled_by_user';
 
     protected $fillable = [
         'user_id',
@@ -44,7 +45,9 @@ class Booking extends Model
         'shooting_area',
         'outside_location_city',
         'outside_location_fee_applied',
-        // لا نضيف حقول الخدمات الإضافية هنا لأنها ستُدار عبر جدول وسيط
+        'total_price',                  // السعر الإجمالي المحسوب عند إنشاء الحجز
+        'requested_payment_option',     // full / down_payment
+        'requested_payment_method',     // paylink / tamara / bank_transfer
     ];
 
     protected $casts = [
@@ -55,6 +58,7 @@ class Booking extends Model
         'reminder_sent_at' => 'datetime',
         'down_payment_amount' => 'float',
         'outside_location_fee_applied' => 'float',
+        'total_price' => 'float',
     ];
 
     public function user(): BelongsTo
@@ -109,15 +113,31 @@ class Booking extends Model
     public static function getStatusesWithOptions(): array
     {
         return [
-            self::STATUS_PENDING => 'قيد الانتظار/الدفع',
-            self::STATUS_CONFIRMED => 'مؤكد',
-            self::STATUS_COMPLETED => 'مكتمل',
-            self::STATUS_CANCELLED_BY_USER => 'ملغي (بواسطة العميل)',
-            self::STATUS_CANCELLED_BY_ADMIN => 'ملغي (بواسطة الإدارة)',
-            self::STATUS_NO_SHOW => 'لم يحضر العميل',
-            self::STATUS_RESCHEDULED_BY_ADMIN => 'تمت إعادة جدولته (بواسطة الإدارة)',
-            self::STATUS_RESCHEDULED_BY_USER => 'طلب إعادة جدولة (بواسطة العميل)',
+            self::STATUS_UNDER_REVIEW => 'قيد المراجعة',
+            self::STATUS_AWAITING_PAYMENT => 'بإنتظار الدفع',
+            self::STATUS_CONFIRMED_PAID => 'مؤكد - مدفوع كامل الفاتورة',
+            self::STATUS_CONFIRMED_DEPOSIT => 'مؤكد - مدفوع العربون',
+            self::STATUS_PHOTOGRAPHED_AWAITING_PAYMENT => 'تم التصوير ـ بإنتظار دفع باقي المبلغ',
+            self::STATUS_PHOTOGRAPHED_AWAITING_DELIVERY => 'تم التصوير - بإنتظار تسليم الألبوم',
+            self::STATUS_COMPLETED_DELIVERED => 'مكتمل - تم تسليم الألبوم',
+            self::STATUS_CANCELLED_BY_USER => 'ملغي بواسطة العميل',
+            self::STATUS_CANCELLED_BY_ADMIN => 'ملغي بواسطة المدير',
         ];
+    }
+
+    public function isAwaitingPayment(): bool
+    {
+        return $this->status === self::STATUS_AWAITING_PAYMENT;
+    }
+
+    public function isConfirmed(): bool
+    {
+        return in_array($this->status, [self::STATUS_CONFIRMED_PAID, self::STATUS_CONFIRMED_DEPOSIT]);
+    }
+
+    public function isPhotographed(): bool
+    {
+        return in_array($this->status, [self::STATUS_PHOTOGRAPHED_AWAITING_PAYMENT, self::STATUS_PHOTOGRAPHED_AWAITING_DELIVERY]);
     }
 
     public static function getCancellationStatusesRequiringReason(): array
@@ -135,12 +155,14 @@ class Booking extends Model
     public function getStatusBadgeClassAttribute(): string
     {
         return match ($this->status) {
-            self::STATUS_CONFIRMED => 'badge bg-success text-white',
-            self::STATUS_COMPLETED => 'badge bg-primary text-white',
+            self::STATUS_UNDER_REVIEW => 'badge bg-secondary text-white',
+            self::STATUS_AWAITING_PAYMENT => 'badge bg-warning text-dark',
+            self::STATUS_CONFIRMED_PAID => 'badge bg-success text-white',
+            self::STATUS_CONFIRMED_DEPOSIT => 'badge bg-info text-dark',
+            self::STATUS_PHOTOGRAPHED_AWAITING_PAYMENT => 'badge bg-primary text-white',
+            self::STATUS_PHOTOGRAPHED_AWAITING_DELIVERY => 'badge bg-indigo text-white',
+            self::STATUS_COMPLETED_DELIVERED => 'badge bg-dark text-white',
             self::STATUS_CANCELLED_BY_USER, self::STATUS_CANCELLED_BY_ADMIN => 'badge bg-danger text-white',
-            self::STATUS_PENDING => 'badge bg-warning text-dark',
-            self::STATUS_NO_SHOW => 'badge bg-secondary text-white',
-            self::STATUS_RESCHEDULED_BY_ADMIN, self::STATUS_RESCHEDULED_BY_USER => 'badge bg-info text-dark',
             default => 'badge bg-light text-dark border',
         };
     }

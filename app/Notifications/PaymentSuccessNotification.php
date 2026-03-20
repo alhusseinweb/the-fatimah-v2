@@ -4,6 +4,7 @@ namespace App\Notifications;
 
 use App\Models\Invoice;
 use App\Notifications\Channels\HttpSmsChannel;
+use App\Notifications\Channels\WhatsAppChannel;
 use App\Notifications\Traits\ManagesSmsContent;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -50,17 +51,12 @@ class PaymentSuccessNotification extends Notification implements ShouldQueue
 
         if (isset($notifiable->mobile_number) && !empty($notifiable->mobile_number)) {
             $templateKey = $notifiable->is_admin ? 'payment_success_admin' : 'payment_success_customer';
-            $templateExists = Cache::remember('sms_template_active_exists_' . $templateKey, now()->addMinutes(5), function () use ($templateKey) { // تقليل مدة الكاش للاختبار
-                 return SmsTemplate::where('notification_type', $templateKey)->where('is_active', true)->exists();
-            });
-            if ($templateExists) {
-                $channels[] = HttpSmsChannel::class;
-                Log::info("PaymentSuccessNotification: HttpSmsChannel ADDED.", $logContext + ['template_key' => $templateKey]);
-            } else {
-                Log::warning("PaymentSuccessNotification: HttpSmsChannel SKIPPED (template '{$templateKey}' not found or inactive).", $logContext);
+            $smsChannels = $this->determineSmsChannels($templateKey, $notifiable);
+            $channels = array_merge($channels, $smsChannels);
+
+            if (empty($smsChannels)) {
+                Log::warning("PaymentSuccessNotification: No SMS/WhatsApp channels determined for notifiable ID {$notifiable->id}.");
             }
-        } else {
-            Log::warning("PaymentSuccessNotification: HttpSmsChannel SKIPPED (mobile_number missing).", $logContext);
         }
         
         if(empty($channels)){
@@ -88,7 +84,7 @@ class PaymentSuccessNotification extends Notification implements ShouldQueue
                         ->line("العميل: " . ($booking->user ? "{$booking->user->name} ({$booking->user->mobile_number})" : "غير محدد"))
                         ->line("الخدمة: {$serviceName}")
                         ->line("المبلغ المدفوع في هذه العملية: {$paidAmountFormatted}")
-                        ->line("إجمالي الفاتورة: " . number_format($this->invoice->amount, 2) . ' ' . $this->invoice->currency)
+                        ->line("إجمالي الفاتورة: " . number_format((float)$this->invoice->amount, 2) . ' ' . $this->invoice->currency)
                         ->line("الحالة الحالية للفاتورة: " . ($this->invoice->status_label ?? $this->invoice->status))
                         ->action('عرض الفاتورة', route('admin.invoices.show', $this->invoice->id));
         } else { // للعميل
@@ -120,10 +116,10 @@ class PaymentSuccessNotification extends Notification implements ShouldQueue
         $currencySymbol = $this->invoice->currency_symbol_short ?? ($this->invoice->currency ?? 'ر.س');
         $specificReplacements = [
             '[invoice_number]' => $this->invoice->invoice_number,
-            '[paid_amount_short]' => number_format($this->actuallyPaidAmount, 0) . ' ' . $currencySymbol,
-            '[invoice_total_amount]' => number_format($this->invoice->amount, 0) . ' ' . $currencySymbol,
+            '[paid_amount_short]' => number_format((float)$this->actuallyPaidAmount, 0) . ' ' . $currencySymbol,
+            '[invoice_total_amount]' => number_format((float)$this->invoice->amount, 0) . ' ' . $currencySymbol,
             '[invoice_status]' => $this->invoice->status_label ?? $this->invoice->status,
-            '[remaining_amount_short]' => $this->invoice->status === Invoice::STATUS_PARTIALLY_PAID ? (number_format($this->invoice->remaining_amount, 0) . ' ' . $currencySymbol) : '',
+            '[remaining_amount_short]' => $this->invoice->status === Invoice::STATUS_PARTIALLY_PAID ? (number_format((float)$this->invoice->remaining_amount, 0) . ' ' . $currencySymbol) : '',
         ];
 
         $messageContent = $this->getSmsMessageContent($templateIdentifier, $notifiable, $specificReplacements, $this->invoice->booking);
@@ -139,6 +135,17 @@ class PaymentSuccessNotification extends Notification implements ShouldQueue
         return [
             'to' => $recipientPhoneNumber,
             'content' => $messageContent,
+        ];
+    }
+
+    public function toWhatsApp(object $notifiable): array
+    {
+        $smsData = $this->toHttpSms($notifiable);
+        if (empty($smsData)) return [];
+
+        return [
+            'to' => $this->formatWhatsAppRecipient($notifiable->mobile_number),
+            'content' => $smsData['content'],
         ];
     }
 

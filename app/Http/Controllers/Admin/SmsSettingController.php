@@ -14,18 +14,14 @@ class SmsSettingController extends Controller
         'sms_default_provider',
         'sms_otp_provider',
         
-        'httpsms_api_key',
-        'httpsms_sender_phone',
-        
-        'smsgateway_device_id',
-        'smsgateway_server_url',
-        'smsgateway_api_token',
-
         // --- MODIFICATION START: Twilio Verify Settings ---
         'twilio_account_sid',
         'twilio_auth_token',
-        'twilio_verify_sid', // تم استبدال twilio_sms_from_number بهذا
-        // --- MODIFICATION END ---
+        'twilio_verify_sid',
+        
+        'whatsapp_enabled',
+        'whatsapp_green_api_id_instance',
+        'whatsapp_green_api_api_token_instance',
     ];
 
     public function edit()
@@ -45,16 +41,15 @@ class SmsSettingController extends Controller
 
         $availableProviders = [
             'none' => 'تعطيل / عدم الإرسال',
-            'httpsms' => 'HTTPSMS.com',
-            'smsgateway' => 'SMS Gateway App (Android)',
-            'twilio' => 'Twilio Verify', // تم تحديث الاسم ليعكس الخدمة
+            'whatsapp' => 'WhatsApp (Green API)',
+            'twilio' => 'Twilio Verify',
         ];
         
         if (empty($settingsData['sms_default_provider'])) {
-            $settingsData['sms_default_provider'] = 'httpsms';
+            $settingsData['sms_default_provider'] = 'whatsapp';
         }
         if (empty($settingsData['sms_otp_provider'])) {
-            $settingsData['sms_otp_provider'] = 'httpsms';
+            $settingsData['sms_otp_provider'] = 'whatsapp';
         }
 
         return view('admin.settings.sms-edit', compact('settingsData', 'availableProviders'));
@@ -62,35 +57,30 @@ class SmsSettingController extends Controller
 
     public function update(Request $request)
     {
-        $providerValues = ['none', 'httpsms', 'smsgateway', 'twilio'];
+        $providerValues = ['none', 'whatsapp', 'twilio'];
 
         $rules = [
             'sms_default_provider' => ['required', 'string', Rule::in($providerValues)],
             'sms_otp_provider' => ['required', 'string', Rule::in($providerValues)],
             
-            'httpsms_api_key' => 'nullable|string|max:255',
-            'httpsms_sender_phone' => 'nullable|string|max:20',
-            
-            'smsgateway_device_id' => 'nullable|string|max:255',
-            'smsgateway_server_url' => 'nullable|string|url|max:255',
-            'smsgateway_api_token' => 'nullable|string|max:255',
 
             // --- MODIFICATION START: Twilio Verify Validation ---
             'twilio_account_sid' => 'nullable|string|max:255|regex:/^AC[a-f0-9]{32}$/', // نمط SID
             'twilio_auth_token' => 'nullable|string|max:255',
             'twilio_verify_sid' => 'nullable|string|max:255|regex:/^VA[a-f0-9]{32}$/', // نمط Verify Service SID
-            // --- MODIFICATION END ---
+            
+            'whatsapp_enabled' => 'nullable|boolean',
+            'whatsapp_green_api_id_instance' => 'nullable|string|max:255',
+            'whatsapp_green_api_api_token_instance' => 'nullable|string|max:255',
         ];
 
         $messages = [
             'sms_default_provider.in' => 'قيمة مزود الخدمة العامة غير صالحة.',
             'sms_otp_provider.in' => 'قيمة مزود خدمة OTP غير صالحة.',
-            'httpsms_sender_phone.max' => 'رقم هاتف مرسل httpsms طويل جداً.',
             // --- MODIFICATION START: Twilio Verify Messages ---
             'twilio_account_sid.regex' => 'صيغة Twilio Account SID غير صحيحة (يجب أن يبدأ بـ AC).',
             'twilio_verify_sid.regex' => 'صيغة Twilio Verify Service SID غير صحيحة (يجب أن يبدأ بـ VA).',
             // --- MODIFICATION END ---
-            'smsgateway_server_url.url' => 'رابط خادم SMS Gateway يجب أن يكون رابطاً صحيحاً.',
         ];
 
         $validatedData = $request->validate($rules, $messages);
@@ -98,9 +88,13 @@ class SmsSettingController extends Controller
         try {
             foreach ($this->smsSettingKeys as $key) {
                 if ($request->has($key)) {
+                    $val = $request->input($key);
+                    if ($key === 'whatsapp_enabled') {
+                        $val = $request->boolean($key) ? '1' : '0';
+                    }
                     Setting::updateOrCreate(
                         ['key' => $key],
-                        ['value' => $request->input($key)]
+                        ['value' => $val]
                     );
                 }
             }

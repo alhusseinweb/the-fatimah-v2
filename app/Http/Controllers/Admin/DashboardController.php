@@ -34,8 +34,8 @@ class DashboardController extends Controller
         // --- بيانات المواعيد ---
         $now = Carbon::now();
         // استخدام الثوابت من موديل Booking للحالات
-        $confirmedBookingStatuses = [Booking::STATUS_CONFIRMED]; // يمكنك إضافة حالات أخرى تعتبر مؤكدة
-        $pendingBookingStatuses = [Booking::STATUS_PENDING];   // يمكنك إضافة حالات أخرى تعتبر معلقة
+        $confirmedBookingStatuses = [Booking::STATUS_CONFIRMED_PAID, Booking::STATUS_CONFIRMED_DEPOSIT]; 
+        $pendingBookingStatuses = [Booking::STATUS_UNDER_REVIEW, Booking::STATUS_AWAITING_PAYMENT];
 
         $nextConfirmedBooking = Booking::with(['service', 'user'])
                                 ->where('booking_datetime', '>', $now)

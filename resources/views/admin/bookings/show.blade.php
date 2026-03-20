@@ -306,7 +306,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const updateStatusForm = document.getElementById('updateBookingStatusForm');
 
     const cancellationStatusesRequiringReasonJS = @json($booking->getCancellationStatusesRequiringReason()); // استخدام الدالة من الموديل مباشرة
-    const confirmedBookingStatusValueJS = '{{ \App\Models\Booking::STATUS_CONFIRMED }}';
+    const confirmedPaidStatusValueJS = '{{ \App\Models\Booking::STATUS_CONFIRMED_PAID }}';
+    const confirmedDepositStatusValueJS = '{{ \App\Models\Booking::STATUS_CONFIRMED_DEPOSIT }}';
+    const photographedAwaitingPaymentStatusValueJS = '{{ \App\Models\Booking::STATUS_PHOTOGRAPHED_AWAITING_PAYMENT }}';
     const depositPaymentValueJS = 'deposit';
     const fullPaymentValueJS = 'full';
 
@@ -338,10 +340,10 @@ document.addEventListener('DOMContentLoaded', function () {
     function togglePaymentConfirmationOptions() {
         if (!statusSelect || !paymentConfirmationDiv) return;
 
-        const selectedBookingStatus = statusSelect.value;
+        const isConfirmedOrPhotographedSelection = [confirmedPaidStatusValueJS, confirmedDepositStatusValueJS, photographedAwaitingPaymentStatusValueJS].includes(selectedBookingStatus);
         const paymentOptionsAvailablePHP = {{ !empty($paymentConfirmationOptions) ? 'true' : 'false' }};
         
-        const showOptions = selectedBookingStatus === confirmedBookingStatusValueJS && paymentOptionsAvailablePHP;
+        const showOptions = isConfirmedOrPhotographedSelection && paymentOptionsAvailablePHP;
         
         paymentConfirmationDiv.style.display = showOptions ? 'block' : 'none';
 
@@ -446,7 +448,9 @@ document.addEventListener('DOMContentLoaded', function () {
             const depositRadioElement = document.getElementById('confirm_deposit');
             const depositRadioContainer = depositRadioElement ? depositRadioElement.closest('.form-check') : null;
             
-            if (selectedStatus === confirmedBookingStatusValueJS && 
+            const isConfirmedOrPhotographedSelectionForDeposit = [confirmedPaidStatusValueJS, confirmedDepositStatusValueJS, photographedAwaitingPaymentStatusValueJS].includes(selectedStatus);
+
+            if (isConfirmedOrPhotographedSelectionForDeposit && 
                 selectedPaymentType === depositPaymentValueJS && 
                 depositRadioContainer && 
                 depositRadioContainer.style.display !== 'none') {

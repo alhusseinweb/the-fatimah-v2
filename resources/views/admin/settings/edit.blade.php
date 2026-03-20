@@ -266,6 +266,41 @@
                     </div>
                 </div>
 
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0"><img src="{{ asset('images/paylink.png') }}" onerror="this.src='https://paylink.sa/wp-content/uploads/2021/08/logo.png'" alt="Paylink" style="height: 20px; margin-left: 8px; vertical-align: middle;">إعدادات بوابة الدفع (Paylink.sa)</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-12 mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="paylink_enabled" name="paylink_enabled" value="1" {{ old('paylink_enabled', $settings['paylink_enabled'] ?? '0') == '1' ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="paylink_enabled">تفعيل الدفع عبر Paylink (مدى، فيزا، ماستركارد)</label>
+                                </div>
+                                @error('paylink_enabled') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="paylink_api_id" class="form-label">معرف الـ API (Paylink API ID)</label>
+                            <input type="text" class="form-control @error('paylink_api_id') is-invalid @enderror" id="paylink_api_id" name="paylink_api_id" value="{{ old('paylink_api_id', $settings['paylink_api_id'] ?? '') }}">
+                            @error('paylink_api_id') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                        </div>
+                        <div class="mb-3">
+                            <label for="paylink_secret_key" class="form-label">المفتاح السري (Paylink Secret Key)</label>
+                            <input type="password" class="form-control @error('paylink_secret_key') is-invalid @enderror" id="paylink_secret_key" name="paylink_secret_key" value="{{ old('paylink_secret_key', $settings['paylink_secret_key'] ?? '') }}">
+                            @error('paylink_secret_key') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="paylink_test_mode" name="paylink_test_mode" value="1" {{ old('paylink_test_mode', $settings['paylink_test_mode'] ?? '1') == '1' ? 'checked' : '' }}>
+                                <label class="form-check-label" for="paylink_test_mode">وضع الاختبار (Test Mode)</label>
+                            </div>
+                            <small class="form-text text-muted">أوقف هذا الخيار في بيئة الإنتاج الحقيقية.</small>
+                            @error('paylink_test_mode') <div class="invalid-feedback d-block">{{ $message }}</div> @enderror
+                        </div>
+                    </div>
+                </div>
+
                 {{-- --- MODIFICATION START: Bank Transfer Discount Popup Settings --- --}}
                 <div class="card shadow-sm mb-4">
                     <div class="card-header">

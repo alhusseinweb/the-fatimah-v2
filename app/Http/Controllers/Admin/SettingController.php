@@ -42,6 +42,10 @@ class SettingController extends Controller
         'bank_transfer_discount_popup_message_en',
         'bank_transfer_discount_code',
         // --- MODIFICATION END ---
+        'paylink_enabled',
+        'paylink_api_id',
+        'paylink_secret_key',
+        'paylink_test_mode',
     ];
 
     private array $booleanSettingKeys = [
@@ -55,6 +59,8 @@ class SettingController extends Controller
         // --- MODIFICATION START: Add new boolean key ---
         'enable_bank_transfer_discount_popup',
         // --- MODIFICATION END ---
+        'paylink_enabled',
+        'paylink_test_mode',
     ];
 
     public function edit()
@@ -133,6 +139,8 @@ class SettingController extends Controller
             'bank_transfer_discount_popup_message_en' => 'nullable|string|max:500',
             'bank_transfer_discount_code' => 'nullable|string|max:50', // يمكن إضافة exists:discount_codes,code إذا أردت التأكد من وجود الكود
             // --- MODIFICATION END ---
+            'paylink_api_id' => 'nullable|string|max:255',
+            'paylink_secret_key' => 'nullable|string|max:255',
         ];
 
         foreach ($this->settingKeys as $key) {

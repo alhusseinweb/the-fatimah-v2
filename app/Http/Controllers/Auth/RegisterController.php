@@ -76,7 +76,14 @@ class RegisterController extends Controller
                 Log::info("Registration OTP sending skipped for {$mobileNumber} as OTP provider is 'none'. User will proceed to verify (if OTP can be manually obtained).");
             }
             
-            return redirect()->route('register.verify.form')->with('mobile_number', $mobileNumber);
+            $responseMessage = 'تم إرسال رمز التحقق إلى جوالك.';
+            if ($otpProvider === 'whatsapp') {
+                $responseMessage = 'تم إرسال رمز التحقق إلى رقمك عبر الواتساب (WhatsApp).';
+            }
+
+            return redirect()->route('register.verify.form')
+                ->with('mobile_number', $mobileNumber)
+                ->with('success', $responseMessage);
 
         } catch (\Exception $e) {
             Log::error('Failed to send OTP during registration: ' . $e->getMessage(), ['exception' => $e]);
@@ -223,5 +230,32 @@ class RegisterController extends Controller
                 'message' => 'فشل في إرسال رمز التحقق. يرجى المحاولة مرة أخرى.'
             ], 500);
         }
+    }
+
+    public function resendOtpViaSms(Request $request)
+    {
+        $mobileNumber = $request->input('mobile_number') ?: Session::get('otp_mobile_for_verification');
+        $registrationData = Session::get('registration_data');
+
+        if (!$registrationData || !$mobileNumber || $registrationData['mobile_number'] !== $mobileNumber) {
+             return response()->json(['success' => false, 'message' => 'جلسة التسجيل غير صالحة.'], 400);
+        }
+
+        Log::info("User requested SMS fallback (Twilio) for registration OTP to {$mobileNumber}.");
+
+        // فرض استخدام Twilio لإعادة الإرسال عبر SMS
+        $otpSentSuccessfully = $this->generateAndSendOtp($mobileNumber, 'register_sms_fallback', 'twilio');
+
+        if ($otpSentSuccessfully) {
+            return response()->json([
+                'success' => true,
+                'message' => 'تم إعادة إرسال رمز التحقق عبر رسالة نصية (Twilio) بنجاح.'
+            ]);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'فشل في إرسال الرسالة النصية. يرجى المحاولة لاحقاً.'
+        ], 500);
     }
 }

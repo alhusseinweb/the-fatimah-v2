@@ -1,0 +1,389 @@
+
+<?php
+    // ... (جميع متغيرات @php التي عرفناها سابقًا تبقى كما هي) ...
+    $settingsHomepage = \App\Models\Setting::pluck('value', 'key')->all();
+
+    $contactWhatsappNumber = $settingsHomepage['contact_whatsapp'] ?? '';
+    $contactInstagramUrl = $settingsHomepage['contact_instagram_url'] ?? '';
+    $displayWhatsapp = filter_var($settingsHomepage['display_whatsapp_contact'] ?? true, FILTER_VALIDATE_BOOLEAN);
+    $displayInstagram = filter_var($settingsHomepage['display_instagram_contact'] ?? true, FILTER_VALIDATE_BOOLEAN);
+    
+    $modalLogoPath = $settingsHomepage['logo_path_light'] ?? asset('images/logo.png');
+    $sliderImages = !empty($settingsHomepage['homepage_slider_images']) ? json_decode($settingsHomepage['homepage_slider_images'], true) : [];
+    $sliderImages = is_array($sliderImages) ? array_filter($sliderImages) : [];
+    $defaultSliderImages = [
+        asset('images/slider/slider1.jpg'),
+        asset('images/slider/slider2.jpg'),
+        asset('images/slider/slider3.jpg'),
+    ];
+    if (empty($sliderImages)) {
+        $sliderImages = $defaultSliderImages;
+    }
+    $bookingPolicyAr = $settingsHomepage['policy_ar'] ?? '';
+    $bookingPolicyEn = $settingsHomepage['policy_en'] ?? '';
+
+    if (!function_exists('formatWhatsappNumberHomepage')) { 
+        function formatWhatsappNumberHomepage($number, $forUrl = false) {
+            if (empty($number)) return '';
+            $cleanedNumber = preg_replace('/[^0-9+]/', '', $number); 
+            if ($forUrl) {
+                $cleanedNumberForUrl = preg_replace('/[^0-9]/', '', $cleanedNumber); 
+                if (strpos($cleanedNumberForUrl, '00') === 0) { 
+                    return substr($cleanedNumberForUrl, 2);
+                }
+                if (strpos($cleanedNumberForUrl, '0') === 0 && strlen($cleanedNumberForUrl) > 9) { 
+                     return '966' . substr($cleanedNumberForUrl, 1);
+                }
+                return ltrim($cleanedNumberForUrl, '+'); 
+            }
+            return function_exists('toArabicDigits') ? toArabicDigits($number) : $number;
+        }
+    }
+    $whatsappUrlNumber = formatWhatsappNumberHomepage($contactWhatsappNumber, true);
+    $whatsappDisplayNumber = formatWhatsappNumberHomepage($contactWhatsappNumber, false);
+    $sliderHeaderLogoPath = $settingsHomepage['logo_path_dark'] ?? asset('images/logo_w.png');
+
+?>
+<!DOCTYPE html>
+<html lang="<?php echo e(str_replace('_', '-', app()->getLocale())); ?>" dir="<?php echo e(app()->getLocale() == 'ar' ? 'rtl' : 'ltr'); ?>">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="<?php echo e(csrf_token()); ?>">
+
+    <title><?php echo e($settingsHomepage['site_name_' . app()->getLocale()] ?? ($settingsHomepage['site_name_ar'] ?? config('app.name', 'Fatimah Booking'))); ?></title>
+
+    <?php if(isset($settingsHomepage['favicon_path']) && $settingsHomepage['favicon_path']): ?>
+    <link rel="icon" href="<?php echo e(asset(e($settingsHomepage['favicon_path']))); ?>" type="image/x-icon">
+    <link rel="shortcut icon" href="<?php echo e(asset(e($settingsHomepage['favicon_path']))); ?>" type="image/x-icon">
+    <?php endif; ?>
+
+    <link rel="preconnect" href="https://fonts.bunny.net">
+    <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+
+    <link rel="stylesheet" href="<?php echo e(asset('css/frontend.css')); ?>">
+
+    <style>
+        html, body { margin: 0; padding: 0; width: 100%; overflow-x: hidden; }
+        body { font-family: 'Tajawal', sans-serif !important; background-color: #f8f9fa; }
+
+        .navbar-overlay { position: absolute; top: 0; left: 0; right: 0; width: 100%; z-index: 1030; background-color: transparent !important; box-shadow: none !important; padding-top: 1rem; padding-bottom: 1rem; transition: background-color 0.3s ease-in-out, padding-top 0.3s ease-in-out, padding-bottom 0.3s ease-in-out; }
+        .navbar-overlay.scrolled { background-color: rgba(0, 0, 0, 0.7) !important; padding-top: 0.5rem; padding-bottom: 0.5rem; }
+        .navbar-overlay .navbar-nav { background-color: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 50px; padding: 0.3rem 1rem; margin-top: 0.5rem; }
+        .navbar-overlay.scrolled .navbar-nav { background-color: rgba(255, 255, 255, 0.1); }
+        .navbar-overlay .nav-item { margin-left: 0.2rem; margin-right: 0.2rem; }
+        .navbar-overlay .navbar-nav .nav-link { color: #ffffff !important; text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.6); font-weight: 500; padding: 0.5rem 0.8rem; cursor: pointer; border-radius: 30px; }
+        .navbar-overlay .navbar-nav .nav-link:hover, .navbar-overlay .navbar-nav .nav-link.active { background-color: rgba(255,255,255,0.2); }
+        .navbar-overlay .navbar-toggler { border-color: rgba(255, 255, 255, 0.5); }
+        .navbar-overlay .navbar-toggler-icon { background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%28255, 255, 255, 0.9%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e"); }
+        .navbar-overlay .dropdown-menu { background-color: rgba(33, 37, 41, 0.95); border: none; font-family: 'Tajawal', sans-serif !important; border-radius: 0.5rem; }
+        .navbar-overlay .dropdown-item { color: #f8f9fa; }
+        .navbar-overlay .dropdown-item:hover, .navbar-overlay .dropdown-item:focus { color: #ffffff; background-color: rgba(255, 255, 255, 0.15); }
+        .navbar-overlay .dropdown-divider { border-color: rgba(255, 255, 255, 0.2); }
+
+        .hero-section-carousel { position: relative; overflow: hidden; width: 100%; margin: 0; padding: 0; }
+        .hero-section-carousel .carousel-inner, .hero-section-carousel .carousel-item, .hero-section-carousel .hero-slide-item { min-height: 90vh; background-size: cover; background-position: center center; background-repeat: no-repeat; width: 100%; margin: 0; padding: 0; }
+        .hero-section-carousel .carousel-caption { bottom: 0; left: 0; right: 0; top: 0; padding: 0; display: flex; align-items: center; justify-content: center; z-index: 5; color: #fff; background-color: transparent; }
+        .hero-caption-content { display: flex; flex-direction: column; align-items: center; padding: 20px; border-radius: 10px; text-align: center;}
+        .hero-caption-content .hero-logo-in-caption { max-width: 200px; height: auto; margin-bottom: 25px; z-index: 1; filter: drop-shadow(2px 2px 5px rgba(0,0,0,0.5)); }
+        
+        /* --- START: تعديل زر "إحجز الأن" --- */
+        .hero-book-now-btn {
+            border-width: 2px !important; /* استخدام !important لضمان الأولوية */
+            font-weight: 700;
+            text-transform: uppercase;
+            transition: all 0.3s ease;
+            z-index: 1;
+            padding: 12px 30px;
+            font-size: 1.1rem;
+            border-radius: 50px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            color: #ffffff !important; /* لون النص أبيض */
+            border-color: rgba(255, 255, 255, 0.4) !important; /* أبيض بشفافية 40%، عدل 0.4 حسب رغبتك */
+            background-color: transparent !important; /* تأكيد أن الخلفية شفافة */
+        }
+        .hero-book-now-btn:hover {
+            background-color: #ffffff !important;
+            color: #333 !important;
+            border-color: #ffffff !important; 
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(0,0,0,0.3);
+        }
+        /* --- END: تعديل زر "إحجز الأن" --- */
+
+        .carousel-indicators button { width: 12px; height: 12px; border-radius: 50%; background-color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.7); margin: 0 5px; }
+        .carousel-indicators .active { background-color: #fff; }
+        .carousel-control-prev-icon, .carousel-control-next-icon { background-color: rgba(0,0,0,0.3); border-radius: 50%; padding: 1.5rem; background-size: 50% 50%; }
+
+        .services-section { padding-top: 4rem; padding-bottom: 4rem; background-color: #ffffff; position: relative; z-index: 1; }
+        .section-title { font-size: 2.5rem; font-weight: 700; margin-bottom: 1rem; position: relative; padding-bottom: 1rem; }
+        .section-title::after { content: ''; display: block; width: 80px; height: 4px; background-color: #555; margin: 0.5rem auto 0; border-radius: 2px; }
+        .service-item { padding: 20px; border-radius: 10px; transition: all 0.3s ease; margin-bottom: 2rem;}
+        .service-item:hover { transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        .service-item .service-icon { width: 180px; height: 180px; object-fit: cover; border-radius: 50%; border: 6px solid #f0f0f0; margin-bottom: 1.5rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .service-item h3 { font-size: 1.5rem; font-weight: 700; margin-bottom: 1rem; color: #333; }
+        .services-section .btn-outline-primary { color: #555; border-color: #555; font-weight: 600; padding: 10px 25px; border-radius: 50px; }
+        .services-section .btn-outline-primary:hover { background-color: #555; color: #ffffff; }
+
+        .contact-background { background: url('<?php echo e(asset(e($settingsHomepage['contact_bg_image_path'] ?? 'images/contact-background.jpg'))); ?>') no-repeat center center; background-size: cover; position: relative; padding-top: 5rem; padding-bottom: 5rem; width: 100%; margin: 0; padding-left: 0; padding-right: 0; z-index: 1; }
+        .contact-content-overlay { background-color: rgba(255, 255, 255, 0.9); z-index: 2; position: relative; border-radius: 0.75rem; box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.15); }
+        .contact-section .btn-success, .contact-section .btn-light { font-weight: 600; padding: 12px 25px; font-size: 1.1rem; border-radius: 50px; display: inline-flex; align-items: center; justify-content: center; }
+        .contact-section .btn-success i, .contact-section .btn-light img { transition: transform 0.2s ease-in-out; }
+        .contact-section .btn-success:hover i, .contact-section .btn-light:hover img { transform: scale(1.1); }
+
+        .footer { width: 100%; margin: 0; padding: 25px 0; background-color: #343a40; color: #adb5bd; position: relative; z-index: 1; border-top: 1px solid #495057; }
+        .footer .container { text-align: center; }
+        .footer p { margin-bottom: 0.5rem; font-size: 0.9rem; }
+        .payment-icons-footer { margin-top: 10px; }
+        .payment-icons-footer img { height: 28px; margin: 0 7px; opacity: 0.8; transition: opacity 0.2s; }
+        .payment-icons-footer img:hover { opacity: 1; }
+
+        html[dir="rtl"] body { direction: rtl; text-align: right; }
+        html[dir="rtl"] .navbar-nav { margin-right: auto !important; margin-left: 0 !important; }
+        html[dir="rtl"] .navbar-overlay .navbar-nav { margin-left: auto !important; margin-right: 0 !important; } 
+        @media (min-width: 992px) { 
+            html[dir="rtl"] .navbar-overlay .navbar-nav { margin-right: auto !important; margin-left: auto !important; }
+        }
+        html[dir="rtl"] .dropdown-menu { right: 0; left: auto; text-align: right; }
+        html[dir="rtl"] .contact-section .btn-success i, html[dir="rtl"] .contact-section .btn-light img { margin-left: 0.5rem !important; margin-right: 0 !important; }
+        html[dir="ltr"] .contact-section .btn-success i, html[dir="ltr"] .contact-section .btn-light img { margin-right: 0.5rem !important; margin-left: 0 !important; }
+        html[dir="rtl"] .modal-header .btn-close { margin-left: auto; margin-right: -0.5rem; }
+
+        #bookingPolicyModal .modal-body { text-align: right; direction: rtl; }
+        #bookingPolicyModal .modal-body h4 { margin-top: 1rem; margin-bottom: 0.5rem; font-weight: 700; }
+        #bookingPolicyModal .modal-body ul { padding-right: 2rem; margin-bottom: 1rem; }
+        #bookingPolicyModal .modal-body li { margin-bottom: 0.5rem; }
+        #bookingPolicyModal .modal-header { border-bottom: none; padding-top: 1.5rem; padding-bottom: 0.5rem; display: flex; justify-content: center; position:relative; }
+         #bookingPolicyModal .modal-header-logo { max-height: 80px; width: auto; }
+         #bookingPolicyModal .btn-close { position: absolute; top: 1.5rem; right: 1.5rem; }
+         html[dir="ltr"] #bookingPolicyModal .btn-close { right: auto; left: 1.5rem; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark navbar-overlay fixed-top">
+        <div class="container">
+            
+            <button class="navbar-toggler ms-auto" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div class="collapse navbar-collapse justify-content-center" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo e(request()->routeIs('home') || request()->is('/') ? 'active' : ''); ?>" href="<?php echo e(url('/')); ?>">الرئيسية</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo e(request()->routeIs('services.index') ? 'active' : ''); ?>" href="<?php echo e(route('services.index')); ?>">الخدمات</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#bookingPolicyModal">
+                            سياسة الحجز
+                        </a>
+                    </li>
+                    <?php if(auth()->guard()->guest()): ?>
+                        <li class="nav-item">
+                            <a class="nav-link <?php echo e(request()->routeIs('login') ? 'active' : ''); ?>" href="<?php echo e(route('login')); ?>">تسجيل الدخول</a>
+                        </li>
+                        <?php if(Route::has('register.form')): ?>
+                            <li class="nav-item">
+                                <a class="nav-link <?php echo e(request()->routeIs('register.form') ? 'active' : ''); ?>" href="<?php echo e(route('register.form')); ?>">تسجيل جديد</a>
+                            </li>
+                        <?php endif; ?>
+                    <?php else: ?>
+                         <li class="nav-item dropdown">
+                             <a class="nav-link dropdown-toggle" href="#" id="navbarDropdownUser" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                 <i class="fas fa-user-circle me-1"></i> <?php echo e(Auth::user()->name ?? 'حسابي'); ?>
+
+                             </a>
+                             <ul class="dropdown-menu <?php echo e(app()->getLocale() == 'ar' ? 'dropdown-menu-end' : ''); ?>" aria-labelledby="navbarDropdownUser">
+                                 <li><a class="dropdown-item" href="<?php echo e(route('customer.dashboard')); ?>"> <i class="fas fa-tachometer-alt fa-fw me-2"></i> لوحة تحكمي</a></li>
+                                 <?php if(Auth::user()->is_admin ?? false): ?>
+                                     <li><a class="dropdown-item" href="<?php echo e(route('admin.dashboard')); ?>"> <i class="fas fa-user-shield fa-fw me-2"></i> لوحة تحكم المدير</a></li>
+                                 <?php endif; ?>
+                                 <li><hr class="dropdown-divider"></li>
+                                 <li>
+                                     <a class="dropdown-item" href="#" onclick="event.preventDefault(); document.getElementById('logout-form-nav').submit();">
+                                        <i class="fas fa-sign-out-alt fa-fw me-2"></i> تسجيل الخروج
+                                     </a>
+                                     <form id="logout-form-nav" action="<?php echo e(route('logout')); ?>" method="POST" style="display: none;">
+                                         <?php echo csrf_field(); ?>
+                                     </form>
+                                 </li>
+                             </ul>
+                         </li>
+                    <?php endif; ?>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <header class="hero-section-carousel">
+         <div id="heroCarousel" class="carousel slide carousel-fade" data-bs-ride="carousel" data-bs-interval="5000">
+            <?php if(count($sliderImages) > 1): ?>
+            <div class="carousel-indicators">
+                <?php $__currentLoopData = $sliderImages; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $index => $image): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                <button type="button" data-bs-target="#heroCarousel" data-bs-slide-to="<?php echo e($index); ?>" class="<?php echo e($loop->first ? 'active' : ''); ?>" aria-current="<?php echo e($loop->first ? 'true' : 'false'); ?>" aria-label="Slide <?php echo e($index + 1); ?>"></button>
+                <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+            </div>
+            <?php endif; ?>
+            <div class="carousel-inner">
+                <?php $__empty_1 = true; $__currentLoopData = $sliderImages; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $index => $imagePath): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); $__empty_1 = false; ?>
+                <div class="carousel-item <?php echo e($loop->first ? 'active' : ''); ?> hero-slide-item" style="background-image: url('<?php echo e(asset(e($imagePath))); ?>');">
+                    <div class="carousel-caption">
+                        <div class="hero-caption-content">
+                            <img src="<?php echo e(asset($sliderHeaderLogoPath)); ?>" alt="<?php echo e(e($settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo')); ?>" class="img-fluid hero-logo-in-caption">
+                            
+                            <a href="<?php echo e(route('services.index')); ?>" class="btn btn-outline-light btn-lg hero-book-now-btn">
+                                إحجز الأن
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
+                <div class="carousel-item active hero-slide-item" style="background-image: url('<?php echo e(asset('images/slider/slider_default.jpg')); ?>');">
+                    <div class="carousel-caption">
+                        <div class="hero-caption-content">
+                             <img src="<?php echo e(asset($sliderHeaderLogoPath)); ?>" alt="<?php echo e(e($settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo')); ?>" class="img-fluid hero-logo-in-caption">
+                            <a href="<?php echo e(route('services.index')); ?>" class="btn btn-outline-light btn-lg hero-book-now-btn">
+                                إحجز الأن
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
+            </div>
+            <?php if(count($sliderImages) > 1): ?>
+            <button class="carousel-control-prev" type="button" data-bs-target="#heroCarousel" data-bs-slide="prev">
+                <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                <span class="visually-hidden">Previous</span>
+            </button>
+            <button class="carousel-control-next" type="button" data-bs-target="#heroCarousel" data-bs-slide="next">
+                <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                <span class="visually-hidden">Next</span>
+            </button>
+            <?php endif; ?>
+        </div>
+    </header>
+
+    <section class="services-section text-center">
+        <div class="container">
+            <h2 class="section-title mb-5">خدماتنا</h2>
+            <div class="row justify-content-center">
+                <div class="col-md-4">
+                    <div class="service-item">
+                        <img src="<?php echo e(asset('images/cr1.jpg')); ?>" alt="تصوير الأعراس" class="img-fluid service-icon">
+                        <h3>تصوير الأعراس</h3>
+                        <p class="text-muted px-3">نوثق أسعد لحظاتكم بتفاصيل فنية تبقى ذكرى خالدة.</p>
+                        <a href="<?php echo e(route('services.index')); ?>" class="btn btn-outline-primary mt-2">عرض التفاصيل والحجز</a>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="service-item">
+                        <img src="<?php echo e(asset('images/cr2.jpg')); ?>" alt="تصوير المودلز" class="img-fluid service-icon">
+                        <h3>تصوير المنتجات والمودلز</h3>
+                        <p class="text-muted px-3">نبرز جمال منتجاتكم وجاذبية موديلاتكم بصور احترافية.</p>
+                        <a href="<?php echo e(route('services.index')); ?>" class="btn btn-outline-primary mt-2">عرض التفاصيل والحجز</a>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="service-item">
+                        <img src="<?php echo e(asset('images/cr3.jpg')); ?>" alt="تصوير الحفلات والمناسبات" class="img-fluid service-icon">
+                        <h3>تصوير الحفلات والمناسبات</h3>
+                        <p class="text-muted px-3">نلتقط روعة مناسباتكم الخاصة بحرفية عالية لتوثيق كل لحظة.</p>
+                        <a href="<?php echo e(route('services.index')); ?>" class="btn btn-outline-primary mt-2">عرض التفاصيل والحجز</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="contact-section contact-background">
+        <div class="container">
+            <div class="contact-content-overlay card p-4 p-md-5 mx-auto" style="max-width: 800px;">
+                <h2 class="section-title text-center mb-4">تواصل معنا</h2>
+                <p class="text-center lead mb-4">للاستفسارات أو لمناقشة حجوزاتكم، يمكنكم التواصل معنا عبر:</p>
+                <div class="text-center d-flex flex-column flex-sm-row justify-content-center align-items-center flex-wrap gap-3">
+                    <?php if($displayWhatsapp && !empty($contactWhatsappNumber) && !empty($whatsappUrlNumber)): ?>
+                        <a href="https://wa.me/<?php echo e($whatsappUrlNumber); ?>" class="btn btn-success btn-lg" target="_blank" style="min-width: 220px;">
+                            <i class="fab fa-whatsapp"></i> واتساب
+                        </a>
+                    <?php endif; ?>
+
+                    <?php if($displayInstagram && !empty($contactInstagramUrl)): ?>
+                        <a href="<?php echo e($contactInstagramUrl); ?>" class="btn btn-light btn-lg" target="_blank" style="min-width: 220px; border: 1px solid #DAA520; color: #333; background: linear-gradient(45deg, #f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%); color:white;">
+                            <img src="<?php echo e(asset('images/instagram.png')); ?>" alt="Instagram" style="height: 24px; width: auto; filter: brightness(0) invert(1);"> إنستقرام
+                        </a>
+                    <?php endif; ?>
+                </div>
+
+                <?php if($displayWhatsapp && !empty($contactWhatsappNumber)): ?>
+                    <p class="mt-4 h5 text-center">
+                        <span class="d-block">رقم الواتساب: <strong dir="ltr"><?php echo e($whatsappDisplayNumber); ?></strong></span>
+                    </p>
+                <?php endif; ?>
+
+                <?php if(!$displayWhatsapp && !$displayInstagram): ?>
+                    <p class="text-center text-muted mt-3">وسائل التواصل غير محددة حالياً. يرجى المحاولة لاحقاً.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; <?php echo e(date('Y')); ?> <?php echo e($settingsHomepage['site_name_' . app()->getLocale()] ?? ($settingsHomepage['site_name_ar'] ?? 'Fatimah Ali Photography')); ?>. جميع الحقوق محفوظة.</p>
+            
+            <div class="payment-icons-footer">
+                <img src="<?php echo e(asset('images/payment-icons/mada.png')); ?>" alt="مدى" title="مدى">
+                <img src="<?php echo e(asset('images/payment-icons/tamara_logo.png')); ?>" alt="تمارا" title="تمارا">
+                <img src="<?php echo e(asset('images/payment-icons/mastercard.png')); ?>" alt="ماستركارد" title="ماستركارد">
+                <img src="<?php echo e(asset('images/payment-icons/visa.png')); ?>" alt="فيزا" title="فيزا">
+            </div>
+        </div>
+    </footer>
+
+    <div class="modal fade" id="bookingPolicyModal" tabindex="-1" aria-labelledby="bookingPolicyModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <img src="<?php echo e(asset(e($modalLogoPath))); ?>" alt="<?php echo e(e($settingsHomepage['site_name_' . app()->getLocale()] ?? 'Logo')); ?>" class="modal-header-logo">
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <?php
+                $policyToDisplay = app()->getLocale() == 'ar' ? $bookingPolicyAr : $bookingPolicyEn;
+                if(empty(trim($policyToDisplay))) $policyToDisplay = (app()->getLocale() == 'ar' ? $bookingPolicyEn : $bookingPolicyAr); 
+                if(empty(trim($policyToDisplay))) $policyToDisplay = 'لم يتم تحديد سياسة الحجز بعد.';
+            ?>
+            <?php echo nl2br(e($policyToDisplay)); ?>
+
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إغلاق</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        window.addEventListener('scroll', function() {
+            const navbar = document.querySelector('.navbar-overlay');
+            if (navbar) {
+                if (window.scrollY > 50) {
+                    navbar.classList.add('scrolled');
+                } else {
+                    navbar.classList.remove('scrolled');
+                }
+            }
+        });
+    </script>
+</body>
+</html>
+<?php /**PATH C:\Users\mustafa\.gemini\antigravity\scratch\static\the-fatimah-old\resources\views/frontend/homepage.blade.php ENDPATH**/ ?>

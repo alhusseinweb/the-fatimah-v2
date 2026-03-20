@@ -105,7 +105,7 @@ class CustomerController extends Controller
 
         // جلب الحجوزات غير المكتملة (قيد الانتظار، مؤكد، إلخ)
         $ongoingBookings = $customer->bookings()
-                                ->whereNotIn('status', [Booking::STATUS_COMPLETED, Booking::STATUS_CANCELLED_BY_ADMIN, Booking::STATUS_CANCELLED_BY_USER, Booking::STATUS_NO_SHOW])
+                                ->whereNotIn('status', [Booking::STATUS_COMPLETED_DELIVERED, Booking::STATUS_CANCELLED_BY_ADMIN, Booking::STATUS_CANCELLED_BY_USER])
                                 ->with(['service', 'invoice']) // جلب العلاقات اللازمة
                                 ->orderBy('booking_datetime', 'desc')
                                 ->get();
@@ -130,7 +130,7 @@ class CustomerController extends Controller
         $completedBookings = null;
         if ($request->has('view_completed')) {
             $completedBookings = $customer->bookings()
-                                ->whereIn('status', [Booking::STATUS_COMPLETED]) // يمكن إضافة حالات أخرى مكتملة
+                                ->whereIn('status', [Booking::STATUS_COMPLETED_DELIVERED]) // يمكن إضافة حالات أخرى مكتملة
                                 ->with(['service', 'invoice'])
                                 ->orderBy('booking_datetime', 'desc')
                                 ->paginate(10, ['*'], 'completed_page'); // استخدام paginator مختلف إذا لزم الأمر

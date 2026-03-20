@@ -6,6 +6,7 @@ namespace App\Notifications;
 use App\Models\Booking;
 // use App\Models\User;
 use App\Notifications\Channels\HttpSmsChannel;
+use App\Notifications\Channels\WhatsAppChannel;
 use App\Notifications\Traits\ManagesSmsContent;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
@@ -42,10 +43,11 @@ class BookingStatusChangedNotification extends Notification implements ShouldQue
 
         // الحالات التي لها إشعارات مخصصة بها ولا يجب أن يرسل هذا الإشعار لها
         $excludedStatusesForThisNotification = [
-            Booking::STATUS_CONFIRMED,          // يستخدم BookingConfirmedNotification
+            Booking::STATUS_CONFIRMED_PAID,     // يستخدم BookingConfirmedNotification
+            Booking::STATUS_CONFIRMED_DEPOSIT,  // يستخدم BookingConfirmedNotification
             Booking::STATUS_CANCELLED_BY_ADMIN, // يستخدم BookingCancelledNotification
             Booking::STATUS_CANCELLED_BY_USER,  // يستخدم BookingCancelledNotification
-            // Booking::STATUS_PENDING,         // حالة أولية، عادة ما يرسل لها BookingRequestReceived
+            Booking::STATUS_UNDER_REVIEW,      // حالة أولية
         ];
         if (in_array($this->newStatus, $excludedStatusesForThisNotification)) {
             Log::info("BookingStatusChangedNotification: New status '{$this->newStatus}' has a dedicated notification, skipping this generic status change notification for booking ID {$this->booking->id}.");
@@ -61,16 +63,12 @@ class BookingStatusChangedNotification extends Notification implements ShouldQue
 
         if (isset($notifiable->mobile_number) && !empty($notifiable->mobile_number)) {
             $templateKey = $notifiable->is_admin ? 'booking_status_changed_admin' : 'booking_status_changed_customer';
-            $templateExists = Cache::remember('sms_template_active_exists_' . $templateKey, now()->addMinutes(60), function () use ($templateKey) {
-                 return SmsTemplate::where('notification_type', $templateKey)->where('is_active', true)->exists();
-            });
-            if ($templateExists) {
-                $channels[] = HttpSmsChannel::class;
-            } else {
-                Log::warning("BookingStatusChangedNotification: SMS template '{$templateKey}' for notifiable ID {$notifiable->id} not found or not active, HttpSmsChannel skipped.", ['booking_id' => $this->booking->id]);
+            $smsChannels = $this->determineSmsChannels($templateKey, $notifiable);
+            $channels = array_merge($channels, $smsChannels);
+
+            if (empty($smsChannels)) {
+                Log::warning("BookingStatusChangedNotification: No SMS/WhatsApp channels determined for notifiable ID {$notifiable->id}.");
             }
-        } else {
-            Log::warning("BookingStatusChangedNotification: SMS not sent to notifiable ID {$notifiable->id}, mobile_number missing.", ['booking_id' => $this->booking->id]);
         }
         
         if(empty($channels)){
@@ -153,6 +151,17 @@ class BookingStatusChangedNotification extends Notification implements ShouldQue
         return [
             'to' => $recipientPhoneNumber,
             'content' => $messageContent,
+        ];
+    }
+
+    public function toWhatsApp(object $notifiable): array
+    {
+        $smsData = $this->toHttpSms($notifiable);
+        if (empty($smsData)) return [];
+
+        return [
+            'to' => $this->formatWhatsAppRecipient($notifiable->mobile_number),
+            'content' => $smsData['content'],
         ];
     }
 

@@ -85,14 +85,25 @@ class PaymentController extends Controller
         }
         
         $invoice->refresh(); 
+        $booking = $invoice->booking;
         
         $successMessage = 'تم استلام دفعتك بنجاح!';
         if ($invoice->status === Invoice::STATUS_PAID) {
             $successMessage = ($previousStatus === Invoice::STATUS_PARTIALLY_PAID || $initialStatus === Invoice::STATUS_PARTIALLY_PAID) 
                 ? "تم استلام المبلغ المتبقي للفاتورة بنجاح! شكراً لثقتكم بنا."
                 : 'تم استلام المبلغ كاملاً بنجاح! تم تأكيد حجزك.';
+            
+            if ($booking) {
+                $booking->status = Booking::STATUS_CONFIRMED_PAID;
+                $booking->save();
+            }
         } elseif ($invoice->status === Invoice::STATUS_PARTIALLY_PAID) {
             $successMessage = 'تم استلام دفعة العربون بنجاح! تم تأكيد حجزك.';
+            
+            if ($booking) {
+                $booking->status = Booking::STATUS_CONFIRMED_DEPOSIT;
+                $booking->save();
+            }
         } else {
             Log::info("Tamara success redirect, but final invoice status from DB is '{$invoice->status}'. Webhook should update it soon or might have already processed.", ['invoice_id' => $invoice->id]);
         }
@@ -326,11 +337,11 @@ class PaymentController extends Controller
                         }
 
                         $booking = $invoice->booking;
-                        if ($booking && $booking->status !== Booking::STATUS_CONFIRMED && in_array($newInvoiceStatus, [Invoice::STATUS_PAID, Invoice::STATUS_PARTIALLY_PAID])) {
+                        if ($booking && !$booking->isConfirmed() && in_array($newInvoiceStatus, [Invoice::STATUS_PAID, Invoice::STATUS_PARTIALLY_PAID])) {
                             $oldBookingStatus = $booking->status;
-                            $booking->status = Booking::STATUS_CONFIRMED; // تم تأكيد الحجز الآن بعد الدفع
+                            $booking->status = ($newInvoiceStatus === Invoice::STATUS_PAID) ? Booking::STATUS_CONFIRMED_PAID : Booking::STATUS_CONFIRMED_DEPOSIT; 
                             $booking->save();
-                            Log::info("Booking status updated to CONFIRMED via {$eventType} webhook.", ['booking_id' => $booking->id, 'old_status' => $oldBookingStatus]);
+                            Log::info("Booking status updated to " . ($newInvoiceStatus === Invoice::STATUS_PAID ? "CONFIRMED_PAID" : "CONFIRMED_DEPOSIT") . " via {$eventType} webhook.", ['booking_id' => $booking->id, 'old_status' => $oldBookingStatus]);
                             if ($customer) $customer->notify(new BookingConfirmedNotification($booking));
                             foreach($admins as $admin) $admin->notify(new BookingConfirmedNotification($booking));
                         }
@@ -564,7 +575,87 @@ class PaymentController extends Controller
        } catch (Throwable $e) {
            session()->forget($sessionKey);
            Log::error('Exception during Tamara retry payment initiation.', [ /* ... */ ]);
-           return Redirect::route('customer.invoices.show', $invoice)->with('error', 'حدث خطأ غير متوقع أثناء محاولة الدفع. يرجى المحاولة مرة أخرى.');
-       }
-   }
+            return Redirect::route('customer.invoices.show', $invoice)->with('error', 'حدث خطأ غير متوقع أثناء محاولة الدفع. يرجى المحاولة مرة أخرى.');
+        }
+    }
+
+    public function handlePaymentCallback(Request $request, string $gateway): RedirectResponse
+    {
+        Log::info("Payment callback received for gateway: {$gateway}", ['query' => $request->all()]);
+
+        if ($gateway === 'paylink') {
+            return $this->handlePaylinkCallback($request);
+        }
+
+        return Redirect::route('home')->with('error', 'بوابة دفع غير مدعومة.');
+    }
+
+    protected function handlePaylinkCallback(Request $request): RedirectResponse
+    {
+        $transactionNo = $request->query('transactionNo');
+        
+        if (!$transactionNo) {
+            Log::error("PaylinkCallback: transactionNo missing.");
+            return Redirect::route('home')->with('error', 'رقم المعاملة مفقود.');
+        }
+
+        $invoice = Invoice::where('payment_gateway_ref', $transactionNo)->first();
+
+        if (!$invoice) {
+            Log::error("PaylinkCallback: Invoice not found for transactionNo: {$transactionNo}");
+            return Redirect::route('home')->with('error', 'تعذر العثور على الفاتورة المرتبطة.');
+        }
+
+        DB::transaction(function () use ($invoice, $transactionNo) {
+            if ($invoice->status !== Invoice::STATUS_PAID) {
+                $invoice->status = Invoice::STATUS_PAID;
+                $invoice->paid_at = now();
+                $invoice->save();
+
+                Payment::create([
+                    'invoice_id' => $invoice->id,
+                    'transaction_id' => $transactionNo,
+                    'amount' => $invoice->amount,
+                    'currency' => $invoice->currency ?: 'SAR',
+                    'status' => 'completed',
+                    'payment_gateway' => 'paylink',
+                    'payment_details' => json_encode(['callback_at' => now()->toDateTimeString()]),
+                ]);
+
+                $booking = $invoice->booking;
+                if ($booking) {
+                    $isFull = $invoice->payment_option === 'full';
+                    $booking->status = $isFull ? Booking::STATUS_CONFIRMED_PAID : Booking::STATUS_CONFIRMED_DEPOSIT;
+                    $booking->save();
+
+                    // Notifications
+                    $customer = $booking->user;
+                    $admins = User::where('is_admin', true)->get();
+
+                    if ($customer instanceof \App\Models\User) {
+                        try {
+                            $customer->notify(new BookingConfirmedNotification($booking));
+                            $customer->notify(new PaymentSuccessNotification($invoice, (float)$invoice->amount, $invoice->currency));
+                        } catch (\Exception $e) {
+                            Log::error("PaylinkCallback: Notification failed for customer.");
+                        }
+                    }
+
+                    foreach ($admins as $admin) {
+                        if ($admin instanceof \App\Models\User) {
+                            try {
+                                $admin->notify(new BookingConfirmedNotification($booking));
+                                $admin->notify(new PaymentSuccessNotification($invoice, (float)$invoice->amount, $invoice->currency));
+                            } catch (\Exception $e) {
+                                Log::error("PaylinkCallback: Notification failed for admin.");
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        return Redirect::route('booking.pending', $invoice->booking_id)
+                        ->with('success', 'تم إتمام عملية الدفع وتأكيد حجزك بنجاح! شكراً لك.');
+    }
 }

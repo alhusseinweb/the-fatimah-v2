@@ -9,13 +9,15 @@ use App\Models\Setting;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
 // use Tamara\Request\Order\CaptureOrderRequest; // بناءً على SDK، قد يكون هذا هو الاسم الصحيح
 use Tamara\Request\Payment\CaptureRequest; // أو هذا، تحقق من SDK
 
 class TamaraService
 {
-    protected string $apiUrl;
-    protected string $apiKey;
+    protected ?string $apiUrl = null;
+    protected ?string $apiKey = null;
     protected bool $isConfigured = false;
     protected int $requestTimeout;
 

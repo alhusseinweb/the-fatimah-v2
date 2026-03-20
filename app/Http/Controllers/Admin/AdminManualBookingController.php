@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 // استيراد الإشعارات إذا كنت سترسلها من هنا
 // use App\Notifications\BookingConfirmedNotification;
 // use App\Notifications\PaymentSuccessNotification;
@@ -152,18 +153,20 @@ class AdminManualBookingController extends Controller
 
 
             // 3. إنشاء الحجز
-            $bookingStatus = Booking::STATUS_PENDING; // افتراضي
+            $bookingStatus = Booking::STATUS_AWAITING_PAYMENT; // افتراضي للحجز اليدوي (لأنه معتمد من المدير)
             $downPaymentAmountForBookingRecord = null;
 
             if ($amountPaidManuallyByCustomer > 0.009) {
                 // إذا تم دفع أي مبلغ يدويًا، اعتبر الحجز مؤكدًا مبدئيًا
-                $bookingStatus = Booking::STATUS_CONFIRMED;
+                $isFull = $amountPaidManuallyByCustomer >= ($finalInvoiceAmount - 0.01);
+                $bookingStatus = $isFull ? Booking::STATUS_CONFIRMED_PAID : Booking::STATUS_CONFIRMED_DEPOSIT;
+                
                 if ($customerPaymentOptionForInvoice === 'down_payment') {
                     // إذا كان الخيار للعميل هو دفع عربون، فإن `down_payment_amount` للحجز هو نصف الإجمالي
                     $downPaymentAmountForBookingRecord = round($finalInvoiceAmount / 2, 2);
                 } elseif ($amountPaidManuallyByCustomer < ($finalInvoiceAmount - 0.01) ) {
                     // إذا دفع مبلغًا أقل من الإجمالي ولم يكن الخيار عربونًا، اعتبره عربونًا مبدئيًا
-                     $downPaymentAmountForBookingRecord = $amountPaidManuallyByCustomer; // أو round($finalInvoiceAmount / 2, 2);
+                     $downPaymentAmountForBookingRecord = $amountPaidManuallyByCustomer; 
                 }
             } elseif ($customerPaymentOptionForInvoice === 'down_payment') {
                  // إذا لم يدفع شيئًا يدويًا، ولكن المطلوب من العميل دفع عربون عبر تمارا
@@ -175,17 +178,21 @@ class AdminManualBookingController extends Controller
                 'user_id' => $user->id,
                 'service_id' => $service->id,
                 'booking_datetime' => $bookingDateTime,
-                'status' => $bookingStatus, // سيتم تحديثه لاحقًا إذا لزم الأمر
+                'status' => $bookingStatus,
                 'event_location' => $validatedData['event_location'],
                 'groom_name_en' => $validatedData['groom_name_en'],
                 'bride_name_en' => $validatedData['bride_name_en'],
                 'customer_notes' => $validatedData['customer_notes'],
                 'agreed_to_policy' => true, 
-                'discount_code_id' => null, // لا يوجد خصم للحجز اليدوي حاليًا
+                'discount_code_id' => null, 
                 'down_payment_amount' => $downPaymentAmountForBookingRecord,
                 'shooting_area' => $validatedData['shooting_area_option'],
                 'outside_location_city' => ($validatedData['shooting_area_option'] === 'outside_ahsa') ? $validatedData['outside_ahs_city'] : null,
                 'outside_location_fee_applied' => ($currentOutsideLocationFeeApplied > 0) ? $currentOutsideLocationFeeApplied : null,
+                // الحقول الجديدة للمزامنة مع موديل الحجز المعدل
+                'total_price' => $finalInvoiceAmount,
+                'requested_payment_option' => $customerPaymentOptionForInvoice,
+                'requested_payment_method' => 'tamara', // أو يمكن جعلها متغيرة حسب الحاجة
             ]);
 
             // 4. إنشاء الفاتورة
@@ -232,14 +239,15 @@ class AdminManualBookingController extends Controller
             }
             
             // 6. تحديث حالة الحجز النهائية بناءً على الدفع
-            if ($invoice->status === Invoice::STATUS_PAID || ($invoice->status === Invoice::STATUS_PARTIALLY_PAID && $customerPaymentOptionForInvoice === 'down_payment' && $amountPaidManuallyByCustomer >= $downPaymentAmountForBookingRecord - 0.01) ) {
-                if ($booking->status !== Booking::STATUS_CONFIRMED) {
-                     $booking->status = Booking::STATUS_CONFIRMED;
-                     $booking->save();
-                }
+            if ($invoice->status === Invoice::STATUS_PAID) {
+                $booking->status = Booking::STATUS_CONFIRMED_PAID;
+                $booking->save();
+            } else if ($invoice->status === Invoice::STATUS_PARTIALLY_PAID) {
+                $booking->status = Booking::STATUS_CONFIRMED_DEPOSIT;
+                $booking->save();
             } else if ($invoice->status === Invoice::STATUS_UNPAID && $amountPaidManuallyByCustomer <= 0.009){
-                 // إذا لم يتم دفع شيء، والمطلوب دفعة عبر تمارا، يبقى الحجز Pending حتى يدفع العميل
-                 $booking->status = Booking::STATUS_PENDING;
+                 // إذا لم يتم دفع شيء، والمطلوب دفعة عبر تمارا، ننتقل لحالة انتظار الدفع
+                 $booking->status = Booking::STATUS_AWAITING_PAYMENT;
                  $booking->save();
             }
 

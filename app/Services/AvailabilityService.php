@@ -15,8 +15,13 @@ class AvailabilityService
     protected const WEEKLY_SCHEDULE_SETTING_KEY = 'availability_schedule';
     protected const SLOT_INTERVAL_MINUTES = 15;
     protected const BOOKING_BLOCKING_STATUSES = [
-        Booking::STATUS_CONFIRMED,
-        Booking::STATUS_PENDING,
+        Booking::STATUS_UNDER_REVIEW,
+        Booking::STATUS_AWAITING_PAYMENT,
+        Booking::STATUS_CONFIRMED_PAID,
+        Booking::STATUS_CONFIRMED_DEPOSIT,
+        Booking::STATUS_PHOTOGRAPHED_AWAITING_PAYMENT,
+        Booking::STATUS_PHOTOGRAPHED_AWAITING_DELIVERY,
+        Booking::STATUS_COMPLETED_DELIVERED,
     ];
     protected const BOOKING_BUFFER_TIME_KEY = 'booking_buffer_time';
 
@@ -193,7 +198,7 @@ class AvailabilityService
 
         return array_filter($slots, function (Carbon $slot) use ($blockedIntervals) {
             foreach ($blockedIntervals as $interval) {
-                if ($slot->between($interval['start'], $interval['end'], true, false)) {
+                if ($slot->between($interval['start'], $interval['end'])) {
                     return false;
                 }
             }

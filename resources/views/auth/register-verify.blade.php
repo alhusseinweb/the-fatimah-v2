@@ -185,6 +185,13 @@
             <h1 class="verify-title">التحقق من رقم الجوال</h1>
             <p class="verify-subtitle">تم إرسال رمز التحقق إلى الرقم <strong dir="ltr">{{ $mobile_number }}</strong></p>
 
+            @if(session('success'))
+                <div class="alert alert-success alert-dismissible fade show text-center py-2 mb-3" role="alert" style="font-size: 0.9rem;">
+                    {{ session('success') }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close" style="padding: 0.75rem;"></button>
+                </div>
+            @endif
+
             {{-- نموذج التحقق من OTP --}}
             <form method="POST" action="{{ route('register.verify') }}" id="otpForm">
                 @csrf
@@ -221,6 +228,12 @@
                     <button type="button" id="resendBtn" class="resend-btn" disabled>
                         إعادة إرسال الرمز
                     </button>
+                    <div id="smsFallbackContainer" class="mt-2">
+                         <span>لم يصلك الرمز؟</span>
+                         <button type="button" id="resendSmsBtn" class="btn btn-link p-0 ms-1" style="color: #00805a; text-decoration: none; font-weight: 700; font-size: 0.9rem;">
+                             أرسل عبر SMS (Twilio)
+                         </button>
+                    </div>
                      <span id="resendLoading" style="display: none;">
                          <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                           جاري الإرسال...
@@ -314,7 +327,7 @@
                         .then(({ status, body }) => {
                              resendLoading.style.display = 'none'; // إخفاء التحميل
                             if (status === 200 && body.success) {
-                                timeLeft = 120; // إعادة تعيين الوقت (أو القيمة التي حددتها)
+                                timeLeft = 120; // إعادة تعيين الوقت
                                 startTimer(); // بدء العداد من جديد
                                 resendStatus.textContent = 'تم إرسال الرمز بنجاح.';
                                 resendStatus.className = 'mt-1 text-success';
@@ -335,6 +348,49 @@
                             setTimeout(() => resendStatus.textContent = '', 5000);
                         });
                     }
+                });
+            }
+
+            // SMS Fallback logic
+            const resendSmsBtn = document.getElementById('resendSmsBtn');
+            if (resendSmsBtn) {
+                resendSmsBtn.addEventListener('click', function() {
+                    resendSmsBtn.disabled = true;
+                    resendLoading.style.display = 'inline-block';
+                    resendStatus.textContent = '';
+                    resendStatus.className = 'mt-1 text-muted';
+                    resendStatus.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> جاري إرسال SMS...';
+
+                    fetch('{{ route("register.resend.sms") }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            mobile_number: '{{ $mobile_number }}'
+                        })
+                    })
+                    .then(response => response.json().then(data => ({ status: response.status, body: data })))
+                    .then(({ status, body }) => {
+                        resendLoading.style.display = 'none';
+                        if (body.success) {
+                            resendStatus.textContent = body.message;
+                            resendStatus.className = 'mt-1 text-success';
+                        } else {
+                            resendStatus.textContent = body.message || 'حدث خطأ. حاول مرة أخرى.';
+                            resendStatus.className = 'mt-1 text-danger';
+                            resendSmsBtn.disabled = false;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        resendLoading.style.display = 'none';
+                        resendStatus.textContent = 'خطأ في الاتصال.';
+                        resendStatus.className = 'mt-1 text-danger';
+                        resendSmsBtn.disabled = false;
+                    });
                 });
             }
 

@@ -40,6 +40,7 @@
     $outsideAhsaFeeFormatted = formatAmountConditionallyBookingForm($outsideAhsaFeeFromSettings);
 
     $isTamaraEnabled = $isTamaraEnabled ?? ($settingsHomepage['tamara_enabled'] ?? false);
+    $isPaylinkEnabled = $isPaylinkEnabled ?? ($settingsHomepage['paylink_enabled'] ?? false);
     $isBankTransferEnabled = $isBankTransferEnabled ?? ($settingsHomepage['enable_bank_transfer'] ?? false);
 
     $enableBankTransferDiscountPopup = filter_var($settingsHomepage['enable_bank_transfer_discount_popup'] ?? '0', FILTER_VALIDATE_BOOLEAN);
@@ -282,7 +283,8 @@
                     @php
                         $defaultPaymentMethod = old('payment_method');
                         if (!$defaultPaymentMethod) {
-                            if ($isTamaraEnabled) $defaultPaymentMethod = 'tamara';
+                            if ($isPaylinkEnabled) $defaultPaymentMethod = 'paylink';
+                            elseif ($isTamaraEnabled) $defaultPaymentMethod = 'tamara';
                             elseif ($isBankTransferEnabled) $defaultPaymentMethod = 'bank_transfer';
                         }
                     @endphp
@@ -300,6 +302,14 @@
                             </div>
                         @endif
 
+                        @if($isPaylinkEnabled)
+                            <div class="payment-method-item {{ $defaultPaymentMethod == 'paylink' ? 'selected' : '' }}" data-value="paylink" style="display: flex;">
+                                <input class="form-check-input" type="radio" name="payment_method" id="pay_paylink" value="paylink" {{ $defaultPaymentMethod == 'paylink' ? 'checked' : '' }} required>
+                                <img src="{{ asset('images/paylink.png') }}" height="28" alt="Paylink" style="margin-right: 8px; max-width: 100px; vertical-align: middle;">
+                                <label for="pay_paylink" style="cursor:pointer;" class="ms-2"> الدفع الإلكتروني (مدى، فيزا، ماستركارد) </label>
+                            </div>
+                        @endif
+
                         @if($isBankTransferEnabled)
                             <div class="payment-method-item {{ $defaultPaymentMethod == 'bank_transfer' ? 'selected' : '' }}" data-value="bank_transfer">
                                 <input class="form-check-input" type="radio" name="payment_method" id="pay_bank" value="bank_transfer" {{ $defaultPaymentMethod == 'bank_transfer' ? 'checked' : '' }} required>
@@ -309,7 +319,7 @@
                         @endif
                     </div>
 
-                    @if(!$isTamaraEnabled && !$isBankTransferEnabled)
+                    @if(!$isTamaraEnabled && !$isBankTransferEnabled && !$isPaylinkEnabled)
                         <div class="alert alert-warning py-3">
                             عفواً، لا توجد طرق دفع إلكترونية مفعلة حالياً. سيكتمل حجزك مبدئياً وسيتم التواصل معك لترتيب عملية الدفع.
                         </div>

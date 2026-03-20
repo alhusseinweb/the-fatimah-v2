@@ -159,8 +159,8 @@ class InvoiceController extends Controller
                     $sendNotification = false;
 
                     // تأكيد الحجز عند أول دفعة (جزئية أو كاملة)
-                    if (in_array($newStatus, [Invoice::STATUS_PAID, Invoice::STATUS_PARTIALLY_PAID]) && $booking->status !== Booking::STATUS_CONFIRMED) {
-                        $booking->status = Booking::STATUS_CONFIRMED;
+                    if (in_array($newStatus, [Invoice::STATUS_PAID, Invoice::STATUS_PARTIALLY_PAID]) && !$booking->isConfirmed()) {
+                        $booking->status = ($newStatus === Invoice::STATUS_PAID) ? Booking::STATUS_CONFIRMED_PAID : Booking::STATUS_CONFIRMED_DEPOSIT;
                         $needsBookingUpdate = true;
                         $sendNotification = ($oldStatus !== $newStatus); // أرسل فقط إذا تغيرت الحالة بالفعل
                     }
@@ -241,8 +241,8 @@ class InvoiceController extends Controller
                 $invoice->save();
 
                 $booking = $invoice->booking;
-                if ($booking && $booking->status !== Booking::STATUS_CONFIRMED) {
-                    $booking->status = Booking::STATUS_CONFIRMED;
+                if ($booking && !$booking->isConfirmed()) {
+                    $booking->status = Booking::STATUS_CONFIRMED_PAID;
                     $booking->save();
 
                     // --- إرسال إشعار تأكيد الحجز ---

@@ -76,13 +76,17 @@ class OtpLoginController extends Controller
         Session::put('otp_mobile_for_verification', $mobileNumber);
         Log::info("Login OTP process initiated for {$mobileNumber}. User will be prompted for OTP. Provider: {$selectedOtpProvider}");
         
-        $responseMessage = ($selectedOtpProvider === 'none' && $otpSentSuccessfully === false)
-                            ? 'خدمة إرسال OTP معطلة حالياً (لأغراض الاختبار، تحقق من السجلات).'
-                            : 'تم إرسال رمز التحقق إلى جوالك.';
+        $responseMessage = 'تم إرسال رمز التحقق إلى جوالك.';
+        if ($selectedOtpProvider === 'whatsapp') {
+            $responseMessage = 'تم إرسال رمز التحقق إلى رقمك عبر الواتساب (WhatsApp).';
+        } elseif ($selectedOtpProvider === 'none' && $otpSentSuccessfully === false) {
+            $responseMessage = 'خدمة إرسال OTP معطلة حالياً (لأغراض الاختبار، تحقق من السجلات).';
+        }
 
         return response()->json([
             'success' => true,
-            'message' => $responseMessage
+            'message' => $responseMessage,
+            'provider' => $selectedOtpProvider
         ]);
     }
 
@@ -141,6 +145,32 @@ class OtpLoginController extends Controller
                              ->withInput($request->except('otp_code'))
                              ->with('mobile_number', $mobileNumber);
         }
+    }
+
+    public function resendOtpViaSms(Request $request)
+    {
+        $mobileNumber = $request->input('mobile_number_hidden') ?: Session::get('otp_mobile_for_verification');
+        
+        if (!$mobileNumber) {
+            return response()->json(['success' => false, 'message' => 'جلسة التحقق غير صالحة.'], 400);
+        }
+
+        Log::info("User requested SMS fallback (Twilio) for OTP to {$mobileNumber}.");
+
+        // فرض استخدام Twilio لإعادة الإرسال عبر SMS
+        $otpSentSuccessfully = $this->generateAndSendOtp($mobileNumber, 'login_sms_fallback', 'twilio');
+
+        if ($otpSentSuccessfully) {
+            return response()->json([
+                'success' => true,
+                'message' => 'تم إعادة إرسال رمز التحقق عبر رسالة نصية (Twilio) بنجاح.'
+            ]);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'فشل في إرسال الرسالة النصية. يرجى المحاولة لاحقاً.'
+        ], 500);
     }
 
     public function logout(Request $request)

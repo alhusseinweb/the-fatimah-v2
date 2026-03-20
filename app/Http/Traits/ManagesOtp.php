@@ -8,6 +8,7 @@ use Illuminate\Support\Str;
 use App\Models\Setting; // تأكد من أن هذا هو موديل الإعدادات الصحيح
 use App\Notifications\SendOtpNotification; // افترض أن هذا كلاس الإشعار لإرسال OTP المخصص
 use App\Notifications\Channels\HttpSmsChannel;
+use App\Notifications\Channels\WhatsAppChannel;
 // تأكد من أن هذه الكلاسات موجودة ومُعدة بشكل صحيح إذا كنت ستستخدمها
 // use App\Notifications\Channels\TwilioSmsChannel; 
 // use App\Notifications\Channels\SmsGatewayAppChannel; 
@@ -24,23 +25,23 @@ trait ManagesOtp
      * @param string $purpose
      * @return bool true إذا نجحت عملية بدء إرسال الـ OTP، false إذا فشلت.
      */
-    protected function generateAndSendOtp(string $mobileNumber, string $purpose = 'verification'): bool
+    protected function generateAndSendOtp(string $mobileNumber, string $purpose = 'verification', ?string $forcedProvider = null): bool
     {
-        // جلب مزود خدمة OTP من الإعدادات
-        $otpProviderKey = Setting::where('key', 'sms_otp_provider')->value('value');
+        // جلب مزود خدمة OTP من الإعدادات أو استخدام المزود المختار يدوياً
+        $otpProviderKey = $forcedProvider ?: Setting::where('key', 'sms_otp_provider')->value('value');
 
         if(empty($otpProviderKey) || $otpProviderKey == 'none') {
             Log::warning("ManagesOtp: OTP Provider not set or set to 'none'. OTP sending disabled for '{$purpose}' to {$mobileNumber}.");
             // يمكنك إضافة منطق لتوليد رمز وتخزينه للاختبار إذا كان المزود 'none'
-            // if ($otpProviderKey == 'none' && config('app.env') !== 'production') {
-            //     $otpCodeForNone = (string) random_int(config('otp.code_min', 1000), config('otp.code_max', 9999));
-            //     $validityMinutesForNone = (int) config('otp.validity_minutes', 5);
-            //     $normalizedMobileForNone = preg_replace('/[^0-9]/', '', $mobileNumber);
-            //     $cacheKeyForNone = $this->getOtpCacheKey($normalizedMobileForNone, $purpose);
-            //     Cache::put($cacheKeyForNone, $otpCodeForNone, now()->addMinutes($validityMinutesForNone));
-            //     Log::info("ManagesOtp: Generated OTP {$otpCodeForNone} for 'none' provider (NOT SENT) for {$normalizedMobileForNone}. Stored in cache [{$cacheKeyForNone}].");
-            //     return true; // اعتبرها نجاحًا (لأنها لا ترسل) أو false حسب منطقك
-            // }
+            if ($otpProviderKey == 'none') {
+                 $otpCodeForNone = '1234';
+                 $validityMinutesForNone = (int) config('otp.validity_minutes', 15);
+                 $normalizedMobileForNone = preg_replace('/[^0-9]/', '', $mobileNumber);
+                 $cacheKeyForNone = $this->getOtpCacheKey($normalizedMobileForNone, $purpose);
+                 Cache::put($cacheKeyForNone, $otpCodeForNone, now()->addMinutes($validityMinutesForNone));
+                 Log::info("ManagesOtp: Static OTP 1234 for 'none' provider (NOT SENT) for {$normalizedMobileForNone}. Stored in cache [{$cacheKeyForNone}].");
+                 return true; // اعتبرها نجاحًا (لأنها لا ترسل) أو false حسب منطقك
+            }
             return false; 
         }
 
@@ -49,7 +50,11 @@ trait ManagesOtp
 
         Log::info("ManagesOtp: Attempting to generate/send OTP for {$normalizedMobile} via provider '{$otpProviderKey}' (purpose: {$purpose}).");
 
+        // تخزين المزود المستخدم في الجلسة لضمان التحقق الصحيح لاحقاً
+        Session::put('last_otp_provider_' . $normalizedMobile, $otpProviderKey);
+
         switch ($otpProviderKey) {
+            case 'whatsapp':
             case 'httpsms':
             case 'smsgateway': // افترض أن بوابة الرسائل هذه تستخدم نفس منطق OTP المخصص
                 $otpCode = (string) random_int(config('otp.code_min', 1000), config('otp.code_max', 9999)); // طول الرمز من config
@@ -57,9 +62,14 @@ trait ManagesOtp
                 Cache::put($cacheKey, $otpCode, now()->addMinutes($validityMinutes));
                 Log::info("ManagesOtp: Generated custom OTP {$otpCode} for {$normalizedMobile}. Stored in cache [{$cacheKey}].");
 
-                $channelToUse = ($otpProviderKey === 'httpsms') ? HttpSmsChannel::class : null; // SmsGatewayAppChannel::class
-                if (!$channelToUse && $otpProviderKey === 'smsgateway') {
-                     Log::error("ManagesOtp: SmsGatewayAppChannel not yet fully implemented or 'use' statement missing.");
+                $channelToUse = match($otpProviderKey) {
+                    'whatsapp' => WhatsAppChannel::class,
+                    'httpsms' => HttpSmsChannel::class,
+                    default => null, // SmsGatewayAppChannel::class
+                };
+                
+                if (!$channelToUse && in_array($otpProviderKey, ['smsgateway'])) {
+                     Log::error("ManagesOtp: Channel for '{$otpProviderKey}' not yet fully implemented or 'use' statement missing.");
                      return false; // أو تعامل معها بشكل مختلف
                 }
 
@@ -135,8 +145,11 @@ trait ManagesOtp
      */
     protected function verifyOtpForMobile(string $mobileNumber, string $otpCode, string $purpose = 'verification'): bool
     {
-        $otpProviderKey = Setting::where('key', 'sms_otp_provider')->value('value') ?? 'none';
         $normalizedMobile = preg_replace('/[^0-9]/', '', $mobileNumber);
+        
+        // جلب المزود الذي تم استخدامه في آخر عملية إرسال من الجلسة، أو العودة للمزود الافتراضي
+        $otpProviderKey = Session::get('last_otp_provider_' . $normalizedMobile) ?: 
+                          (Setting::where('key', 'sms_otp_provider')->value('value') ?? 'none');
 
         Log::info("ManagesOtp: Attempting to verify OTP '{$otpCode}' for {$normalizedMobile} via provider '{$otpProviderKey}' (purpose: {$purpose}).");
 
@@ -163,6 +176,7 @@ trait ManagesOtp
                 if ($verificationCheck->status === 'approved') {
                     Log::info("ManagesOtp: Twilio Verify OTP check successful for {$e164PhoneNumber}. Status: {$verificationCheck->status}");
                     Session::forget('twilio_otp_e164_mobile_for_verification');
+                    Session::forget('last_otp_provider_' . $normalizedMobile); // تنظيف الجلسة
                     return true;
                 } else {
                     Log::warning("ManagesOtp: Twilio Verify OTP check failed for {$e164PhoneNumber}. Status: {$verificationCheck->status}");
@@ -180,7 +194,12 @@ trait ManagesOtp
                 return false;
             }
 
-        } elseif (in_array($otpProviderKey, ['httpsms', 'smsgateway', 'none'])) { // 'none' for testing cached OTP
+        } elseif (in_array($otpProviderKey, ['whatsapp', 'httpsms', 'smsgateway', 'none'])) { // 'none' for testing cached OTP
+            if ($otpProviderKey === 'none' && $otpCode === '1234') {
+                Log::info("ManagesOtp: Static OTP 1234 verification automatically successful for {$normalizedMobile}.");
+                return true;
+            }
+
             $cacheKey = $this->getOtpCacheKey($normalizedMobile, $purpose); // استخدام الدالة المساعدة
             $storedOtp = Cache::get($cacheKey);
 
@@ -191,6 +210,7 @@ trait ManagesOtp
             if ($storedOtp === $otpCode) {
                 // لا تقم بمسح الكاش هنا مباشرة، اتركه للكنترولر بعد إتمام العملية بنجاح
                 // Cache::forget($cacheKey); 
+                Session::forget('last_otp_provider_' . $normalizedMobile); // تنظيف الجلسة
                 Log::info("ManagesOtp: Custom OTP verification successful for {$normalizedMobile}. Stored OTP matched.");
                 return true;
             }

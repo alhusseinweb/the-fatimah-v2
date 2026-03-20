@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
+use App\Notifications\Channels\WhatsAppChannel;
+use App\Notifications\Channels\HttpSmsChannel;
 
 trait ManagesSmsContent
 {
@@ -82,6 +84,15 @@ trait ManagesSmsContent
 
         Log::info("ManagesSmsContent - formatSmsRecipient: Number after all checks. Original='{$originalNumber}', Final Used='{$number}'. Review if not in expected international format.");
         return $number;
+    }
+
+    public function formatWhatsAppRecipient(?string $number): ?string
+    {
+        $formatted = $this->formatSmsRecipient($number);
+        if (!$formatted) return null;
+        
+        // Green API (WhatsApp) usually expects numbers without the leading +
+        return preg_replace('/[^\d]/', '', $formatted);
     }
 
     /**
@@ -159,12 +170,15 @@ trait ManagesSmsContent
         if ($currentBooking && $currentBooking->user && isset($currentBooking->user->name)) {
             $baseReplacements['[customer_name]'] = $currentBooking->user->name;
             $baseReplacements['[customer_name_short]'] = Str::limit($currentBooking->user->name, 10, '');
+            $baseReplacements['[customer_mobile]'] = $currentBooking->user->mobile_number;
         } elseif (isset($notifiable->name) && !($notifiable->is_admin ?? false)) {
             $baseReplacements['[customer_name]'] = $notifiable->name;
             $baseReplacements['[customer_name_short]'] = Str::limit($notifiable->name, 10, '');
+            $baseReplacements['[customer_mobile]'] = $notifiable->mobile_number;
         } else {
             $baseReplacements['[customer_name]'] = 'العميل'; // قيمة افتراضية أكثر عمومية
             $baseReplacements['[customer_name_short]'] = 'عميل';
+            $baseReplacements['[customer_mobile]'] = '-';
         }
 
         if ($currentBooking) {
@@ -200,14 +214,37 @@ trait ManagesSmsContent
                 // استخدام number_format مع صفر للكسور للرسائل النصية
                 $baseReplacements['[invoice_total_amount]'] = number_format((float)($currentBooking->invoice->amount ?? 0), 0); 
                 $baseReplacements['[invoice_status]'] = $currentBooking->invoice->status_label ?? $currentBooking->invoice->status ?? '-';
+                $baseReplacements['[payment_url]'] = $currentBooking->invoice->payment_url ?? '-';
             } else {
                 $baseReplacements['[invoice_number]'] = '-';
                 $baseReplacements['[invoice_total_amount]'] = '-';
                 $baseReplacements['[invoice_status]'] = '-';
+                $baseReplacements['[payment_url]'] = '-';
             }
+
+            // جلب الحسابات البنكيه فقط إذا كانت طريقة الدفع تحويل بنكي
+            $bankAccountsString = "";
+            if ($currentBooking->invoice && $currentBooking->invoice->payment_method === 'bank_transfer') {
+                $bankAccounts = \App\Models\BankAccount::where('is_active', true)->get();
+                foreach ($bankAccounts as $account) {
+                    $bankAccountsString .= "📌 *{$account->bank_name}*\n";
+                    $bankAccountsString .= "👤 الاسم: {$account->account_name}\n";
+                    $bankAccountsString .= "🔢 الحساب: {$account->account_number}\n";
+                    $bankAccountsString .= "🏦 IBAN: {$account->iban}\n\n";
+                }
+            }
+            $baseReplacements['[bank_details]'] = trim($bankAccountsString);
+
+            // رابط الدفع فقط إذا كان موجوداً وطريقة الدفع ليست تحويل بنكي
+            if ($currentBooking->invoice && $currentBooking->invoice->payment_method !== 'bank_transfer' && !empty($currentBooking->invoice->payment_url)) {
+                $baseReplacements['[payment_url]'] = $currentBooking->invoice->payment_url;
+            } else {
+                $baseReplacements['[payment_url]'] = "";
+            }
+
         } else {
             Log::warning("ManagesSmsContent: No \$currentBooking object available for template '{$templateIdentifier}'. Some placeholders may not be replaced.", $logContextBase);
-            $placeholdersToEmpty = ['[booking_id]', '[service_name]', '[service_name_short]', '[event_location]', '[booking_date]', '[booking_time]', '[booking_date_time]', '[booking_day_name]', '[booking_status_label]', '[invoice_number]', '[invoice_total_amount]', '[invoice_status]'];
+            $placeholdersToEmpty = ['[booking_id]', '[service_name]', '[service_name_short]', '[event_location]', '[booking_date]', '[booking_time]', '[booking_date_time]', '[booking_day_name]', '[booking_status_label]', '[invoice_number]', '[invoice_total_amount]', '[invoice_status]', '[payment_url]', '[bank_details]'];
             foreach($placeholdersToEmpty as $ph) {
                 if(!isset($baseReplacements[$ph])) $baseReplacements[$ph] = ''; // أضف فقط إذا لم يكن موجودًا بالفعل
             }
@@ -229,11 +266,75 @@ trait ManagesSmsContent
             }
         }
         
-        // إزالة المسافات المتعددة واستبدالها بمسافة واحدة، وإزالة المسافات من البداية والنهاية
-        $finalMessage = trim(preg_replace('/\s+/', ' ', $processedMessage));
+        // إزالة المسافات من البداية والنهاية فقط
+        $finalMessage = trim($processedMessage);
         
         Log::info("ManagesSmsContent: Final SMS content for '{$templateIdentifier}'.", $logContextBase + ['final_content_preview' => Str::limit($finalMessage, 100)]);
 
         return $finalMessage;
+    }
+
+    /**
+     * Determine which SMS/WhatsApp channels should be used based on settings.
+     *
+     * @param string $templateKey
+     * @param object $notifiable
+     * @return array
+     */
+    protected function determineSmsChannels(string $templateKey, object $notifiable, bool $isOtp = false): array
+    {
+        $channels = [];
+        
+        $mobileNumber = $notifiable->mobile_number ?? 
+                         ($notifiable->routes['whatsapp'] ?? 
+                         ($notifiable->routes[WhatsAppChannel::class] ?? 
+                         ($notifiable->routes['http_sms'] ?? 
+                         ($notifiable->routes[HttpSmsChannel::class] ?? null))));
+        
+        if (empty($mobileNumber)) {
+            // Special fallback for OTP notifications where mobileNumber might be on the notification object
+            if ($isOtp && isset($this->mobileNumber)) {
+                $mobileNumber = $this->mobileNumber;
+            } else {
+                return $channels;
+            }
+        }
+
+        $templateExists = Cache::remember('sms_template_active_exists_' . $templateKey, now()->addMinutes(60), function () use ($templateKey) {
+             return SmsTemplate::where('notification_type', $templateKey)->where('is_active', true)->exists();
+        });
+
+        if (!$templateExists) {
+            Log::warning("ManagesSmsContent: Template '{$templateKey}' not found or inactive.");
+            return $channels;
+        }
+
+        if ($isOtp) {
+            $otpProvider = Setting::where('key', 'sms_otp_provider')->value('value') ?? 'none';
+            if ($otpProvider === 'whatsapp') {
+                $channels[] = WhatsAppChannel::class;
+            } elseif ($otpProvider === 'httpsms') {
+                $channels[] = HttpSmsChannel::class;
+            } elseif ($otpProvider === 'twilio') {
+                // Twilio handles its own channel in ManagesOtp usually, 
+                // but if we want it here: $channels[] = TwilioChannel::class;
+            }
+            return $channels;
+        }
+
+        $defaultProvider = Setting::where('key', 'sms_default_provider')->value('value') ?? 'httpsms';
+        $whatsappEnabled = Setting::where('key', 'whatsapp_enabled')->value('value') == '1';
+
+        // WhatsApp priority if enabled OR if it's the default provider
+        if ($whatsappEnabled || $defaultProvider === 'whatsapp') {
+            $channels[] = WhatsAppChannel::class;
+        }
+
+        // SMS as fallback or if specifically chosen as default
+        if ($defaultProvider === 'httpsms') {
+            $channels[] = HttpSmsChannel::class;
+        }
+
+        return $channels;
     }
 }

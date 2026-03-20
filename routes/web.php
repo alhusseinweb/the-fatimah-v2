@@ -69,6 +69,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/booking/submit', [FrontendBookingController::class, 'submitBooking'])->name('booking.submit');
     Route::get('/booking/{booking}/pending', [FrontendBookingController::class, 'showPendingPage'])->where('booking', '[0-9]+')->name('booking.pending');
 
+    // Tamara success/failure routes (typically redirects)
     Route::get('/tamara/success/{invoice}', [PaymentController::class, 'handleTamaraSuccess'])->name('tamara.success');
     Route::get('/tamara/failure/{invoice}', [PaymentController::class, 'handleTamaraFailure'])->name('tamara.failure');
     Route::get('/tamara/cancel/{invoice}', [PaymentController::class, 'handleTamaraCancel'])->name('tamara.cancel');
@@ -89,6 +90,7 @@ Route::middleware('guest')->group(function () {
     Route::post('login/otp/request', [OtpLoginController::class, 'requestOtp'])->name('login.otp.request');
     Route::get('login/otp/verify', [OtpLoginController::class, 'showOtpForm'])->name('login.otp.verify.form');
     Route::post('login/otp/verify', [OtpLoginController::class, 'verifyOtp'])->name('login.otp.verify');
+    Route::post('login/otp/resend-sms', [OtpLoginController::class, 'resendOtpViaSms'])->name('login.otp.resend.sms');
     Route::get('login', function() { return redirect()->route('login.otp.form'); })->name('login');
 
     Route::get('/register', [RegisterController::class, 'showRegistrationForm'])->name('register');
@@ -96,6 +98,7 @@ Route::middleware('guest')->group(function () {
     Route::get('/register/verify', [RegisterController::class, 'showVerifyForm'])->name('register.verify.form');
     Route::post('/register/verify', [RegisterController::class, 'verifyOtp'])->name('register.verify');
     Route::post('/register/resend-otp', [RegisterController::class, 'resendOtp'])->name('register.resend.otp');
+    Route::post('/register/resend-sms', [RegisterController::class, 'resendOtpViaSms'])->name('register.resend.sms');
 });
 
 Route::post('/logout', [OtpLoginController::class, 'logout'])->middleware('auth')->name('logout');
@@ -166,6 +169,9 @@ Route::resource('add-on-services', AddOnServiceController::class, [
         Route::post('manual-booking', [AdminManualBookingController::class, 'store'])->name('manual-booking.store');
         // --- MODIFICATION END ---
 });
+
+// Payment Gateway Callback & Webhook Routes
+Route::match(['get', 'post'], '/payment/callback/{gateway}', [PaymentController::class, 'handlePaymentCallback'])->name('payment.callback');
 
 // Tamara Webhook Routes
 Route::post('/tamara/webhook', [PaymentController::class, 'handleTamaraWebhook'])->name('tamara.webhook');

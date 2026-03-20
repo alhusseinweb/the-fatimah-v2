@@ -206,10 +206,22 @@
                 </div>
             </form>
 
+            @if(session('success'))
+                <div class="alert alert-success alert-dismissible fade show text-center py-2 mb-3" role="alert" style="font-size: 0.9rem;">
+                    {{ session('success') }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close" style="padding: 0.75rem;"></button>
+                </div>
+            @endif
+
             <div class="mt-4 text-center">
-                <p>يرجى الانتظار حتى استلام الرمز، قد يستغرق ذلك بضع دقائق</p>
-                {{-- يمكنك إضافة زر لإعادة إرسال الرمز هنا إذا لزم الأمر --}}
-                {{-- <button type="button" id="resendOtpBtn" class="btn btn-link">إعادة إرسال الرمز</button> --}}
+                <p class="mb-2">يرجى الانتظار حتى استلام الرمز، قد يستغرق ذلك بضع دقائق</p>
+                <div id="smsFallbackContainer">
+                    <span>لم يصلك الرمز؟</span>
+                    <button type="button" id="resendSmsBtn" class="btn btn-link p-0 ms-1" style="color: #00805a; text-decoration: none; font-weight: 700;">
+                        أرسل عبر SMS (Twilio)
+                    </button>
+                </div>
+                <div id="resendStatus" class="mt-2 small" style="display: none;"></div>
             </div>
         </div>
     </section>
@@ -299,6 +311,47 @@
             });
         } else {
             console.error("Could not find form (#otpVerifyForm) or button (#submitBtn)");
+        }
+
+        // Resend SMS logic
+        const resendSmsBtn = document.getElementById('resendSmsBtn');
+        const resendStatus = document.getElementById('resendStatus');
+
+        if (resendSmsBtn) {
+            resendSmsBtn.addEventListener('click', function() {
+                resendSmsBtn.disabled = true;
+                resendStatus.style.display = 'block';
+                resendStatus.className = 'mt-2 small text-muted';
+                resendStatus.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> جاري إرسال الرسالة النصية...';
+
+                fetch("{{ route('login.otp.resend.sms') }}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                    },
+                    body: JSON.stringify({
+                        mobile_number_hidden: "{{ session('mobile_for_verification') ?? old('mobile_number_hidden', $mobileNumber ?? '') }}"
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        resendStatus.className = 'mt-2 small text-success';
+                        resendStatus.innerHTML = '<i class="fas fa-check-circle me-1"></i> ' + data.message;
+                    } else {
+                        resendStatus.className = 'mt-2 small text-danger';
+                        resendStatus.innerHTML = '<i class="fas fa-exclamation-circle me-1"></i> ' + data.message;
+                        resendSmsBtn.disabled = false;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    resendStatus.className = 'mt-2 small text-danger';
+                    resendStatus.innerHTML = '<i class="fas fa-exclamation-circle me-1"></i> حدث خطأ غير متوقع.';
+                    resendSmsBtn.disabled = false;
+                });
+            });
         }
 
     });

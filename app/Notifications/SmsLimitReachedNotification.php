@@ -2,6 +2,8 @@
 
 namespace App\Notifications;
 
+use App\Notifications\Channels\WhatsAppChannel;
+use App\Notifications\Traits\ManagesSmsContent;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -10,7 +12,7 @@ use Carbon\Carbon;
 
 class SmsLimitReachedNotification extends Notification implements ShouldQueue // يجب أن يكون ShouldQueue إذا أردت معالجته في الطابور
 {
-    use Queueable;
+    use Queueable, ManagesSmsContent;
 
     public int $limit;
     public int $currentCount;
@@ -23,7 +25,9 @@ class SmsLimitReachedNotification extends Notification implements ShouldQueue //
 
     public function via(object $notifiable): array
     {
-        return ['mail']; // إرسال بريد إلكتروني فقط
+        $channels = ['mail'];
+        $smsChannels = $this->determineSmsChannels('sms_limit_reached_admin', $notifiable);
+        return array_merge($channels, $smsChannels);
     }
 
     public function toMail(object $notifiable): MailMessage
@@ -41,6 +45,19 @@ class SmsLimitReachedNotification extends Notification implements ShouldQueue //
                     ->line('يرجى مراجعة إعدادات حدود الرسائل في لوحة التحكم أو زيادة الرصيد لدى مزود الخدمة إذا لزم الأمر.')
                     ->action('مراجعة إعدادات الرسائل', route('admin.settings.edit')) // أو رابط صفحة قوالب SMS إذا كانت الإعدادات هناك
                     ->salutation('مع التحية، نظام ' . config('app.name'));
+    }
+
+    public function toWhatsApp(object $notifiable): array
+    {
+        $monthName = Carbon::now()->translatedFormat('F Y');
+        $content = "تنبيه: تم تجاوز الحد الشهري للرسائل (SMS) لشهر {$monthName}.\n";
+        $content .= "الحد: {$this->limit}\n";
+        $content .= "المرسل: {$this->currentCount}";
+
+        return [
+            'to' => $this->formatWhatsAppRecipient($notifiable->mobile_number),
+            'content' => $content,
+        ];
     }
 
     public function toArray(object $notifiable): array

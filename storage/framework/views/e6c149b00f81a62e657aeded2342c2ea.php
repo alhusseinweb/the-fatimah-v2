@@ -1,0 +1,592 @@
+<?php $__env->startSection('title', "تفاصيل الحجز #" . $booking->id); ?>
+
+<?php
+    // $statuses و $paymentConfirmationOptions يتم تمريرها من AdminBookingController@show
+    // $invoiceStatusTranslations يتم تمريرها أيضًا
+    
+    // دالة toArabicDigits يفترض أنها معرفة كـ helper عام أو في AppServiceProvider
+    if (!function_exists('toArabicDigitsGlobalAdminShow')) { // اسم فريد لتجنب التعارض
+        function toArabicDigitsGlobalAdminShow($number) {
+            if (is_null($number)) return '';
+            return str_replace(range(0, 9), ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'], (string)$number);
+        }
+    }
+    if (!function_exists('getInvoiceStatusTranslationAdminShow')) { 
+        function getInvoiceStatusTranslationAdminShow($status, $translations) { 
+            return $translations[$status] ?? Illuminate\Support\Str::title(str_replace('_', ' ', $status)); 
+        } 
+    }
+?>
+
+<?php $__env->startSection('content'); ?>
+
+    <div class="row g-4">
+        
+        <div class="col-lg-7">
+            <div class="card shadow-sm mb-4 border-0">
+                <div class="card-header bg-white py-3 d-flex flex-row align-items-center justify-content-between">
+                    <h6 class="m-0 fw-bold text-primary"><i class="fas fa-receipt me-2"></i>تفاصيل الحجز #<?php echo e(toArabicDigitsGlobalAdminShow($booking->id)); ?></h6>
+                    <span class="status-pill <?php echo e($booking->status_badge_class); ?> px-3 py-1">
+                        <?php echo e($booking->status_label); ?>
+
+                    </span>
+                </div>
+                <div class="card-body">
+                    <dl class="row mb-0 dl-row">
+                        <dt class="col-sm-4"><i class="fas fa-calendar-alt fa-fw me-1 text-muted"></i>تاريخ ووقت الحجز:</dt>
+                        <dd class="col-sm-8"><?php echo e($booking->booking_datetime ? toArabicDigitsGlobalAdminShow($booking->booking_datetime->translatedFormat('l, d F Y - h:i A')) : '-'); ?></dd>
+                        <dt class="col-sm-4"><i class="fas fa-calendar-plus fa-fw me-1 text-muted"></i>تاريخ الطلب:</dt>
+                        <dd class="col-sm-8"><?php echo e($booking->created_at ? toArabicDigitsGlobalAdminShow($booking->created_at->translatedFormat('d F Y, h:i A')) : '-'); ?></dd>
+                        
+                        <?php if($booking->cancellation_reason): ?>
+                        <hr class="my-3">
+                        <dt class="col-sm-4 text-danger"><i class="fas fa-info-circle fa-fw me-1"></i>سبب الإلغاء:</dt>
+                        <dd class="col-sm-8 text-danger"><?php echo e($booking->cancellation_reason); ?></dd>
+                        <?php endif; ?>
+
+                        <hr class="my-3">
+                        <dt class="col-sm-4"><i class="fas fa-user fa-fw me-1 text-muted"></i>اسم العميل:</dt>
+                        <dd class="col-sm-8"><a href="<?php echo e(route('admin.customers.show', $booking->user_id)); ?>"><?php echo e($booking->user?->name ?? 'غير متوفر'); ?></a></dd>
+                        <dt class="col-sm-4"><i class="fas fa-mobile-alt fa-fw me-1 text-muted"></i>رقم الجوال:</dt>
+                        <dd class="col-sm-8" dir="ltr" style="text-align: right;"><?php echo e(toArabicDigitsGlobalAdminShow($booking->user?->mobile_number ?? 'غير متوفر')); ?></dd>
+                         <dt class="col-sm-4"><i class="fas fa-envelope fa-fw me-1 text-muted"></i>البريد الإلكتروني:</dt>
+                        <dd class="col-sm-8"><?php echo e($booking->user?->email ?? 'غير متوفر'); ?></dd>
+                        <hr class="my-3">
+                        <dt class="col-sm-4"><i class="fas fa-concierge-bell fa-fw me-1 text-muted"></i>الخدمة الأساسية:</dt>
+                        <dd class="col-sm-8"><?php echo e($booking->service?->name_ar ?? 'غير متوفر'); ?></dd>
+                        <dt class="col-sm-4"><i class="fas fa-clock fa-fw me-1 text-muted"></i>مدة الخدمة:</dt>
+                        <dd class="col-sm-8"><?php echo e(toArabicDigitsGlobalAdminShow($booking->service?->duration_hours ?? 'N/A')); ?> ساعات</dd>
+                        <dt class="col-sm-4"><i class="fas fa-dollar-sign fa-fw me-1 text-muted"></i>سعر الخدمة الأصلي:</dt>
+                        <dd class="col-sm-8"><?php echo e(toArabicDigitsGlobalAdminShow(number_format($booking->service?->price_sar ?? 0, 2))); ?> ريال</dd>
+                        <?php if($booking->service?->included_items_ar): ?>
+                            <dt class="col-sm-4"><i class="fas fa-info-circle fa-fw me-1 text-muted"></i>تشمل الخدمة:</dt>
+                            <dd class="col-sm-8"><?php echo nl2br(e($booking->service->included_items_ar)); ?></dd>
+                        <?php endif; ?>
+
+                        
+                        <?php if($booking->addOnServices && $booking->addOnServices->isNotEmpty()): ?>
+                        <hr class="my-3">
+                        <dt class="col-sm-12 fw-bold text-info mb-2"><i class="fas fa-puzzle-piece fa-fw me-1"></i>الخدمات الإضافية المختارة:</dt>
+                            <?php $__currentLoopData = $booking->addOnServices; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $addOn): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                <dt class="col-sm-4 ps-4"><i class="fas fa-circle fa-xs fa-fw me-1 text-muted"></i><?php echo e($addOn->getLocalizedNameAttribute()); ?>:</dt>
+                                <dd class="col-sm-8"><?php echo e(toArabicDigitsGlobalAdminShow(number_format($addOn->pivot->price_at_booking, 2))); ?> ريال</dd>
+                            <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                            <?php if($booking->total_add_on_services_price > 0): ?>
+                                <dt class="col-sm-4 fw-bold border-top pt-2 mt-1">إجمالي الخدمات الإضافية:</dt>
+                                <dd class="col-sm-8 fw-bold border-top pt-2 mt-1"><?php echo e(toArabicDigitsGlobalAdminShow(number_format($booking->total_add_on_services_price, 2))); ?> ريال</dd>
+                            <?php endif; ?>
+                        <?php endif; ?>
+                        
+                        
+                        <hr class="my-3">
+                        <dt class="col-sm-4"><i class="fas fa-map-marked-alt fa-fw me-1 text-muted"></i>منطقة التصوير:</dt>
+                        <dd class="col-sm-8"><?php echo e($booking->shooting_area_label); ?></dd>
+                        <?php if($booking->shooting_area === 'outside_ahsa' && $booking->outside_location_city): ?>
+                            <dt class="col-sm-4"><i class="fas fa-city fa-fw me-1 text-muted"></i>المدينة (خارج الأحساء):</dt>
+                            <dd class="col-sm-8"><?php echo e($booking->outside_location_city); ?></dd>
+                        <?php endif; ?>
+                        <?php if(isset($booking->outside_location_fee_applied) && $booking->outside_location_fee_applied > 0): ?>
+                            <dt class="col-sm-4"><i class="fas fa-coins fa-fw me-1 text-muted"></i>رسوم خارج المنطقة:</dt>
+                            <dd class="col-sm-8"><?php echo e(toArabicDigitsGlobalAdminShow(number_format($booking->outside_location_fee_applied, 2))); ?> ريال</dd>
+                        <?php endif; ?>
+
+                        <dt class="col-sm-4"><i class="fas fa-map-marker-alt fa-fw me-1 text-muted"></i>مكان الحفل (العنوان):</dt>
+                        <dd class="col-sm-8"><?php echo e($booking->event_location ?: '-'); ?></dd>
+                        <dt class="col-sm-4"><i class="fas fa-user-tie fa-fw me-1 text-muted"></i>اسم العريس (إنجليزي):</dt>
+                        <dd class="col-sm-8"><?php echo e($booking->groom_name_en ?: '-'); ?></dd>
+                        <dt class="col-sm-4"><i class="fas fa-female fa-fw me-1 text-muted"></i>اسم العروس (إنجليزي):</dt>
+                        <dd class="col-sm-8"><?php echo e($booking->bride_name_en ?: '-'); ?></dd>
+                        <hr class="my-3">
+                        <dt class="col-sm-4"><i class="far fa-sticky-note fa-fw me-1 text-muted"></i>ملاحظات العميل:</dt>
+                        <dd class="col-sm-8"><?php echo e($booking->customer_notes ?: '-'); ?></dd>
+                        <dt class="col-sm-4"><i class="fas fa-check-square fa-fw me-1 text-muted"></i>الموافقة على السياسة:</dt>
+                        <dd class="col-sm-8"><?php echo e($booking->agreed_to_policy ? 'نعم' : 'لا'); ?></dd>
+                        <hr class="my-3">
+                        <dt class="col-sm-4"><i class="fas fa-percent fa-fw me-1 text-muted"></i>كود الخصم المستخدم:</dt>
+                        <dd class="col-sm-8"><?php echo e($booking->discountCode?->code ?: '-'); ?></dd>
+                        <dt class="col-sm-4"><i class="fas fa-file-invoice-dollar fa-fw me-1 text-muted"></i>الفاتورة:</dt>
+                        <dd class="col-sm-8">
+                            <?php if($invoice = $booking->invoice): ?>
+                                <a href="<?php echo e(route('admin.invoices.show', $invoice->id)); ?>" class="fw-bold">رقم: <?php echo e($invoice->invoice_number); ?></a> |
+                                المبلغ الإجمالي: <?php echo e(toArabicDigitsGlobalAdminShow(number_format($invoice->amount, 2))); ?> <?php echo e($invoice->currency); ?> |
+                                الحالة: <span class="status-pill <?php echo e($invoice->status_badge_class ?? 'bg-secondary'); ?> <?php echo e($invoice->status_badge_class ? '' : 'text-white'); ?>"><?php echo e(getInvoiceStatusTranslationAdminShow($invoice->status, $invoiceStatusTranslations)); ?></span> |
+                                الدفع: <?php echo e($invoice->payment_method_label ?? ($invoice->payment_method == 'tamara' ? 'تمارا' : ($invoice->payment_method == 'bank_transfer' ? 'تحويل بنكي' : ($invoice->payment_method == 'manual_confirmation_due_to_no_gateway' ? 'بانتظار التأكيد اليدوي' : ($invoice->payment_method ?: 'غير محدد'))))); ?>
+
+                                <?php if($invoice->status == \App\Models\Invoice::STATUS_PARTIALLY_PAID): ?>
+                                     | المدفوع: <?php echo e(toArabicDigitsGlobalAdminShow(number_format($invoice->total_paid_amount ?? 0, 2))); ?> | المتبقي: <?php echo e(toArabicDigitsGlobalAdminShow(number_format($invoice->remaining_amount ?? 0, 2))); ?> <?php echo e($invoice->currency); ?>
+
+                                <?php endif; ?>
+                            <?php else: ?>
+                                لم يتم إنشاء فاتورة بعد
+                            <?php endif; ?>
+                        </dd>
+                    </dl>
+                </div>
+                 <div class="card-footer bg-white text-muted">
+                     <a href="<?php echo e(route('admin.bookings.index')); ?>" class="btn btn-secondary btn-sm">
+                         <i class="fas fa-arrow-right fa-sm me-1"></i> العودة للقائمة
+                     </a>
+                 </div>
+            </div>
+        </div>
+
+        <div class="col-lg-5">
+            <div class="card shadow-sm mb-4 border-0">
+                <div class="card-header bg-white py-3">
+                    <h6 class="m-0 fw-bold text-primary"><i class="fas fa-edit me-2"></i>تغيير حالة الحجز</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row justify-content-center">
+                        <div class="col-md-11">
+                            <?php if(session('update_status_success')): ?>
+                                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                                    <?php echo e(session('update_status_success')); ?>
+
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                                </div>
+                            <?php endif; ?>
+                            <?php if(session('update_status_error')): ?>
+                                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                                    <?php echo e(session('update_status_error')); ?>
+
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                                </div>
+                            <?php endif; ?>
+
+                            <?php if($errors->updateStatus && $errors->updateStatus->any()): ?>
+                                <div class="alert alert-danger">
+                                    <ul class="mb-0">
+                                        <?php $__currentLoopData = $errors->updateStatus->all(); $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $error): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?> <li><?php echo e($error); ?></li> <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                    </ul>
+                                </div>
+                            <?php endif; ?>
+                             <?php if(!$errors->updateStatus && $errors->any() && !$errors->hasBag('updatePayment')): ?>
+                                <div class="alert alert-danger">
+                                    <ul class="mb-0">
+                                        <?php $__currentLoopData = $errors->all(); $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $error): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?> <li><?php echo e($error); ?></li> <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                    </ul>
+                                </div>
+                            <?php endif; ?>
+
+                            <form action="<?php echo e(route('admin.bookings.updateStatus', $booking->id)); ?>" method="POST" id="updateBookingStatusForm">
+                                <?php echo csrf_field(); ?>
+                                <?php echo method_field('PATCH'); ?>
+                                <div class="mb-3">
+                                    <label for="status" class="form-label fw-bold">الحالة الجديدة:</label>
+                                    <select name="status" id="status" class="form-select <?php $__errorArgs = ['status', 'updateStatus'];
+$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
+if ($__bag->has($__errorArgs[0])) :
+if (isset($message)) { $__messageOriginal = $message; }
+$message = $__bag->first($__errorArgs[0]); ?> is-invalid <?php unset($message);
+if (isset($__messageOriginal)) { $message = $__messageOriginal; }
+endif;
+unset($__errorArgs, $__bag); ?>" required>
+                                        <?php $__currentLoopData = $statuses; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $value => $label): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?> 
+                                            <option value="<?php echo e($value); ?>" <?php if(old('status', $booking->status) == $value): echo 'selected'; endif; ?>>
+                                                <?php echo e($label); ?>
+
+                                            </option>
+                                        <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                    </select>
+                                    <?php $__errorArgs = ['status', 'updateStatus'];
+$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
+if ($__bag->has($__errorArgs[0])) :
+if (isset($message)) { $__messageOriginal = $message; }
+$message = $__bag->first($__errorArgs[0]); ?> <div class="invalid-feedback"><?php echo e($message); ?></div> <?php unset($message);
+if (isset($__messageOriginal)) { $message = $__messageOriginal; }
+endif;
+unset($__errorArgs, $__bag); ?>
+                                </div>
+
+                                <div class="mb-3" id="cancellationReasonSection" style="display: none;">
+                                    <label for="cancellation_reason" class="form-label fw-bold">سبب الإلغاء:<span class="text-danger">*</span></label>
+                                    <textarea name="cancellation_reason" id="cancellation_reason" class="form-control <?php $__errorArgs = ['cancellation_reason', 'updateStatus'];
+$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
+if ($__bag->has($__errorArgs[0])) :
+if (isset($message)) { $__messageOriginal = $message; }
+$message = $__bag->first($__errorArgs[0]); ?> is-invalid <?php unset($message);
+if (isset($__messageOriginal)) { $message = $__messageOriginal; }
+endif;
+unset($__errorArgs, $__bag); ?>" rows="3"><?php echo e(old('cancellation_reason', $booking->cancellation_reason)); ?></textarea>
+                                    <?php $__errorArgs = ['cancellation_reason', 'updateStatus'];
+$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
+if ($__bag->has($__errorArgs[0])) :
+if (isset($message)) { $__messageOriginal = $message; }
+$message = $__bag->first($__errorArgs[0]); ?>
+                                        <div class="invalid-feedback"><?php echo e($message); ?></div>
+                                    <?php unset($message);
+if (isset($__messageOriginal)) { $message = $__messageOriginal; }
+endif;
+unset($__errorArgs, $__bag); ?>
+                                </div>
+
+                                <div id="payment_confirmation_options" class="mb-3 border p-3 rounded bg-light" style="display: none;">
+                                    <label class="form-label fw-bold">تأكيد استلام الدفعة:</label>
+                                    <?php if(!empty($paymentConfirmationOptions)): ?> 
+                                        <?php
+                                            $currentInvoice = $booking->invoice;
+                                            $currencyForJS = $currentInvoice?->currency ?: 'SAR';
+                                        ?>
+
+                                        <?php $__currentLoopData = $paymentConfirmationOptions; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $value => $label): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="payment_confirmation_type" id="confirm_<?php echo e($value); ?>" value="<?php echo e($value); ?>">
+                                                <label class="form-check-label" for="confirm_<?php echo e($value); ?>">
+                                                    <?php echo e($label); ?> 
+                                                </label>
+                                            </div>
+                                        <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                    <?php else: ?>
+                                        <p class="text-info small mb-0">لا توجد إجراءات دفع مطلوبة لهذه الحالة أو الفاتورة مدفوعة.</p>
+                                    <?php endif; ?>
+                                    <?php $__errorArgs = ['payment_confirmation_type', 'updateStatus'];
+$__bag = $errors->getBag($__errorArgs[1] ?? 'default');
+if ($__bag->has($__errorArgs[0])) :
+if (isset($message)) { $__messageOriginal = $message; }
+$message = $__bag->first($__errorArgs[0]); ?> <div class="invalid-feedback d-block"><?php echo e($message); ?></div> <?php unset($message);
+if (isset($__messageOriginal)) { $message = $__messageOriginal; }
+endif;
+unset($__errorArgs, $__bag); ?>
+                                </div>
+                                <input type="hidden" name="deposit_amount" id="modal_deposit_amount">
+
+                                <button type="submit" class="btn btn-success w-100">
+                                    <i class="fas fa-sync-alt fa-sm me-1"></i> تحديث الحالة
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <?php if($invoice = $booking->invoice): ?>
+                <div class="card shadow-sm mb-4 border-0">
+                    <div class="card-header bg-white py-3">
+                        <h6 class="m-0 fw-bold text-primary"><i class="fas fa-history me-2"></i>سجل دفعات الفاتورة #<?php echo e($invoice->invoice_number); ?></h6>
+                    </div>
+                    <div class="card-body">
+                        <?php $invoice->loadMissing('payments'); ?>
+                        <?php if($invoice->payments->isNotEmpty()): ?>
+                            <ul class="list-group list-group-flush payment-log-list">
+                                <?php $__currentLoopData = $invoice->payments->sortByDesc('created_at'); $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $payment): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                    <li class="list-group-item px-0 py-2">
+                                        <div class="d-flex w-100 justify-content-between">
+                                            <h6 class="mb-1 fw-bold small">
+                                                <?php if($payment->payment_gateway == 'tamara'): ?> <i class="fas fa-credit-card text-primary me-1"></i> تمارا
+                                                <?php elseif($payment->payment_gateway == 'bank_transfer'): ?> <i class="fas fa-university text-info me-1"></i> تحويل بنكي
+                                                <?php elseif($payment->payment_gateway == 'manual_admin_deposit'): ?> <i class="fas fa-hand-holding-usd text-warning me-1"></i> عربون يدوي
+                                                <?php elseif($payment->payment_gateway == 'manual_admin_full'): ?> <i class="fas fa-user-check text-success me-1"></i> تأكيد دفع كامل يدوي
+                                                <?php else: ?> <i class="fas fa-dollar-sign text-muted me-1"></i> <?php echo e($payment->payment_gateway_label ?? ($payment->payment_gateway ?: 'غير محدد')); ?>
+
+                                                <?php endif; ?>
+                                            </h6>
+                                            <span class="badge bg-success-soft text-success rounded-pill"><?php echo e(toArabicDigitsGlobalAdminShow(number_format($payment->amount, 2))); ?> <?php echo e($payment->currency); ?></span>
+                                        </div>
+                                        <small class="text-muted d-block">
+                                            <i class="far fa-clock"></i> <?php echo e(toArabicDigitsGlobalAdminShow($payment->created_at->translatedFormat('d M Y, H:i'))); ?>
+
+                                            <?php if($payment->transaction_id): ?> | <i class="fas fa-receipt"></i> <?php echo e(Str::limit($payment->transaction_id, 20)); ?> <?php endif; ?>
+                                            <?php if($payment->payment_details && (isset($payment->payment_details['confirmed_by_admin_id']) || isset($payment->payment_details['admin_name']))): ?>
+                                                | <i class="fas fa-user-edit"></i> 
+                                                بواسطة: <?php echo e($payment->payment_details['admin_name'] ?? (\App\Models\User::find($payment->payment_details['confirmed_by_admin_id'] ?? null)?->name ?? 'مدير')); ?>
+
+                                            <?php endif; ?>
+                                        </small>
+                                    </li>
+                                <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                            </ul>
+                        <?php else: ?>
+                            <p class="text-muted mb-0">لا توجد سجلات دفع لهذه الفاتورة.</p>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <div class="modal fade" id="depositAmountModal" tabindex="-1" aria-labelledby="depositAmountModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="depositAmountModalLabel">تسجيل مبلغ العربون</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="إغلاق"></button>
+                </div>
+                <div class="modal-body">
+                    <p>لتأكيد الحجز مع عربون، يرجى إدخال مبلغ العربون الذي تم استلامه:</p>
+                    <div class="mb-3">
+                        <label for="deposit_amount_input" class="form-label">مبلغ العربون المدفوع (<?php echo e($booking->invoice?->currency ?: 'SAR'); ?>)</label>
+                        <input type="text" inputmode="decimal" class="form-control" id="deposit_amount_input" required placeholder="أدخل مبلغ العربون">
+                        <div class="invalid-feedback" id="deposit_amount_error"></div>
+                    </div>
+                    <p class="text-muted small">سيتم تحديث حالة الحجز إلى "مؤكد" وحالة الفاتورة إلى "مدفوعة جزئياً" وإنشاء سجل دفع بهذا المبلغ.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+                    <button type="button" class="btn btn-primary" id="submitDepositModal">تأكيد العربون وتحديث الحالة</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<?php $__env->stopSection(); ?>
+
+<?php $__env->startPush('scripts'); ?>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const statusSelect = document.getElementById('status');
+    const paymentConfirmationDiv = document.getElementById('payment_confirmation_options');
+    const cancellationReasonSection = document.getElementById('cancellationReasonSection');
+    const cancellationReasonTextarea = document.getElementById('cancellation_reason');
+    
+    const depositModalElement = document.getElementById('depositAmountModal');
+    const depositModalInstance = (typeof bootstrap !== 'undefined' && depositModalElement) ? new bootstrap.Modal(depositModalElement) : null;
+    
+    const depositAmountInput = document.getElementById('deposit_amount_input');
+    const submitDepositModalBtn = document.getElementById('submitDepositModal');
+    const modalDepositAmountHiddenInput = document.getElementById('modal_deposit_amount');
+    const depositAmountError = document.getElementById('deposit_amount_error');
+    const updateStatusForm = document.getElementById('updateBookingStatusForm');
+
+    const cancellationStatusesRequiringReasonJS = <?php echo json_encode($booking->getCancellationStatusesRequiringReason(), 15, 512) ?>; // استخدام الدالة من الموديل مباشرة
+    const confirmedPaidStatusValueJS = '<?php echo e(\App\Models\Booking::STATUS_CONFIRMED_PAID); ?>';
+    const confirmedDepositStatusValueJS = '<?php echo e(\App\Models\Booking::STATUS_CONFIRMED_DEPOSIT); ?>';
+    const photographedAwaitingPaymentStatusValueJS = '<?php echo e(\App\Models\Booking::STATUS_PHOTOGRAPHED_AWAITING_PAYMENT); ?>';
+    const depositPaymentValueJS = 'deposit';
+    const fullPaymentValueJS = 'full';
+
+    function toArabicDigitsJSLocal(str) {
+        if (str === null || str === undefined) return '';
+        const western = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.'];
+        const eastern = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩', '٫'];
+        let numStr = String(str);
+        western.forEach((digit, index) => {
+            numStr = numStr.replace(new RegExp(digit.replace('.', '\\.'), "g"), eastern[index]);
+        });
+        return numStr;
+    }
+
+    function toggleCancellationReasonField() {
+        if (!statusSelect || !cancellationReasonSection || !cancellationReasonTextarea) return;
+        const selectedStatus = statusSelect.value;
+        if (cancellationStatusesRequiringReasonJS.includes(selectedStatus)) {
+            cancellationReasonSection.style.display = 'block';
+            cancellationReasonTextarea.setAttribute('required', 'required');
+        } else {
+            cancellationReasonSection.style.display = 'none';
+            cancellationReasonTextarea.removeAttribute('required');
+            // لا تمسح القيمة هنا إذا كان سبب الإلغاء موجودًا بالفعل للحجز، فقد يرغب المدير في تعديله
+            // cancellationReasonTextarea.value = ''; 
+        }
+    }
+
+    function togglePaymentConfirmationOptions() {
+        if (!statusSelect || !paymentConfirmationDiv) return;
+
+        const isConfirmedOrPhotographedSelection = [confirmedPaidStatusValueJS, confirmedDepositStatusValueJS, photographedAwaitingPaymentStatusValueJS].includes(selectedBookingStatus);
+        const paymentOptionsAvailablePHP = <?php echo e(!empty($paymentConfirmationOptions) ? 'true' : 'false'); ?>;
+        
+        const showOptions = isConfirmedOrPhotographedSelection && paymentOptionsAvailablePHP;
+        
+        paymentConfirmationDiv.style.display = showOptions ? 'block' : 'none';
+
+        if(showOptions) {
+            const currentInvoice = <?php echo json_encode($booking->invoice, 15, 512) ?>; // تأكد أن الفاتورة محملة
+            const isInvoicePartiallyPaidJS = currentInvoice && currentInvoice.status === '<?php echo e(\App\Models\Invoice::STATUS_PARTIALLY_PAID); ?>';
+            const invoiceAmountJS = currentInvoice ? parseFloat(currentInvoice.amount) : 0;
+            let remainingAmountJS = 0;
+            if (currentInvoice) {
+                let totalPaid = 0;
+                if (currentInvoice.payments && currentInvoice.payments.length > 0) {
+                    currentInvoice.payments.forEach(payment => {
+                        if (payment.status === '<?php echo e(\App\Models\Payment::STATUS_COMPLETED); ?>') {
+                            totalPaid += parseFloat(payment.amount);
+                        }
+                    });
+                }
+                remainingAmountJS = Math.max(0, invoiceAmountJS - totalPaid);
+            }
+
+            const currencyJS = currentInvoice?.currency || 'SAR';
+            const radios = paymentConfirmationDiv.querySelectorAll('input[name="payment_confirmation_type"]');
+            let firstVisibleRadioToSelect = null;
+            
+            radios.forEach(radio => {
+                const radioContainer = radio.closest('.form-check');
+                if(radioContainer) radioContainer.style.display = 'none'; 
+            });
+
+            <?php $__currentLoopData = $paymentConfirmationOptions; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $value => $label): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                const radio_<?php echo e($value); ?> = document.getElementById('confirm_<?php echo e($value); ?>');
+                if (radio_<?php echo e($value); ?>) {
+                    const container_<?php echo e($value); ?> = radio_<?php echo e($value); ?>.closest('.form-check');
+                    if (container_<?php echo e($value); ?>) {
+                        container_<?php echo e($value); ?>.style.display = 'block'; 
+                        if (!firstVisibleRadioToSelect) firstVisibleRadioToSelect = radio_<?php echo e($value); ?>;
+
+                        const labelElement_<?php echo e($value); ?> = container_<?php echo e($value); ?>.querySelector('label');
+                        if (labelElement_<?php echo e($value); ?>) {
+                            if ('<?php echo e($value); ?>' === fullPaymentValueJS) {
+                                if (isInvoicePartiallyPaidJS && remainingAmountJS > 0.009) {
+                                    labelElement_<?php echo e($value); ?>.textContent = `تأكيد استلام المبلغ المتبقي (${toArabicDigitsJSLocal(remainingAmountJS.toFixed(2))} ${currencyJS})`;
+                                } else if (!isInvoicePartiallyPaidJS && invoiceAmountJS > 0.009) {
+                                    labelElement_<?php echo e($value); ?>.textContent = `تأكيد استلام المبلغ الكامل (${toArabicDigitsJSLocal(invoiceAmountJS.toFixed(2))} ${currencyJS})`;
+                                } else {
+                                    labelElement_<?php echo e($value); ?>.textContent = '<?php echo e($label); ?>'; 
+                                    if (invoiceAmountJS <= 0.009) container_<?php echo e($value); ?>.style.display = 'none';
+                                }
+                            } else if ('<?php echo e($value); ?>' === depositPaymentValueJS) {
+                                 const downPaymentForBookingJS = parseFloat('<?php echo e($booking->down_payment_amount ?? ($booking->invoice ? round($booking->invoice->amount / 2, 2) : 0)); ?>');
+                                 if(downPaymentForBookingJS > 0.009 && !isInvoicePartiallyPaidJS){
+                                    labelElement_<?php echo e($value); ?>.textContent = `تأكيد استلام العربون فقط (${toArabicDigitsJSLocal(downPaymentForBookingJS.toFixed(2))} ${currencyJS})`;
+                                 } else {
+                                     container_<?php echo e($value); ?>.style.display = 'none';
+                                 }
+                            } else { // For 'none' option
+                                labelElement_<?php echo e($value); ?>.textContent = '<?php echo e($label); ?>'; 
+                            }
+                        }
+                    }
+                }
+            <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+            
+            // Default selection logic
+            const currentlySelectedRadio = paymentConfirmationDiv.querySelector('input[name="payment_confirmation_type"]:checked');
+            if (!currentlySelectedRadio || currentlySelectedRadio.closest('.form-check').style.display === 'none') {
+                if (firstVisibleRadioToSelect && firstVisibleRadioToSelect.closest('.form-check').style.display !== 'none') {
+                     firstVisibleRadioToSelect.checked = true;
+                } else {
+                    const visibleRadios = Array.from(radios).filter(r => r.closest('.form-check').style.display !== 'none');
+                    if (visibleRadios.length > 0) {
+                        visibleRadios[0].checked = true;
+                    }
+                }
+            }
+        }
+    }
+
+    if (statusSelect) {
+        togglePaymentConfirmationOptions();
+        statusSelect.addEventListener('change', togglePaymentConfirmationOptions);
+        toggleCancellationReasonField();
+        statusSelect.addEventListener('change', toggleCancellationReasonField);
+    }
+
+    if(updateStatusForm && statusSelect && depositModalElement) {
+        const depositModalBootstrapInstance = depositModalInstance; // Renamed to avoid conflict
+
+        updateStatusForm.addEventListener('submit', function (event) {
+            const selectedStatus = statusSelect.value;
+            const paymentOptionsDiv = document.getElementById('payment_confirmation_options');
+            let selectedPaymentTypeRadio = null;
+            let selectedPaymentType = null;
+
+            if (paymentOptionsDiv && paymentOptionsDiv.style.display === 'block') {
+                selectedPaymentTypeRadio = paymentOptionsDiv.querySelector('input[name="payment_confirmation_type"]:checked');
+                if (selectedPaymentTypeRadio) {
+                    selectedPaymentType = selectedPaymentTypeRadio.value;
+                }
+            }
+            
+            const depositRadioElement = document.getElementById('confirm_deposit');
+            const depositRadioContainer = depositRadioElement ? depositRadioElement.closest('.form-check') : null;
+            
+            const isConfirmedOrPhotographedSelectionForDeposit = [confirmedPaidStatusValueJS, confirmedDepositStatusValueJS, photographedAwaitingPaymentStatusValueJS].includes(selectedStatus);
+
+            if (isConfirmedOrPhotographedSelectionForDeposit && 
+                selectedPaymentType === depositPaymentValueJS && 
+                depositRadioContainer && 
+                depositRadioContainer.style.display !== 'none') {
+                
+                event.preventDefault(); 
+                
+                if(depositAmountInput && depositAmountError && depositModalBootstrapInstance) {
+                    depositAmountInput.classList.remove('is-invalid');
+                    if(depositAmountError) depositAmountError.textContent = '';
+                    depositAmountInput.value = ''; 
+                    
+                    const downPaymentForBooking = parseFloat('<?php echo e($booking->down_payment_amount ?? ($booking->invoice ? round($booking->invoice->amount / 2, 2) : 0)); ?>');
+                    depositAmountInput.placeholder = `مثلاً: ${downPaymentForBooking > 0 ? downPaymentForBooking.toFixed(2) : 'أدخل مبلغ العربون'}`;
+                    
+                    if(modalDepositAmountHiddenInput) modalDepositAmountHiddenInput.value = '';
+                    depositModalBootstrapInstance.show();
+                } else {
+                    console.error('Modal elements for deposit amount are not found or depositModalInstance is null!');
+                    alert('حدث خطأ في تهيئة نافذة إدخال العربون. يرجى تحديث الصفحة والمحاولة مرة أخرى.');
+                }
+            } else {
+                if(modalDepositAmountHiddenInput) modalDepositAmountHiddenInput.value = '';
+            }
+        });
+    }
+
+    if (submitDepositModalBtn && depositAmountInput && modalDepositAmountHiddenInput && depositAmountError && updateStatusForm) {
+        submitDepositModalBtn.addEventListener('click', function() {
+            let depositAmountStr = depositAmountInput.value.trim().replace(',', '.');
+            let depositAmount = parseFloat(depositAmountStr);
+            // Using remaining_amount from invoice if partially paid, else full invoice amount for validation upper bound
+            const invoiceForMax = <?php echo json_encode($booking->invoice, 15, 512) ?>;
+            let maxAmountForDeposit = 0;
+            if (invoiceForMax) {
+                 maxAmountForDeposit = (invoiceForMax.status === '<?php echo e(\App\Models\Invoice::STATUS_PARTIALLY_PAID); ?>') 
+                                     ? parseFloat(invoiceForMax.remaining_amount || 0)
+                                     : parseFloat(invoiceForMax.amount || 0);
+            }
+
+
+            if(depositAmountError) depositAmountError.textContent = '';
+            depositAmountInput.classList.remove('is-invalid');
+
+            if (isNaN(depositAmount) || depositAmount <= 0) {
+                depositAmountInput.classList.add('is-invalid');
+                if(depositAmountError) depositAmountError.textContent = 'الرجاء إدخال مبلغ صحيح للعربون (أكبر من صفر).';
+                return;
+            }
+            if (maxAmountForDeposit > 0 && depositAmount >= maxAmountForDeposit) {
+                depositAmountInput.classList.add('is-invalid');
+                if(depositAmountError) depositAmountError.textContent = 'مبلغ العربون لا يمكن أن يكون مساوياً أو أكبر من المبلغ الإجمالي المطلوب للفاتورة. اختر "تأكيد المبلغ الكامل" بدلاً من ذلك.';
+                return;
+            }
+
+            modalDepositAmountHiddenInput.value = depositAmount;
+            
+            submitDepositModalBtn.disabled = true;
+            submitDepositModalBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> جاري...';
+            
+            updateStatusForm.submit();
+        });
+    }
+    
+    if(depositModalElement && depositAmountInput && modalDepositAmountHiddenInput && depositAmountError){
+       depositModalElement.addEventListener('hidden.bs.modal', function () {
+           depositAmountInput.classList.remove('is-invalid');
+           if(depositAmountError) depositAmountError.textContent = '';
+           if(modalDepositAmountHiddenInput) modalDepositAmountHiddenInput.value = '';
+           if(submitDepositModalBtn) {
+               submitDepositModalBtn.disabled = false;
+               submitDepositModalBtn.innerHTML = 'تأكيد العربون وتحديث الحالة';
+           }
+       });
+    }
+});
+</script>
+<?php $__env->stopPush(); ?>
+
+<?php $__env->startPush('styles'); ?>
+<style>
+    .dl-row dt, .dl-row dd { margin-bottom: 0.6rem; font-size: 0.95em; }
+    .dl-row dt { font-weight: 600; color: #525f7f; }
+    .dl-row dt i.fa-fw { margin-left: 5px; color: #adb5bd; }
+    .list-group-flush .list-group-item { background-color: transparent; border: none; padding-left: 0; padding-right: 0; }
+    .payment-log-list i { width: 1.2em; text-align: center; margin-left: 3px; }
+    .payment-log-list small { font-size: 0.8em; }
+    .status-pill { font-size: 0.8rem; font-weight: 600; border-radius: 50rem; vertical-align: middle; }
+    .bg-success-soft { background-color: rgba(40, 167, 69, 0.1); } .text-success { color: #28a745 !important; }
+    .bg-warning-soft { background-color: rgba(255, 193, 7, 0.1); } .text-warning { color: #ffc107 !important; }
+    .bg-info-soft { background-color: rgba(23, 162, 184, 0.1); } .text-info { color: #17a2b8 !important; }
+    .bg-primary-soft { background-color: rgba(0, 123, 255, 0.1); } 
+    .bg-secondary-soft { background-color: rgba(108, 117, 125, 0.1); } .text-secondary { color: #6c757d !important; }
+    .bg-danger-soft { background-color: rgba(220, 53, 69, 0.1); } 
+</style>
+<?php $__env->stopPush(); ?>
+
+<?php echo $__env->make('layouts.admin', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?><?php /**PATH C:\Users\mustafa\.gemini\antigravity\scratch\static\the-fatimah-old\resources\views/admin/bookings/show.blade.php ENDPATH**/ ?>

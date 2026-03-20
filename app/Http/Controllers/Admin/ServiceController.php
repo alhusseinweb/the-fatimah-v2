@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Service;
 use App\Models\ServiceCategory;
+use App\Models\Booking;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
@@ -168,7 +169,7 @@ class ServiceController extends Controller
     {
         try {
             // يمكنك إضافة تحقق هنا إذا كانت الخدمة مرتبطة بحجوزات نشطة قبل الحذف
-            if ($service->bookings()->whereNotIn('status', [Booking::STATUS_COMPLETED, Booking::STATUS_CANCELLED_BY_ADMIN, Booking::STATUS_CANCELLED_BY_USER])->exists()) {
+            if ($service->bookings()->whereNotIn('status', [Booking::STATUS_COMPLETED_DELIVERED, Booking::STATUS_CANCELLED_BY_ADMIN, Booking::STATUS_CANCELLED_BY_USER])->exists()) {
                 return redirect()->route('admin.services.index')
                                  ->with('error', 'لا يمكن حذف الخدمة لأنها مرتبطة بحجوزات قائمة. يرجى إلغاء أو إكمال الحجوزات أولاً.');
             }

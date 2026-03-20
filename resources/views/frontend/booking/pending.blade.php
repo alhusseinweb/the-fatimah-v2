@@ -138,6 +138,12 @@
                         <div class="booking-section">
                             <h5 class="section-title"> ملخص الحجز </h5>
                             <dl>
+                                <dt>حالة الطلب:</dt>
+                                <dd>
+                                    <span class="status-badge {{ $booking->status_badge_class }}">
+                                        {{ $booking->status_label }}
+                                    </span>
+                                </dd>
                                 <dt>رقم الحجز:</dt> <dd>#{{ toArabicDigits($booking->id) }}</dd>
                                 <dt>الخدمة الأساسية:</dt> <dd>{{ $booking->service?->name_ar ?? $booking->service?->name_en ?? 'غير محدد' }}</dd>
                                 <dt>التاريخ والوقت:</dt> <dd>{{ $booking->booking_datetime ? toArabicDigits(\Carbon\Carbon::parse($booking->booking_datetime)->translatedFormat('l, d F Y - h:i A')) : 'غير محدد' }}</dd>
@@ -156,7 +162,7 @@
                                             @foreach($booking->addOnServices as $addOn)
                                                 <li>
                                                     <span class="add-on-name">{{ $addOn->getLocalizedNameAttribute() }}</span>
-                                                    <span class="add-on-price">{{ formatAmountConditionallyPending($addOn->pivot->price_at_booking) }} {{ $booking->invoice?->currency ?: 'SAR' }}</span>
+                                                    <span class="add-on-price">{{ formatAmountConditionallyPending($addOn->pivot->price_at_booking) }} SAR</span>
                                                 </li>
                                             @endforeach
                                         </ul>
@@ -165,7 +171,32 @@
                             </dl>
                         </div>
 
-                        @if ($invoice = $booking->invoice)
+                        {{-- إذا لم تُنشأ الفاتورة بعد (الحجز قيد المراجعة) --}}
+                        @if ($booking->status === \App\Models\Booking::STATUS_UNDER_REVIEW && !$booking->invoice)
+                            <div class="booking-section">
+                                <h5 class="section-title"><i class="fas fa-hourglass-half me-2"></i> طلب الحجز قيد المراجعة</h5>
+                                <div class="custom-alert alert-warning">
+                                    <i class="fas fa-clock fa-lg alert-icon"></i>
+                                    <div>
+                                        <strong>بإنتظار موافقة المدير</strong><br>
+                                        سيتم إنشاء الفاتورة وإعداد خيار الدفع بعد مراجعة طلبك والموافقة عليه. ستصلك رسالة تنبيه فور ذلك.
+                                    </div>
+                                </div>
+                                @if($booking->total_price > 0)
+                                <dl>
+                                    <dt>السعر التقديري:</dt>
+                                    <dd class="fw-bold">{{ formatAmountConditionallyPending($booking->total_price) }} SAR</dd>
+                                    <dt>خيار الدفع المطلوب:</dt>
+                                    <dd>
+                                        @if($booking->requested_payment_option === 'down_payment') دفع عربون (٥٠%)
+                                        @else دفع كامل
+                                        @endif
+                                    </dd>
+                                </dl>
+                                @endif
+                            </div>
+
+                        @elseif ($invoice = $booking->invoice)
                             <div class="booking-section">
                                 <h5 class="section-title"> تفاصيل الفاتورة </h5>
                                 <dl>
@@ -201,18 +232,25 @@
                                 </dl>
                             </div>
 
-                           <div class="booking-section">
+                            <div class="booking-section">
                                 <h5 class="section-title">
                                     @if($invoice->payment_method == 'bank_transfer')  الدفع بواسطة التحويل البنكي
                                     @elseif($invoice->payment_method == 'tamara')  الدفع بواسطة تمارا
+                                    @elseif($invoice->payment_method == 'paylink')  الدفع الإلكتروني (Paylink)
                                     @elseif($invoice->payment_method == 'manual_confirmation_due_to_no_gateway')  بانتظار التأكيد اليدوي
                                     @else  تفاصيل الدفع
                                     @endif
                                 </h5>
 
-                                @php 
-                                    $effectiveAmountDueNow = $amountDueNowOnPending ?? 0;
-                                @endphp
+                                @if($booking->status === \App\Models\Booking::STATUS_UNDER_REVIEW)
+                                    <div class="custom-alert alert-info">
+                                        <svg class="alert-icon" fill="currentColor" viewBox="0 0 16 16"><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
+                                        <div class="flex-grow-1">طلب حجزك قيد المراجعة حالياً من قبل الإدارة. سنقوم بتحديث الحالة وتوفير خيارات الدفع فور الموافقة على الطلب.</div>
+                                    </div>
+                                @else
+                                    @php 
+                                        $effectiveAmountDueNow = $amountDueNowOnPending ?? 0;
+                                    @endphp
 
                                 @if ($invoice->status == \App\Models\Invoice::STATUS_PAID)
                                     <div class="custom-alert alert-success">
@@ -297,11 +335,19 @@
                                         @else
                                             <div class="alert alert-warning mt-3 small">لم يتم إضافة حسابات بنكية بواسطة الإدارة بعد. سيتم التواصل معك لتزويدك بالبيانات.</div>
                                         @endif
+                                    @elseif($invoice->payment_method == 'paylink' && $effectiveAmountDueNow > 0.009)
+                                        @if($invoice->payment_url)
+                                            <div class="mt-3 text-center">
+                                                <a href="{{ $invoice->payment_url }}" class="btn-custom btn-pay" target="_blank"> ادفع الآن عبر Paylink</a>
+                                            </div>
+                                        @else
+                                            <p class="mt-3">بانتظار قيام الإدارة بتوليد رابط الدفع الخاص بك. سيتم إخطارك فور توفره.</p>
+                                        @endif
                                     @elseif($invoice->payment_method == 'manual_confirmation_due_to_no_gateway')
                                         <p class="mt-3">سيتم التواصل معك من قبل فريقنا لتأكيد الحجز وترتيب عملية الدفع. شكراً لتفهمك.</p>
                                     @endif
-                                @else
                                     <div class="custom-alert alert-secondary"> حالة الفاتورة: {{ $invoice->status_label ?? $invoice->status }} </div>
+                                @endif
                                 @endif
                            </div>
                         @else

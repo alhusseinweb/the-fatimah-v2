@@ -84,8 +84,9 @@ class BookingController extends Controller
          $settingsAll = Setting::pluck('value', 'key')->all();
          $isBankTransferEnabled = filter_var($settingsAll['enable_bank_transfer'] ?? false, FILTER_VALIDATE_BOOLEAN);
          $isTamaraEnabled = filter_var($settingsAll['tamara_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
+         $isPaylinkEnabled = filter_var($settingsAll['paylink_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
         
-         if (!$isBankTransferEnabled && !$isTamaraEnabled) {
+         if (!$isBankTransferEnabled && !$isTamaraEnabled && !$isPaylinkEnabled) {
             Log::warning("Booking form accessed but no payment methods are enabled. Service ID: {$service->id}");
          }
 
@@ -108,8 +109,9 @@ class BookingController extends Controller
              'bankAccounts' => $bankAccounts,
              'isBankTransferEnabled' => $isBankTransferEnabled,
              'isTamaraEnabled' => $isTamaraEnabled,
+             'isPaylinkEnabled' => $isPaylinkEnabled,
              'settingsHomepage' => $settingsAll,
-             'addOnServices' => $addOnServices, // تم تمريرها في رد سابق، وهو صحيح
+             'addOnServices' => $addOnServices,
          ]);
      }
 
@@ -119,10 +121,12 @@ class BookingController extends Controller
         $settingsAll = Setting::pluck('value', 'key')->all();
         $isBankTransferEnabled = filter_var($settingsAll['enable_bank_transfer'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $isTamaraEnabled = filter_var($settingsAll['tamara_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $isPaylinkEnabled = filter_var($settingsAll['paylink_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $outsideAhsaFeeFromSettings = (float)($settingsAll['outside_ahsa_fee'] ?? 300.00);
         
         $availablePaymentMethodsServer = [];
         if ($isTamaraEnabled) $availablePaymentMethodsServer[] = 'tamara';
+        if ($isPaylinkEnabled) $availablePaymentMethodsServer[] = 'paylink';
         if ($isBankTransferEnabled) $availablePaymentMethodsServer[] = 'bank_transfer';
         
         $noPaymentMethodEnabled = empty($availablePaymentMethodsServer);
@@ -317,14 +321,14 @@ class BookingController extends Controller
         $user = Auth::user();
         if (!$user) { return redirect()->route('login')->with('error', 'يرجى تسجيل الدخول أولاً.'); }
 
-        $booking = null; $invoice = null;
+        $booking = null;
 
-        DB::transaction(function () use ($validatedData, $bookingDateTime, $service, $discountCodeModel, $finalTotalAmount, $paymentOption, $user, &$booking, &$invoice, $amountDueNow, $isDiscountActuallyApplied, $currentOutsideLocationFeeApplied, $selectedAddOnServiceIds, $activeAddOnServicesWithPrices) {
+        DB::transaction(function () use ($validatedData, $bookingDateTime, $service, $discountCodeModel, $finalTotalAmount, $paymentOption, $user, &$booking, $amountDueNow, $isDiscountActuallyApplied, $currentOutsideLocationFeeApplied, $selectedAddOnServiceIds, $activeAddOnServicesWithPrices) {
             $bookingData = [
                 'user_id' => $user->id,
                 'service_id' => $service->id,
                 'booking_datetime' => $bookingDateTime,
-                'status' => Booking::STATUS_PENDING,
+                'status' => Booking::STATUS_UNDER_REVIEW,
                 'event_location' => $validatedData['event_location'],
                 'groom_name_ar' => $validatedData['groom_name_ar'] ?? null,
                 'groom_name_en' => $validatedData['groom_name_en'] ?? null,
@@ -337,20 +341,22 @@ class BookingController extends Controller
                 'shooting_area' => $validatedData['shooting_area_option'],
                 'outside_location_city' => ($validatedData['shooting_area_option'] === 'outside_ahsa') ? $validatedData['outside_ahs_city'] : null,
                 'outside_location_fee_applied' => ($currentOutsideLocationFeeApplied > 0) ? $currentOutsideLocationFeeApplied : null,
+                // حفظ معلومات السعر والدفع على الحجز – لن تُنشأ الفاتورة إلا عند موافقة المدير
+                'total_price' => $finalTotalAmount,
+                'requested_payment_option' => $paymentOption,
+                'requested_payment_method' => $validatedData['payment_method'],
             ];
             Log::debug('Data for Booking::create():', $bookingData);
             $booking = Booking::create($bookingData);
 
             if (!$booking || !$booking->id) {
-                Log::error('CRITICAL: Failed to create booking or booking ID is null right before invoice creation.');
-                throw new \Exception('فشل إنشاء سجل الحجز بشكل صحيح، لا يمكن إنشاء الفاتورة.');
+                Log::error('CRITICAL: Failed to create booking.');
+                throw new \Exception('فشل إنشاء سجل الحجز.');
             }
-            Log::debug('Booking created successfully:', ['booking_id' => $booking->id]);
+            Log::debug('Booking created successfully (no invoice yet):', ['booking_id' => $booking->id]);
 
             if (!empty($selectedAddOnServiceIds) && !empty($activeAddOnServicesWithPrices)) {
                 $addOnsToSync = [];
-                // تأكد من أن selectedAddOnServiceIds هي بالفعل مصفوفة من IDs
-                // وأن activeAddOnServicesWithPrices هي مصفوفة من id => price
                 foreach ($selectedAddOnServiceIds as $addOnId) {
                     if (isset($activeAddOnServicesWithPrices[(int)$addOnId])) {
                         $addOnsToSync[(int)$addOnId] = ['price_at_booking' => $activeAddOnServicesWithPrices[(int)$addOnId]];
@@ -362,81 +368,35 @@ class BookingController extends Controller
                 }
             }
 
-            $invoiceStatus = ($validatedData['payment_method'] === 'manual_confirmation_due_to_no_gateway')
-                           ? Invoice::STATUS_PENDING_CONFIRMATION
-                           : Invoice::STATUS_UNPAID;
-
-            $invoiceData = [
-                'booking_id' => $booking->id,
-                'invoice_number' => Invoice::generateUniqueInvoiceNumber(),
-                'amount' => $finalTotalAmount,
-                'currency' => 'SAR',
-                'status' => $invoiceStatus,
-                'payment_method' => $validatedData['payment_method'],
-                'payment_option' => $paymentOption,
-                'due_date' => Carbon::today(),
-            ];
-            Log::debug('Data for Invoice::create():', $invoiceData);
-            $invoice = Invoice::create($invoiceData);
-            
-            if (!$invoice || !$invoice->id) {
-                Log::error('CRITICAL: Failed to create invoice or invoice ID is null.');
-                throw new \Exception('فشل إنشاء سجل الفاتورة بشكل صحيح.');
-            }
-            Log::debug('Invoice created successfully:', ['invoice_id' => $invoice->id]);
-
-            $booking->invoice_id = $invoice->id;
-            $booking->save();
-
+            // زيادة عداد استخدام كود الخصم عند إنشاء الحجز (بغض النظر عن الموافقة)
             if ($isDiscountActuallyApplied && $discountCodeModel) {
                  $discountCodeModel->increment('current_uses');
             }
-            Log::info("Booking and Invoice created successfully in transaction.", ['booking_id' => $booking->id, 'invoice_id' => $invoice->id, 'invoice_status' => $invoice->status]);
+
+            Log::info("Booking created successfully (awaiting admin review). No invoice created yet.", ['booking_id' => $booking->id]);
         });
         
-        if (!$booking || !$invoice) {
-            Log::error('Booking or Invoice object is null after transaction. Redirecting back with error.', ['booking_exists' => !is_null($booking), 'invoice_exists' => !is_null($invoice)]);
+        if (!$booking) {
+            Log::error('Booking object is null after transaction.', []);
             return back()->withInput()->with('error', 'حدث خطأ جسيم أثناء إنشاء الحجز. الرجاء التواصل مع الدعم.');
         }
 
-        if ($booking && $user && $invoice) {
+        if ($booking && $user) {
             try {
-                $amountForNotification = $amountDueNow;
-                $user->notify(new BookingRequestReceived($booking, $invoice->payment_method, $amountForNotification, $invoice->payment_option));
+                $user->notify(new BookingRequestReceived($booking, $validatedData['payment_method'], $amountDueNow, $paymentOption));
                 Log::info("BookingRequestReceived notification queued for CUSTOMER for Booking ID: {$booking->id}");
                 
                 $admins = User::where('is_admin', true)->get();
                 foreach ($admins as $admin) {
-                    $admin->notify(new BookingRequestReceived($booking, $invoice->payment_method, $amountForNotification, $invoice->payment_option));
-                    Log::info("BookingRequestReceived notification queued for ADMIN {$admin->email} for Booking ID: {$booking->id}");
+                    $admin->notify(new BookingRequestReceived($booking, $validatedData['payment_method'], $amountDueNow, $paymentOption));
                 }
             } catch (\Exception $e) {
                  Log::error("Failed to queue BookingRequestReceived notifications for Booking ID: {$booking->id}", ['error' => $e->getMessage()]);
             }
         }
 
-        if ($validatedData['payment_method'] === 'bank_transfer' || $validatedData['payment_method'] === 'manual_confirmation_due_to_no_gateway') {
-             return redirect()->route('booking.pending', $booking->id);
-        }
-        elseif ($validatedData['payment_method'] === 'tamara') {
-             if (!$invoice || $amountDueNow < 0.01) {
-                Log::error("Tamara initiation skipped.", ['invoice_id' => $invoice?->id, 'amount_due_now' => $amountDueNow ?? 'Not set']);
-                return redirect()->route('booking.pending', $booking->id)->with('error', 'خطأ في تجهيز الدفع لتمارا.');
-             }
-             $checkoutResponse = $this->tamaraService->initiateCheckout($invoice, $amountDueNow, $paymentOption);
-             if ($checkoutResponse && isset($checkoutResponse['checkout_url']) && (isset($checkoutResponse['order_id']) || isset($checkoutResponse['checkout_id']))) {
-                  $gatewayRef = $checkoutResponse['checkout_id'] ?? $checkoutResponse['order_id']; 
-                  $invoice->payment_gateway_ref = $gatewayRef; 
-                  $invoice->save();
-                  Log::info("Tamara checkout URL obtained.", ['invoice_id' => $invoice->id, 'tamara_ref' => $gatewayRef]);
-                  return redirect()->away($checkoutResponse['checkout_url']);
-             } else {
-                  Log::error("Tamara initiateCheckout failed.", ['invoice_id' => $invoice->id, 'response' => $checkoutResponse]);
-                  return redirect()->route('booking.pending', $booking->id)->with('error', 'لم نتمكن من بدء الدفع مع تمارا.');
-             }
-        }
-        
-        return redirect()->route('booking.pending', $booking->id);
+        return redirect()->route('booking.pending', $booking->id)
+                         ->with('success', 'تم استلام طلب حجزك بنجاح وهو الآن تحت المراجعة. سنقوم بإبلاغك فور الموافقة عليه لتتمكن من إتمام عملية الدفع.');
     }
 
      public function showPendingPage(Booking $booking) : View|RedirectResponse
@@ -476,11 +436,12 @@ class BookingController extends Controller
          $settingsAll = Setting::pluck('value', 'key')->all();
          $isBankTransferEnabled = filter_var($settingsAll['enable_bank_transfer'] ?? false, FILTER_VALIDATE_BOOLEAN);
          $isTamaraEnabled = filter_var($settingsAll['tamara_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
+         $isPaylinkEnabled = filter_var($settingsAll['paylink_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
          return view('frontend.booking.pending', compact(
              'booking', 'bankAccounts', 'amountDueNowOnPending', 
              'paymentOptionOnPending', 'invoiceTotalAmount', 
-             'isBankTransferEnabled', 'isTamaraEnabled'
+             'isBankTransferEnabled', 'isTamaraEnabled', 'isPaylinkEnabled'
            ));
      }
 }

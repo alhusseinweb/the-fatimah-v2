@@ -57,70 +57,25 @@
                         <label for="sms_default_provider" class="form-label">مزود الخدمة للرسائل العامة <span class="text-danger">*</span></label>
                         <select name="sms_default_provider" id="sms_default_provider" class="form-select @error('sms_default_provider') is-invalid @enderror">
                             @foreach($availableProviders as $value => $label)
-                                <option value="{{ $value }}" {{ ($settingsData['sms_default_provider'] ?? 'httpsms') == $value ? 'selected' : '' }}>{{ $label }}</option>
+                                <option value="{{ $value }}" {{ ($settingsData['sms_default_provider'] ?? 'whatsapp') == $value ? 'selected' : '' }}>{{ $label }}</option>
                             @endforeach
                         </select>
                         @error('sms_default_provider') <div class="invalid-feedback">{{ $message }}</div> @enderror
-                        <small class="form-text text-muted">اختر مزود الخدمة الافتراضي لإرسال الإشعارات العامة (تأكيد الحجز، تحديثات الحالة، إلخ).</small>
+                        <small class="form-text text-muted">اختر مزود الخدمة الافتراضي لجميع الإشعارات.</small>
                     </div>
                     <div class="col-md-6 mb-3">
                         <label for="sms_otp_provider" class="form-label">مزود الخدمة لرسائل التحقق (OTP) <span class="text-danger">*</span></label>
                         <select name="sms_otp_provider" id="sms_otp_provider" class="form-select @error('sms_otp_provider') is-invalid @enderror">
                              @foreach($availableProviders as $value => $label)
-                                <option value="{{ $value }}" {{ ($settingsData['sms_otp_provider'] ?? 'httpsms') == $value ? 'selected' : '' }}>{{ $label }}</option>
+                                <option value="{{ $value }}" {{ ($settingsData['sms_otp_provider'] ?? 'whatsapp') == $value ? 'selected' : '' }}>{{ $label }}</option>
                             @endforeach
                         </select>
                         @error('sms_otp_provider') <div class="invalid-feedback">{{ $message }}</div> @enderror
-                        <small class="form-text text-muted">اختر مزود الخدمة لإرسال رموز التحقق الثنائي (OTP) عند تسجيل الدخول أو التسجيل.</small>
+                        <small class="form-text text-muted">اختر مزود الخدمة لإرسال رموز التحقق (OTP).</small>
                     </div>
                 </div>
             </div>
         </div>
-
-        {{-- HTTPSMS.com Settings --}}
-        <div class="card shadow-sm mb-4 provider-card" style="border-left-color: #0d6efd;">
-            <div class="card-header">
-                <h5 class="mb-0"><img src="{{ asset('images/httpsms_logo.png') }}" alt="HTTPSMS" style="height: 20px; margin-left: 5px; vertical-align: middle;"> إعدادات HTTPSMS.com</h5>
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <label for="httpsms_api_key" class="form-label">API Key</label>
-                    <input type="text" class="form-control @error('httpsms_api_key') is-invalid @enderror" id="httpsms_api_key" name="httpsms_api_key" value="{{ old('httpsms_api_key', $settingsData['httpsms_api_key'] ?? '') }}">
-                    @error('httpsms_api_key') <div class="invalid-feedback">{{ $message }}</div> @enderror
-                </div>
-                <div class="mb-3">
-                    <label for="httpsms_sender_phone" class="form-label">رقم هاتف المرسل (Sender Phone)</label>
-                    <input type="text" class="form-control @error('httpsms_sender_phone') is-invalid @enderror" id="httpsms_sender_phone" name="httpsms_sender_phone" value="{{ old('httpsms_sender_phone', $settingsData['httpsms_sender_phone'] ?? '') }}" placeholder="مثال: +9665XXXXXXXX أو المعرف الخاص بك">
-                    @error('httpsms_sender_phone') <div class="invalid-feedback">{{ $message }}</div> @enderror
-                </div>
-            </div>
-        </div>
-
-        {{-- SMS Gateway App (Android) Settings --}}
-        <div class="card shadow-sm mb-4 provider-card" style="border-left-color: #198754;">
-            <div class="card-header">
-                 <h5 class="mb-0"><img src="{{ asset('images/android_logo.png') }}" alt="Android" style="height: 20px; margin-left: 5px; vertical-align: middle;"> إعدادات SMS Gateway App (Android)</h5>
-            </div>
-            <div class="card-body">
-                <p class="text-muted small">هذه الإعدادات مخصصة إذا كنت تستخدم تطبيق بوابة رسائل على هاتف أندرويد. قد تختلف الحقول المطلوبة بناءً على التطبيق المستخدم.</p>
-                <div class="mb-3">
-                    <label for="smsgateway_server_url" class="form-label">رابط خادم التطبيق (Server URL)</label>
-                    <input type="url" class="form-control @error('smsgateway_server_url') is-invalid @enderror" id="smsgateway_server_url" name="smsgateway_server_url" value="{{ old('smsgateway_server_url', $settingsData['smsgateway_server_url'] ?? '') }}" placeholder="مثال: http://192.168.1.100:9090/sendsms">
-                    @error('smsgateway_server_url') <div class="invalid-feedback">{{ $message }}</div> @enderror
-                </div>
-                <div class="mb-3">
-                    <label for="smsgateway_device_id" class="form-label">معرف الجهاز (Device ID) (إذا لزم الأمر)</label>
-                    <input type="text" class="form-control @error('smsgateway_device_id') is-invalid @enderror" id="smsgateway_device_id" name="smsgateway_device_id" value="{{ old('smsgateway_device_id', $settingsData['smsgateway_device_id'] ?? '') }}">
-                    @error('smsgateway_device_id') <div class="invalid-feedback">{{ $message }}</div> @enderror
-                </div>
-                <div class="mb-3">
-                    <label for="smsgateway_api_token" class="form-label">رمز API أو كلمة المرور (إذا لزم الأمر)</label>
-                    <input type="password" class="form-control @error('smsgateway_api_token') is-invalid @enderror" id="smsgateway_api_token" name="smsgateway_api_token" value="{{ old('smsgateway_api_token', $settingsData['smsgateway_api_token'] ?? '') }}">
-                    @error('smsgateway_api_token') <div class="invalid-feedback">{{ $message }}</div> @enderror
-                </div>
-            </div>
-        </div>
-
         {{-- Twilio Settings --}}
         <div class="card shadow-sm mb-4 provider-card" style="border-left-color: #dc3545;">
             <div class="card-header">
@@ -145,6 +100,34 @@
                     <small class="form-text text-muted">هذا هو "Service SID" من خدمة Twilio Verify، وليس رقم الهاتف المرسل.</small>
                 </div>
                 {{-- --- MODIFICATION END --- --}}
+            </div>
+        </div>
+
+        {{-- WhatsApp / Green API Settings --}}
+        <div class="card shadow-sm mb-4 provider-card" style="border-left-color: #25D366;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fab fa-whatsapp me-1 text-success"></i> إعدادات WhatsApp (Green API)
+                </h5>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="whatsapp_enabled" name="whatsapp_enabled" value="1" {{ ($settingsData['whatsapp_enabled'] ?? '0') == '1' ? 'checked' : '' }}>
+                    <label class="form-check-label" for="whatsapp_enabled">تفعيل الواتساب</label>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="whatsapp_green_api_id_instance" class="form-label">ID Instance</label>
+                    <input type="text" class="form-control @error('whatsapp_green_api_id_instance') is-invalid @enderror" id="whatsapp_green_api_id_instance" name="whatsapp_green_api_id_instance" value="{{ old('whatsapp_green_api_id_instance', $settingsData['whatsapp_green_api_id_instance'] ?? '') }}" placeholder="مثال: 1101XXXXXX">
+                    @error('whatsapp_green_api_id_instance') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                </div>
+                <div class="mb-3">
+                    <label for="whatsapp_green_api_api_token_instance" class="form-label">API Token Instance</label>
+                    <input type="password" class="form-control @error('whatsapp_green_api_api_token_instance') is-invalid @enderror" id="whatsapp_green_api_api_token_instance" name="whatsapp_green_api_api_token_instance" value="{{ old('whatsapp_green_api_api_token_instance', $settingsData['whatsapp_green_api_api_token_instance'] ?? '') }}">
+                    @error('whatsapp_green_api_api_token_instance') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                </div>
+                <div class="alert alert-info border-0 shadow-none mb-0">
+                    <p class="mb-0 small"><i class="fas fa-info-circle me-1"></i> يتم استخدام Green API لإرسال التنبيهات عبر الواتساب بدلاً من الرسائل النصية التقليدية في حال تفعيل الخيار أعلاه.</p>
+                </div>
             </div>
         </div>
 
